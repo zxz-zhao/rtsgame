@@ -33,21 +33,24 @@ public class BuildAll
         try { PrefabBuilder.BuildAllPrefabs(); }
         catch (System.Exception e) { Debug.LogError("生成Prefab失败: " + e.Message); }
 
-        EditorUtility.DisplayProgressBar("星火RTS 自动构建", "步骤1/4：生成游戏场景（小地图+环境）...", 0.05f);
-        try { SceneBuilder.BuildGameScene(); }
-        catch (System.Exception e) { Debug.LogError("生成游戏场景失败: " + e.Message); }
+        // [手动场景保护] BuildGameScene 已禁用，避免覆盖手工调整的 GameScene
+        // EditorUtility.DisplayProgressBar("星火RTS 自动构建", "步骤1/4：生成游戏场景（小地图+环境）...", 0.05f);
+        // try { SceneBuilder.BuildGameScene(); }
+        // catch (System.Exception e) { Debug.LogError("生成游戏场景失败: " + e.Message); }
 
-        EditorUtility.DisplayProgressBar("星火RTS 自动构建", "步骤2/4：生成大厅场景...", 0.3f);
-        try { LobbySceneBuilder.BuildLobbyScene(); }
-        catch (System.Exception e) { Debug.LogError("生成大厅场景失败: " + e.Message); }
+        // [手动场景保护] BuildLobbyScene 已禁用，避免覆盖手工调整的 LobbyScene
+        // EditorUtility.DisplayProgressBar("星火RTS 自动构建", "步骤2/4：生成大厅场景...", 0.3f);
+        // try { LobbySceneBuilder.BuildLobbyScene(); }
+        // catch (System.Exception e) { Debug.LogError("生成大厅场景失败: " + e.Message); }
 
-        EditorUtility.DisplayProgressBar("星火RTS 自动构建", "步骤3/4：重建登录场景UI...", 0.50f);
-        try { SceneBuilder.BuildLoginScene(); }
-        catch (System.Exception e) { Debug.LogError("重建登录场景失败: " + e.Message); }
+        // [手动场景保护] BuildLoginScene 已禁用，避免覆盖手工调整的 LoginScene
+        // EditorUtility.DisplayProgressBar("星火RTS 自动构建", "步骤3/4：重建登录场景UI...", 0.50f);
+        // try { SceneBuilder.BuildLoginScene(); }
+        // catch (System.Exception e) { Debug.LogError("重建登录场景失败: " + e.Message); }
 
-        EditorUtility.DisplayProgressBar("星火RTS 自动构建", "步骤3b/4：修复登录场景绑定...", 0.58f);
-        try { FixLoginScene.Fix(); }
-        catch (System.Exception e) { Debug.LogError("修复登录场景失败: " + e.Message); }
+        // EditorUtility.DisplayProgressBar("星火RTS 自动构建", "步骤3b/4：修复登录场景绑定...", 0.58f);
+        // try { FixLoginScene.Fix(); }
+        // catch (System.Exception e) { Debug.LogError("修复登录场景失败: " + e.Message); }
 
         EditorUtility.DisplayProgressBar("星火RTS 自动构建", "自动测试：检查战场、大厅、模型资源...", 0.68f);
         AutomatedProjectTest.RunSmokeTest(true);
