@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>UnityRTS 战场 HUD 预览</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+    background: #1a1a1a;
+    color: #fff;
+}
+.frame {
+    width: 1280px;
+    height: 720px;
+    margin: 20px auto;
+    position: relative;
+    background:
+      linear-gradient(135deg, #2a3318 0%, #4a5a30 50%, #2a3318 100%);
+    border: 2px solid #c19c2e;
+    overflow: hidden;
+}
+/* 模拟战场地形 */
+.battlefield {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 30% 50%, rgba(50, 80, 30, 0.5) 0%, transparent 60%),
+      radial-gradient(ellipse at 70% 50%, rgba(80, 50, 30, 0.5) 0%, transparent 60%),
+      linear-gradient(180deg, #3a4d22, #2a3618);
+}
+.unit {
+    position: absolute;
+    width: 18px; height: 18px;
+    border-radius: 4px;
+}
+.player { background: #5a8030; box-shadow: 0 0 8px #4a7020; }
+.enemy { background: #8b6225; box-shadow: 0 0 8px #6b4220; }
+.mainbase { width: 56px; height: 56px; border-radius: 6px; }
+
+/* 顶部 HUD */
+.topbar {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 64px;
+    background: rgba(8, 12, 6, 0.55);
+    border-bottom: 2px solid #c19c2e;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    z-index: 10;
+}
+.gold-block, .power-block {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 18px; font-weight: bold; color: #ffd566;
+}
+.icon {
+    width: 28px; height: 28px;
+    background: rgba(40, 56, 28, 0.85);
+    border: 1.5px solid #c19c2e;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+}
+.icon.gold { color: #ffe066; }
+.icon.power { color: #88ff88; }
+.power-block { margin-left: 24px; }
+
+/* 中央指挥官 */
+.commander {
+    position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+    z-index: 11;
+}
+.avatar {
+    width: 48px; height: 48px; border-radius: 8px;
+    background: linear-gradient(135deg, #4a5a30, #2a3318);
+    border: 2px solid #c19c2e;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; color: #ffd566;
+}
+.com-info {
+    display: flex; flex-direction: column;
+    color: #ffd566; font-weight: bold;
+}
+.com-info .name { font-size: 14px; }
+.com-info .rank { font-size: 13px; color: #d8c894; }
+.basebar {
+    position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+    width: 180px; height: 14px;
+    background: #000; border: 1.5px solid #c19c2e;
+    z-index: 12;
+}
+.basebar .fill {
+    position: absolute; left: 2px; top: 2px; right: 30%;
+    bottom: 2px;
+    background: linear-gradient(90deg, #d8a020, #50d048);
+}
+.basebar .txt {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: bold; color: #fff;
+    text-shadow: 1px 1px 0 #000;
+}
+
+/* 右侧顶栏数据 */
+.right-stats {
+    position: absolute; top: 0; right: 16px; height: 64px;
+    display: flex; align-items: center; gap: 18px;
+    color: #ffd566; font-weight: bold; font-size: 16px;
+    z-index: 10;
+}
+.right-stats .item {
+    display: flex; flex-direction: column;
+    text-align: right;
+}
+.right-stats .label { font-size: 11px; color: #a8a070; font-weight: normal; }
+
+/* 计时器中央 */
+.timer {
+    position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+    margin-top: 0;
+    font-size: 12px; color: #d8c894;
+    z-index: 11;
+}
+
+/* 左侧建造按钮垂直栏 */
+.build-toggle {
+    position: absolute; top: 76px; left: 12px;
+    width: 110px; height: 44px;
+    background: rgba(50, 76, 36, 0.96);
+    border: 2px solid #c19c2e;
+    color: #ffd566; font-weight: bold; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10;
+}
+.build-list {
+    position: absolute; top: 130px; left: 12px;
+    width: 110px;
+    background: rgba(20, 25, 15, 0.96);
+    border: 2px solid #c19c2e;
+    padding: 8px 6px;
+    z-index: 10;
+}
+.build-btn {
+    width: 96px; height: 64px;
+    background: rgba(46, 56, 33, 0.96);
+    border: 2px solid #c19c2e;
+    color: #ffd566;
+    margin-bottom: 8px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-size: 13px; font-weight: bold;
+}
+.build-btn .price { font-size: 11px; color: #d8c894; margin-top: 2px; }
+.build-btn.disabled { opacity: 0.5; }
+.build-btn.disabled .price { color: #ff6644; }
+
+/* 右上小地图 */
+.minimap {
+    position: absolute; top: 76px; right: 12px;
+    width: 180px; height: 180px;
+    background: #1f2810;
+    border: 2px solid #c19c2e;
+    z-index: 10;
+    overflow: hidden;
+}
+.minimap .title {
+    position: absolute; top: 0; left: 0; right: 0; height: 22px;
+    background: rgba(25, 30, 18, 0.92);
+    border-bottom: 1.5px solid #c19c2e;
+    display: flex; align-items: center; justify-content: center;
+    color: #ffd566; font-size: 13px; font-weight: bold;
+}
+.minimap-content {
+    position: absolute; top: 22px; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(135deg, #3a4d22, #2a3618);
+}
+.dot {
+    position: absolute; width: 6px; height: 6px; border-radius: 50%;
+}
+.dot.p { background: #4ba0ff; box-shadow: 0 0 4px #4ba0ff; }
+.dot.e { background: #ff8030; box-shadow: 0 0 4px #ff8030; }
+.dot.b { width: 14px; height: 14px; }
+
+/* 右下会话面板 */
+.chat {
+    position: absolute; right: 12px; bottom: 80px;
+    width: 220px; height: 180px;
+    background: rgba(8, 12, 6, 0.40);
+    border: 2px solid #c19c2e;
+    z-index: 10;
+}
+.chat .header {
+    height: 22px;
+    background: rgba(25, 30, 18, 0.85);
+    display: flex; align-items: center; justify-content: center;
+    color: #ffd566; font-size: 13px; font-weight: bold;
+}
+.chat .body {
+    padding: 8px;
+    font-size: 12px; color: #d8c894;
+    line-height: 1.6;
+}
+.chat .body p { margin-bottom: 4px; }
+.chat .you { color: #88ff88; }
+.chat .ally { color: #ffd566; }
+
+/* 底部路线栏 */
+.routebar {
+    position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+    width: 560px; height: 56px;
+    background: rgba(8, 12, 6, 0.55);
+    border: 2px solid #c19c2e;
+    display: flex; align-items: center; justify-content: space-around;
+    padding: 0 8px;
+    z-index: 10;
+}
+.route-btn {
+    width: 102px; height: 40px;
+    background: rgba(46, 56, 33, 0.85);
+    border: 1.5px solid #c19c2e;
+    color: #ffd566; font-size: 14px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+}
+
+/* 临时单位 + 命中特效 */
+.spark {
+    position: absolute; width: 24px; height: 24px;
+    background: radial-gradient(circle, #ff8830 0%, #ff5810 50%, transparent 70%);
+}
+.combo {
+    position: absolute; top: 30%; left: 50%; transform: translateX(-50%);
+    font-size: 56px; font-weight: bold; color: #ffaa20;
+    text-shadow: 3px 3px 0 #000, 0 0 12px #ffaa20;
+}
+.killfeed {
+    position: absolute; top: 220px; right: 12px;
+    z-index: 9;
+}
+.killfeed .item {
+    background: rgba(15, 15, 15, 0.65);
+    color: #ffd566;
+    padding: 4px 10px;
+    margin-top: 4px;
+    font-size: 14px; font-weight: bold;
+    width: 220px;
+}
+
+.hint {
+    text-align: center;
+    font-size: 14px;
+    color: #888;
+    margin-bottom: 20px;
+}
+</style>
+</head>
+<body>
+
+<div class="hint">UnityRTS 战场 HUD 预览（mockup，纯 HTML/CSS 模拟实际 Unity UI 效果）</div>
+
+<div class="frame">
+    <div class="battlefield">
+        <!-- 模拟战场单位/建筑 -->
+        <div class="unit mainbase player" style="left: 200px; top: 280px;"></div>
+        <div class="unit mainbase enemy" style="left: 980px; top: 280px;"></div>
+        <div class="unit player" style="left: 280px; top: 240px;"></div>
+        <div class="unit player" style="left: 320px; top: 280px;"></div>
+        <div class="unit player" style="left: 360px; top: 320px;"></div>
+        <div class="unit player" style="left: 280px; top: 360px;"></div>
+        <div class="unit enemy" style="left: 920px; top: 240px;"></div>
+        <div class="unit enemy" style="left: 880px; top: 280px;"></div>
+        <div class="unit enemy" style="left: 840px; top: 320px;"></div>
+        <!-- 战场中央交火点 -->
+        <div class="spark" style="left: 600px; top: 300px;"></div>
+        <div class="spark" style="left: 620px; top: 280px; opacity: 0.7;"></div>
+    </div>
+
+    <!-- 顶栏 -->
+    <div class="topbar">
+        <div class="gold-block">
+            <div class="icon gold">$</div>
+            <span>1,500</span>
+            <span style="font-size:13px; color:#a8a070; font-weight:normal;">+36/s</span>
+        </div>
+        <div class="power-block">
+            <div class="icon power">⚡</div>
+            <span>115/50</span>
+        </div>
+    </div>
+    <div class="timer">00:42</div>
+    <div class="commander">
+        <div class="avatar">★</div>
+        <div class="com-info">
+            <span class="name">指挥官</span>
+            <span class="rank">少校</span>
+        </div>
+    </div>
+    <div class="basebar">
+        <div class="fill"></div>
+        <div class="txt">基地 2100/3000</div>
+    </div>
+    <div class="right-stats">
+        <div class="item"><span class="label">人口</span><span>12/80</span></div>
+        <div class="item"><span class="label">击杀</span><span>5</span></div>
+    </div>
+
+    <!-- 左侧建造 -->
+    <div class="build-toggle">🔨 建造</div>
+    <div class="build-list">
+        <div class="build-btn">兵营<div class="price">$ 200</div></div>
+        <div class="build-btn">飞机厂<div class="price">$ 400</div></div>
+        <div class="build-btn">坦克厂<div class="price">$ 350</div></div>
+        <div class="build-btn">防御塔<div class="price">$ 150</div></div>
+        <div class="build-btn">金矿<div class="price">$ 250</div></div>
+        <div class="build-btn disabled">电厂<div class="price">$ 1500</div></div>
+    </div>
+
+    <!-- 右上小地图 -->
+    <div class="minimap">
+        <div class="title">战场地图</div>
+        <div class="minimap-content">
+            <div class="dot p b" style="left: 18%; top: 55%;"></div>
+            <div class="dot e b" style="left: 78%; top: 30%;"></div>
+            <div class="dot p" style="left: 25%; top: 40%;"></div>
+            <div class="dot p" style="left: 30%; top: 50%;"></div>
+            <div class="dot p" style="left: 28%; top: 58%;"></div>
+            <div class="dot e" style="left: 70%; top: 35%;"></div>
+            <div class="dot e" style="left: 65%; top: 45%;"></div>
+            <div style="position:absolute; left:35%; top:40%; width:60px; height:42px; border:2px solid #fff; opacity:0.6;"></div>
+        </div>
+    </div>
+
+    <!-- 击杀 feed -->
+    <div class="killfeed">
+        <div class="item">⚔ 击杀 步兵</div>
+        <div class="item">⚔ 击杀 坦克</div>
+    </div>
+
+    <!-- 右下会话 -->
+    <div class="chat">
+        <div class="header">战地通讯</div>
+        <div class="body">
+            <p class="ally">[盟军] 北线告急！请求增援</p>
+            <p class="you">[你] 收到，正派遣坦克支援</p>
+            <p class="ally">[盟军] 敌方有飞机出动</p>
+        </div>
+    </div>
+
+    <!-- 底部路线 -->
+    <div class="routebar">
+        <div class="route-btn">全员集结</div>
+        <div class="route-btn">主路推进</div>
+        <div class="route-btn">侧翼包抄</div>
+        <div class="route-btn">防御阵地</div>
+        <div class="route-btn">后撤集合</div>
+    </div>
+
+    <!-- 连击文字 -->
+    <div class="combo">5 连击!</div>
+</div>
+
+<div style="text-align:center; max-width:1280px; margin:20px auto; color:#aaa; font-size:13px; line-height:1.6;">
+    <p><b style="color:#ffd566;">布局说明：</b></p>
+    <p>顶部：金币图标+数字 / 电力图标+数字 / 中央头像+官职 / 基地血量条 / 右侧人口+击杀</p>
+    <p>左侧：建造菜单切换+垂直按钮列（含价格、不够钱变红）</p>
+    <p>右上：小地图（金边+战场地图标题+视野白框）</p>
+    <p>右下：战地通讯（聊天/盟友消息）</p>
+    <p>底部中央：路线快捷栏（5 个预设指令）</p>
+    <p>战场全屏可见，所有 UI 半透明 + 金色描边军用风</p>
+</div>
+
+</body>
+</html>

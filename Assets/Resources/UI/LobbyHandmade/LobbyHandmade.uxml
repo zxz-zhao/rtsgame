@@ -1,0 +1,328 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <ui:VisualElement name="lobby-artboard" class="lobby-artboard">
+        <ui:VisualElement name="lobby-background" class="lobby-background" />
+        <ui:VisualElement name="visual-layer" class="visual-layer">
+            <ui:VisualElement name="top-rail" class="top-rail" />
+            <ui:VisualElement name="gold-slot" class="top-slot gold-slot" />
+            <ui:VisualElement name="gem-slot" class="top-slot gem-slot" />
+            <ui:VisualElement name="profile-slot" class="profile-slot" />
+            <ui:VisualElement name="settings-icon" class="static-art settings-icon" />
+            <ui:VisualElement name="notify-icon" class="static-art notify-icon" />
+            <ui:VisualElement name="gold-icon" class="static-art gold-icon" />
+            <ui:VisualElement name="gem-icon" class="static-art gem-icon" />
+            <ui:VisualElement name="gold-plus-icon" class="static-art gold-plus-icon" />
+            <ui:VisualElement name="gem-plus-icon" class="static-art gem-plus-icon" />
+            <ui:VisualElement name="portrait-ring" class="portrait-ring" />
+            <ui:VisualElement name="friend-panel-art" class="static-art friend-panel-art" />
+            <ui:VisualElement name="task-panel-art" class="static-art task-panel-art" />
+            <ui:VisualElement name="tech-panel-art" class="static-art tech-panel-art" />
+            <ui:VisualElement name="mode-match-art" class="static-art mode-match-art" />
+            <ui:VisualElement name="mode-custom-art" class="static-art mode-custom-art" />
+            <ui:VisualElement name="mode-global-art" class="static-art mode-global-art" />
+            <ui:VisualElement name="nav-shop-art" class="static-art nav-shop-art" />
+            <ui:VisualElement name="nav-warehouse-art" class="static-art nav-warehouse-art" />
+            <ui:VisualElement name="nav-campaign-art" class="static-art nav-campaign-art" />
+            <ui:VisualElement name="nav-rank-art" class="static-art nav-rank-art" />
+            <ui:VisualElement name="nav-mail-art" class="static-art nav-mail-art" />
+        </ui:VisualElement>
+        <ui:VisualElement name="dynamic-layer" class="dynamic-layer">
+            <ui:Label name="economy-gold-caption" class="dynamic-text economy-caption economy-gold-caption" text="&#x91D1;&#x5E01;" />
+            <ui:Label name="economy-gold-shadow" class="dynamic-text economy-shadow economy-gold" text="0" />
+            <ui:Label name="economy-gold" class="dynamic-text economy-text economy-gold" text="0" />
+            <ui:Label name="economy-gem-caption" class="dynamic-text economy-caption economy-gem-caption" text="&#x6676;&#x77F3;" />
+            <ui:Label name="economy-gem-shadow" class="dynamic-text economy-shadow economy-gem" text="0" />
+            <ui:Label name="economy-gem" class="dynamic-text economy-text economy-gem" text="0" />
+            <ui:Image name="player-avatar" class="player-avatar" />
+            <ui:Label name="player-level" class="dynamic-text player-level" text="1" />
+            <ui:Label name="player-name" class="dynamic-text player-name" text="Commander" />
+            <ui:Image name="player-rank-icon" class="player-rank-icon" />
+            <ui:Label name="player-rank" class="dynamic-text player-rank" text="Rank" />
+            <ui:Label name="friend-name-0" class="dynamic-text friend-name friend-name-0" text="" />
+            <ui:Label name="friend-meta-0" class="dynamic-text friend-meta friend-meta-0" text="" />
+            <ui:Label name="friend-status-0" class="dynamic-text friend-status friend-status-0" text="" />
+            <ui:Label name="friend-level-0" class="dynamic-text friend-level friend-level-0" text="" />
+            <ui:Label name="friend-name-1" class="dynamic-text friend-name friend-name-1" text="" />
+            <ui:Label name="friend-meta-1" class="dynamic-text friend-meta friend-meta-1" text="" />
+            <ui:Label name="friend-status-1" class="dynamic-text friend-status friend-status-1" text="" />
+            <ui:Label name="friend-level-1" class="dynamic-text friend-level friend-level-1" text="" />
+            <ui:Label name="friend-name-2" class="dynamic-text friend-name friend-name-2" text="" />
+            <ui:Label name="friend-meta-2" class="dynamic-text friend-meta friend-meta-2" text="" />
+            <ui:Label name="friend-status-2" class="dynamic-text friend-status friend-status-2" text="" />
+            <ui:Label name="friend-level-2" class="dynamic-text friend-level friend-level-2" text="" />
+            <ui:Label name="friend-name-3" class="dynamic-text friend-name friend-name-3" text="" />
+            <ui:Label name="friend-meta-3" class="dynamic-text friend-meta friend-meta-3" text="" />
+            <ui:Label name="friend-status-3" class="dynamic-text friend-status friend-status-3" text="" />
+            <ui:Label name="friend-level-3" class="dynamic-text friend-level friend-level-3" text="" />
+            <ui:Label name="friend-name-4" class="dynamic-text friend-name friend-name-4" text="" />
+            <ui:Label name="friend-meta-4" class="dynamic-text friend-meta friend-meta-4" text="" />
+            <ui:Label name="friend-status-4" class="dynamic-text friend-status friend-status-4" text="" />
+            <ui:Label name="friend-level-4" class="dynamic-text friend-level friend-level-4" text="" />
+            <ui:Label name="task-title-0" class="dynamic-text task-title task-title-0" text="" />
+            <ui:Label name="task-progress-0" class="dynamic-text task-progress task-progress-0" text="" />
+            <ui:VisualElement name="task-bar-0" class="progress-track task-bar-0">
+                <ui:VisualElement name="task-fill-0" class="progress-fill" />
+            </ui:VisualElement>
+            <ui:Label name="task-claim-label-0" class="dynamic-text task-claim-label task-claim-label-0" text="" />
+            <ui:Label name="task-title-1" class="dynamic-text task-title task-title-1" text="" />
+            <ui:Label name="task-progress-1" class="dynamic-text task-progress task-progress-1" text="" />
+            <ui:VisualElement name="task-bar-1" class="progress-track task-bar-1">
+                <ui:VisualElement name="task-fill-1" class="progress-fill" />
+            </ui:VisualElement>
+            <ui:Label name="task-claim-label-1" class="dynamic-text task-claim-label task-claim-label-1" text="" />
+            <ui:Label name="task-title-2" class="dynamic-text task-title task-title-2" text="" />
+            <ui:Label name="task-progress-2" class="dynamic-text task-progress task-progress-2" text="" />
+            <ui:VisualElement name="task-bar-2" class="progress-track task-bar-2">
+                <ui:VisualElement name="task-fill-2" class="progress-fill" />
+            </ui:VisualElement>
+            <ui:Label name="task-claim-label-2" class="dynamic-text task-claim-label task-claim-label-2" text="" />
+            <ui:Label name="tech-name" class="dynamic-text tech-name" text="" />
+            <ui:Label name="tech-desc" class="dynamic-text tech-desc" text="" />
+            <ui:Label name="tech-timer" class="dynamic-text tech-timer" text="" />
+            <ui:VisualElement name="tech-bar" class="progress-track tech-bar">
+                <ui:VisualElement name="tech-fill" class="progress-fill" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:Button name="settings-button" class="hit hit-settings" text="" />
+        <ui:Button name="notify-button" class="hit hit-notify" text="" />
+        <ui:Button name="gold-plus-button" class="hit hit-goldPlus" text="" />
+        <ui:Button name="gem-plus-button" class="hit hit-gemPlus" text="" />
+        <ui:Button name="add-friend-button" class="hit hit-addFriend" text="" />
+        <ui:Button name="friend-row-0" class="hit hit-friendRow0" text="" />
+        <ui:Button name="friend-row-1" class="hit hit-friendRow1" text="" />
+        <ui:Button name="friend-row-2" class="hit hit-friendRow2" text="" />
+        <ui:Button name="friend-row-3" class="hit hit-friendRow3" text="" />
+        <ui:Button name="friend-row-4" class="hit hit-friendRow4" text="" />
+        <ui:Button name="quick-match-button" class="hit hit-quick" text="" />
+        <ui:Button name="custom-room-button" class="hit hit-custom" text="" />
+        <ui:Button name="global-conquest-button" class="hit hit-global" text="" />
+        <ui:Button name="friends-button" class="hit hit-friends" text="" />
+        <ui:Button name="task-claim-button-0" class="hit hit-task0" text="" />
+        <ui:Button name="task-claim-button-1" class="hit hit-task1" text="" />
+        <ui:Button name="task-claim-button-2" class="hit hit-task2" text="" />
+        <ui:Button name="all-tasks-button" class="hit hit-allTasks" text="" />
+        <ui:Button name="tech-gear-button" class="hit hit-techGear" text="" />
+        <ui:Button name="tech-speed-button" class="hit hit-techSpeed" text="" />
+        <ui:Button name="tech-tree-button" class="hit hit-techTree" text="" />
+        <ui:Button name="shop-nav-button" class="hit hit-shop" text="" />
+        <ui:Button name="warehouse-nav-button" class="hit hit-warehouse" text="" />
+        <ui:Button name="campaign-nav-button" class="hit hit-campaign" text="" />
+        <ui:Button name="rank-nav-button" class="hit hit-rank" text="" />
+        <ui:Button name="mail-nav-button" class="hit hit-mail" text="" />
+        <ui:Button name="modal-backdrop-button" class="modal-backdrop" text="" />
+        <ui:VisualElement name="tech-popup" class="modal-popup tech-popup">
+            <ui:Label name="tech-popup-title" class="tech-popup-title" text="&#x79D1;&#x6280;&#x4E2D;&#x5FC3;" />
+            <ui:Button name="tech-popup-close" class="tech-popup-close" text="&#x5173;&#x95ED;" />
+            <ui:Label name="tech-popup-subtitle" class="tech-popup-subtitle" text="&#x7814;&#x7A76;&#x961F;&#x5217;" />
+            <ui:Label name="tech-popup-body" class="tech-popup-body" text="&#x5F53;&#x524D;&#x79D1;&#x6280;&#x5185;&#x5BB9;&#x4F1A;&#x5728;&#x8FD9;&#x91CC;&#x663E;&#x793A;&#x3002;" />
+            <ui:Button name="tech-popup-start" class="tech-popup-action" text="&#x5F00;&#x59CB;&#x7814;&#x7A76;" />
+        </ui:VisualElement>
+        <ui:VisualElement name="match-popup" class="modal-popup match-popup">
+            <ui:Label name="match-popup-title" class="panel-title" text="&#x5FEB;&#x901F;&#x5339;&#x914D;" />
+            <ui:Button name="match-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
+            <ui:Label name="match-status-label" class="match-status-label" text="&#x9009;&#x62E9;&#x6218;&#x533A;&#x540E;&#x5F00;&#x59CB;&#x5339;&#x914D;" />
+            <ui:Label name="match-selected-map" class="match-selected-map" text="&#x5F53;&#x524D;&#x6218;&#x533A;&#xFF1A;&#x6C99;&#x6F20;&#x7EFF;&#x6D32;" />
+            <ui:VisualElement name="match-map-row" class="match-map-row">
+                <ui:Button name="match-map-button-0" class="room-map-button match-map-button" text="" />
+                <ui:Button name="match-map-button-1" class="room-map-button match-map-button" text="" />
+                <ui:Button name="match-map-button-2" class="room-map-button match-map-button" text="" />
+                <ui:Button name="match-map-button-3" class="room-map-button match-map-button" text="" />
+                <ui:Button name="match-map-button-4" class="room-map-button match-map-button" text="" />
+            </ui:VisualElement>
+            <ui:VisualElement name="match-info-card" class="match-info-card">
+                <ui:Label name="match-timer-label" class="match-timer-label" text="--" />
+                <ui:Label name="match-hint-label" class="match-hint-label" text="&#x5C06;&#x6309;&#x5F53;&#x524D;&#x9AD8;&#x4EAE;&#x6218;&#x533A;&#x5BFB;&#x627E;&#x5BF9;&#x624B;&#xFF0C;&#x5339;&#x914D;&#x6210;&#x529F;&#x540E;&#x81EA;&#x52A8;&#x8FDB;&#x5165;&#x6218;&#x573A;&#x3002;" />
+            </ui:VisualElement>
+            <ui:VisualElement name="match-command-row" class="match-command-row">
+                <ui:Button name="match-start-button" class="match-command-button match-start-button" text="&#x5F00;&#x59CB;&#x5339;&#x914D;" />
+                <ui:Button name="match-cancel-button" class="match-command-button match-cancel-button" text="&#x8FD4;&#x56DE;&#x5927;&#x5385;" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement name="warehouse-popup" class="modal-popup warehouse-popup">
+            <ui:Label name="warehouse-popup-title" class="panel-title" text="&#x6218;&#x5907;&#x4ED3;&#x5E93;" />
+            <ui:Button name="warehouse-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
+            <ui:Label name="warehouse-status-label" class="warehouse-status-label" text="&#x52A0;&#x8F7D;&#x6218;&#x5907;&#x5E93;&#x5B58;..." />
+            <ui:VisualElement name="warehouse-list" class="warehouse-list">
+                <ui:VisualElement name="warehouse-item-0" class="warehouse-item">
+                    <ui:VisualElement class="warehouse-item-copy">
+                        <ui:Label name="warehouse-item-name-0" class="warehouse-item-name" text="" />
+                        <ui:Label name="warehouse-item-desc-0" class="warehouse-item-desc" text="" />
+                    </ui:VisualElement>
+                    <ui:Label name="warehouse-item-count-0" class="warehouse-item-count" text="" />
+                    <ui:Button name="warehouse-detail-button-0" class="warehouse-detail-button" text="&#x67E5;&#x770B;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="warehouse-item-1" class="warehouse-item">
+                    <ui:VisualElement class="warehouse-item-copy">
+                        <ui:Label name="warehouse-item-name-1" class="warehouse-item-name" text="" />
+                        <ui:Label name="warehouse-item-desc-1" class="warehouse-item-desc" text="" />
+                    </ui:VisualElement>
+                    <ui:Label name="warehouse-item-count-1" class="warehouse-item-count" text="" />
+                    <ui:Button name="warehouse-detail-button-1" class="warehouse-detail-button" text="&#x67E5;&#x770B;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="warehouse-item-2" class="warehouse-item">
+                    <ui:VisualElement class="warehouse-item-copy">
+                        <ui:Label name="warehouse-item-name-2" class="warehouse-item-name" text="" />
+                        <ui:Label name="warehouse-item-desc-2" class="warehouse-item-desc" text="" />
+                    </ui:VisualElement>
+                    <ui:Label name="warehouse-item-count-2" class="warehouse-item-count" text="" />
+                    <ui:Button name="warehouse-detail-button-2" class="warehouse-detail-button" text="&#x67E5;&#x770B;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="warehouse-item-3" class="warehouse-item">
+                    <ui:VisualElement class="warehouse-item-copy">
+                        <ui:Label name="warehouse-item-name-3" class="warehouse-item-name" text="" />
+                        <ui:Label name="warehouse-item-desc-3" class="warehouse-item-desc" text="" />
+                    </ui:VisualElement>
+                    <ui:Label name="warehouse-item-count-3" class="warehouse-item-count" text="" />
+                    <ui:Button name="warehouse-detail-button-3" class="warehouse-detail-button" text="&#x67E5;&#x770B;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="warehouse-item-4" class="warehouse-item">
+                    <ui:VisualElement class="warehouse-item-copy">
+                        <ui:Label name="warehouse-item-name-4" class="warehouse-item-name" text="" />
+                        <ui:Label name="warehouse-item-desc-4" class="warehouse-item-desc" text="" />
+                    </ui:VisualElement>
+                    <ui:Label name="warehouse-item-count-4" class="warehouse-item-count" text="" />
+                    <ui:Button name="warehouse-detail-button-4" class="warehouse-detail-button" text="&#x67E5;&#x770B;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="warehouse-item-5" class="warehouse-item">
+                    <ui:VisualElement class="warehouse-item-copy">
+                        <ui:Label name="warehouse-item-name-5" class="warehouse-item-name" text="" />
+                        <ui:Label name="warehouse-item-desc-5" class="warehouse-item-desc" text="" />
+                    </ui:VisualElement>
+                    <ui:Label name="warehouse-item-count-5" class="warehouse-item-count" text="" />
+                    <ui:Button name="warehouse-detail-button-5" class="warehouse-detail-button" text="&#x67E5;&#x770B;" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="warehouse-detail-card" class="warehouse-detail-card">
+                <ui:Label name="warehouse-detail-title" class="warehouse-detail-title" text="&#x6218;&#x5907;&#x660E;&#x7EC6;" />
+                <ui:Label name="warehouse-detail-body" class="warehouse-detail-body" text="&#x9009;&#x62E9;&#x4E00;&#x9879;&#x7269;&#x8D44;&#x67E5;&#x770B;&#x7528;&#x9014;&#x3002;" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement name="room-popup" class="modal-popup room-popup">
+            <ui:Label name="room-popup-title" class="panel-title" text="&#x81EA;&#x5B9A;&#x4E49;&#x623F;&#x95F4;" />
+            <ui:Button name="room-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
+            <ui:Label name="room-status-label" class="room-status-label" text="&#x52A0;&#x8F7D;&#x4E2D;..." />
+            <ui:TextField name="room-name-field" class="room-name-field" />
+            <ui:Label name="room-selected-map" class="room-selected-map" text="&#x5DF2;&#x9009;&#xFF1A;&#x6C99;&#x6F20;&#x7EFF;&#x6D32;" />
+            <ui:VisualElement name="room-map-row" class="room-map-row">
+                <ui:Button name="room-map-button-0" class="room-map-button" text="" />
+                <ui:Button name="room-map-button-1" class="room-map-button" text="" />
+                <ui:Button name="room-map-button-2" class="room-map-button" text="" />
+                <ui:Button name="room-map-button-3" class="room-map-button" text="" />
+                <ui:Button name="room-map-button-4" class="room-map-button" text="" />
+            </ui:VisualElement>
+            <ui:VisualElement name="room-command-row" class="room-command-row">
+                <ui:Button name="room-refresh-button" class="room-command-button" text="&#x5237;&#x65B0;" />
+                <ui:Button name="room-create-button" class="room-command-button room-create-button" text="&#x521B;&#x5EFA;&#x623F;&#x95F4;" />
+            </ui:VisualElement>
+            <ui:VisualElement name="room-list" class="room-list">
+                <ui:VisualElement name="room-row-0" class="room-row">
+                    <ui:VisualElement class="room-row-copy">
+                        <ui:Label name="room-row-title-0" class="room-row-title" text="" />
+                        <ui:Label name="room-row-meta-0" class="room-row-meta" text="" />
+                    </ui:VisualElement>
+                    <ui:Button name="room-join-button-0" class="room-row-button" text="&#x52A0;&#x5165;" />
+                    <ui:Button name="room-invite-button-0" class="room-row-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="room-row-1" class="room-row">
+                    <ui:VisualElement class="room-row-copy">
+                        <ui:Label name="room-row-title-1" class="room-row-title" text="" />
+                        <ui:Label name="room-row-meta-1" class="room-row-meta" text="" />
+                    </ui:VisualElement>
+                    <ui:Button name="room-join-button-1" class="room-row-button" text="&#x52A0;&#x5165;" />
+                    <ui:Button name="room-invite-button-1" class="room-row-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="room-row-2" class="room-row">
+                    <ui:VisualElement class="room-row-copy">
+                        <ui:Label name="room-row-title-2" class="room-row-title" text="" />
+                        <ui:Label name="room-row-meta-2" class="room-row-meta" text="" />
+                    </ui:VisualElement>
+                    <ui:Button name="room-join-button-2" class="room-row-button" text="&#x52A0;&#x5165;" />
+                    <ui:Button name="room-invite-button-2" class="room-row-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="room-row-3" class="room-row">
+                    <ui:VisualElement class="room-row-copy">
+                        <ui:Label name="room-row-title-3" class="room-row-title" text="" />
+                        <ui:Label name="room-row-meta-3" class="room-row-meta" text="" />
+                    </ui:VisualElement>
+                    <ui:Button name="room-join-button-3" class="room-row-button" text="&#x52A0;&#x5165;" />
+                    <ui:Button name="room-invite-button-3" class="room-row-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement name="invite-popup" class="modal-popup invite-popup">
+            <ui:Label name="invite-popup-title" class="panel-title" text="&#x9080;&#x8BF7;&#x597D;&#x53CB;" />
+            <ui:Button name="invite-popup-close" class="panel-close" text="&#x8FD4;&#x56DE;" />
+            <ui:Label name="invite-status-label" class="invite-status-label" text="&#x52A0;&#x8F7D;&#x597D;&#x53CB;..." />
+            <ui:VisualElement name="invite-list" class="invite-list">
+                <ui:VisualElement name="invite-row-0" class="invite-row">
+                    <ui:Label name="invite-friend-name-0" class="invite-friend-name" text="" />
+                    <ui:Button name="invite-friend-button-0" class="invite-friend-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="invite-row-1" class="invite-row">
+                    <ui:Label name="invite-friend-name-1" class="invite-friend-name" text="" />
+                    <ui:Button name="invite-friend-button-1" class="invite-friend-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="invite-row-2" class="invite-row">
+                    <ui:Label name="invite-friend-name-2" class="invite-friend-name" text="" />
+                    <ui:Button name="invite-friend-button-2" class="invite-friend-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="invite-row-3" class="invite-row">
+                    <ui:Label name="invite-friend-name-3" class="invite-friend-name" text="" />
+                    <ui:Button name="invite-friend-button-3" class="invite-friend-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+                <ui:VisualElement name="invite-row-4" class="invite-row">
+                    <ui:Label name="invite-friend-name-4" class="invite-friend-name" text="" />
+                    <ui:Button name="invite-friend-button-4" class="invite-friend-button" text="&#x9080;&#x8BF7;" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement name="friends-popup" class="modal-popup friends-popup">
+            <ui:Label name="friends-popup-title" class="panel-title" text="&#x597D;&#x53CB;&#x540D;&#x5355;" />
+            <ui:Button name="friends-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
+            <ui:Label name="friends-status-label" class="friends-status-label" text="&#x52A0;&#x8F7D;&#x597D;&#x53CB;..." />
+            <ui:VisualElement name="friends-add-row" class="friends-add-row">
+                <ui:TextField name="friends-add-input" class="friends-add-input" />
+                <ui:Button name="friends-add-submit" class="friends-add-submit" text="&#x6DFB;&#x52A0;" />
+            </ui:VisualElement>
+            <ui:ScrollView name="friends-popup-list" class="friends-popup-list" />
+            <ui:VisualElement name="friend-detail-card" class="friend-detail-card">
+                <ui:Label name="friend-detail-title" class="friend-detail-title" text="&#x597D;&#x53CB;&#x60C5;&#x62A5;" />
+                <ui:Label name="friend-detail-body" class="friend-detail-body" text="&#x9009;&#x62E9;&#x4E00;&#x540D;&#x597D;&#x53CB;&#x67E5;&#x770B;&#x72B6;&#x6001;&#x3002;" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement name="notify-popup" class="modal-popup notify-popup">
+            <ui:Label name="notify-popup-title" class="panel-title" text="&#x901A;&#x77E5;&#x4E2D;&#x5FC3;" />
+            <ui:Button name="notify-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
+            <ui:Label name="notify-popup-subtitle" class="panel-subtitle" text="&#x6218;&#x573A;&#x5FEB;&#x62A5;" />
+            <ui:Label name="notify-popup-body" class="panel-body" text="&#x6682;&#x65E0;&#x65B0;&#x6D88;&#x606F;&#x3002;" />
+            <ui:Button name="notify-popup-action" class="panel-action panel-action-wide" text="&#x77E5;&#x9053;&#x4E86;" />
+        </ui:VisualElement>
+        <ui:VisualElement name="settings-popup" class="modal-popup settings-popup">
+            <ui:Label name="settings-popup-title" class="panel-title" text="&#x8BBE;&#x7F6E;" />
+            <ui:Button name="settings-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
+            <ui:Label name="settings-popup-subtitle" class="panel-subtitle" text="&#x97F3;&#x9891;&#x4E0E;&#x8D26;&#x53F7;" />
+            <ui:Label name="settings-player-label" class="settings-account" text="Commander" />
+            <ui:Label name="settings-audio-label" class="settings-section-title" text="&#x97F3;&#x91CF;" />
+            <ui:VisualElement name="settings-music-row" class="settings-row">
+                <ui:Label name="settings-music-name" class="settings-row-name" text="&#x97F3;&#x4E50;" />
+                <ui:Button name="settings-music-minus" class="settings-step" text="-" />
+                <ui:VisualElement name="settings-music-track" class="settings-track">
+                    <ui:VisualElement name="settings-music-fill" class="settings-fill" />
+                </ui:VisualElement>
+                <ui:Button name="settings-music-plus" class="settings-step" text="+" />
+                <ui:Label name="settings-music-value" class="settings-row-value" text="80%" />
+            </ui:VisualElement>
+            <ui:VisualElement name="settings-sfx-row" class="settings-row">
+                <ui:Label name="settings-sfx-name" class="settings-row-name" text="&#x97F3;&#x6548;" />
+                <ui:Button name="settings-sfx-minus" class="settings-step" text="-" />
+                <ui:VisualElement name="settings-sfx-track" class="settings-track">
+                    <ui:VisualElement name="settings-sfx-fill" class="settings-fill" />
+                </ui:VisualElement>
+                <ui:Button name="settings-sfx-plus" class="settings-step" text="+" />
+            <ui:Label name="settings-sfx-value" class="settings-row-value" text="100%" />
+        </ui:VisualElement>
+        <ui:Label name="settings-hint-label" class="settings-hint" text="&#x66F4;&#x6539;&#x4F1A;&#x7ACB;&#x5373;&#x4FDD;&#x5B58;" />
+        <ui:Button name="settings-return-battle-button" class="panel-action panel-action-wide settings-return-action" text="&#x8FD4;&#x56DE;&#x6218;&#x573A;" />
+        <ui:Button name="settings-logout-button" class="panel-action panel-action-wide logout-action" text="&#x9000;&#x51FA;&#x767B;&#x5F55;" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
