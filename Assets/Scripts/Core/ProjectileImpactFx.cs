@@ -18,11 +18,10 @@ public class ProjectileImpactFx : MonoBehaviour
         float t = Mathf.Clamp01(life / 0.22f);
         transform.localScale = startScale * Mathf.Lerp(0.65f, 1.8f, t);
 
-        if (cachedRenderer != null && cachedRenderer.material != null && cachedRenderer.material.HasProperty("_Color"))
+        if (RendererColorUtil.TryGetColor(cachedRenderer, out Color color))
         {
-            Color color = cachedRenderer.material.color;
             color.a = Mathf.Lerp(0.9f, 0f, t);
-            cachedRenderer.material.color = color;
+            RendererColorUtil.TrySetColor(cachedRenderer, color);
         }
 
         if (t >= 1f)

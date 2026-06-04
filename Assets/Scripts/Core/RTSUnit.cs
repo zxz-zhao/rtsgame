@@ -29,6 +29,9 @@ public class RTSUnit : MonoBehaviour
     public Color ProjectileTint = new Color(1f, 0.78f, 0.24f, 1f);
     public float TracerDuration = 0.045f;
 
+    protected virtual float MoveStoppingDistance => 0.35f;
+    protected virtual float CombatStoppingDistance => Mathf.Max(0.5f, AttackRange * 0.8f);
+
     [Header("状态")]
     public bool bPlayerOwned = false;
     public bool bFlying = false;
@@ -49,23 +52,48 @@ public class RTSUnit : MonoBehaviour
     protected CommandType CurrentCommand = CommandType.None;
     protected Vector3 CommandTarget;
     protected RTSUnit CommandTargetUnit;
+    private const float MoveArrivalPadding = 0.55f;
 
     protected virtual void Awake()
     {
+        CaptureBaseStats();
         CurrentHP = MaxHP;
         Agent = GetComponent<NavMeshAgent>();
         if (Agent != null)
         {
             Agent.speed = MoveSpeed;
-            Agent.stoppingDistance = AttackRange * 0.8f;
+            UseMoveStoppingDistance();
         }
         // 阵营球和小地图标记在 Start() 创建（bPlayerOwned 由外部在 Awake 之后设置）
+    }
+
+    void CaptureBaseStats()
+    {
+        _baseMaxHP = Mathf.Max(1, MaxHP);
+        _baseAttackDamage = Mathf.Max(1, AttackDamage);
+        _baseAttackRange = Mathf.Max(0.1f, AttackRange);
+        _baseAttackInterval = Mathf.Max(0.05f, AttackInterval);
+        _baseSightRange = Mathf.Max(0.1f, SightRange);
+        _baseMoveSpeed = Mathf.Max(0.1f, MoveSpeed);
+    }
+
+    protected void UseMoveStoppingDistance()
+    {
+        if (Agent != null)
+            Agent.stoppingDistance = MoveStoppingDistance;
+    }
+
+    protected void UseCombatStoppingDistance()
+    {
+        if (Agent != null)
+            Agent.stoppingDistance = CombatStoppingDistance;
     }
 
     // 头顶血条
     private WorldHealthBar healthBar;
     // 选中光环
     private GameObject selectionRing;
+    private GameObject factionRing;
     public bool IsSelected { get; private set; }
     // 攻击连线
     private LineRenderer _attackLine;
@@ -83,6 +111,32 @@ public class RTSUnit : MonoBehaviour
     protected RTSBuilding buildingTarget;
     // 溢射攻击缓冲（避免 OverlapSphere 逐次堆分配）
     private static readonly Collider[] _splashBuffer = new Collider[32];
+    private struct RuntimeTechBuff
+    {
+        public string SourceId;
+        public float EndTime;
+        public float MoveMultiplier;
+        public float DamageMultiplier;
+        public float AttackRangeBonus;
+        public float AttackIntervalMultiplier;
+        public float DefenseReduction;
+        public float SightRangeBonus;
+        public float RegenPerSecond;
+        public Color Tint;
+    }
+
+    private readonly List<RuntimeTechBuff> _techBuffs = new List<RuntimeTechBuff>(8);
+    private int _baseMaxHP;
+    private int _baseAttackDamage;
+    private float _baseAttackRange;
+    private float _baseAttackInterval;
+    private float _baseSightRange;
+    private float _baseMoveSpeed;
+    private float _techDamageReduction;
+    private float _techRegenPerSecond;
+    private float _techRegenCarry;
+    private GameObject _techBuffRing;
+    private Renderer _techBuffRingRenderer;
     // 敌方扫描节流（避免 FindNearestEnemy/FindNearestEnemyBuilding 每帧执行）
     private float _enemyScanTimer = 0f;
     private float _bldgScanTimer  = 0f;
@@ -93,6 +147,10 @@ public class RTSUnit : MonoBehaviour
     protected virtual float DesiredVisualHeight => 0f;
     /// <summary>单位期望可视占地直径（X/Z 最大边，米）。</summary>
     protected virtual float DesiredVisualFootprint => 0f;
+    protected virtual bool IncludeAttachmentVisualsInScale => false;
+    protected virtual float HealthBarHeight => bFlying ? 5f : 2.5f;
+    protected virtual float UnitLabelHeight => 2.0f;
+    protected virtual float SelectionRingRadius => bFlying ? 2.2f : 1.5f;
 
     protected virtual void Start()
     {
@@ -105,11 +163,11 @@ public class RTSUnit : MonoBehaviour
         GameManager.Instance?.RegisterUnit(this);
         // 添加单位浮动名称标签（在 Start 里，DisplayName 已由子类 Awake 设置好）
         // 创建头顶血条（初始满血时隐藏）
-        healthBar = WorldHealthBar.Create(transform, bFlying ? 5f : 2.5f);
+        healthBar = WorldHealthBar.Create(transform, HealthBarHeight);
         // 单位名称浮动标签
         AddUnitLabel();
         // 选中光环
-        selectionRing = CreateSelectionRing(transform, bFlying ? 2.2f : 1.5f);
+        selectionRing = CreateSelectionRing(transform, SelectionRingRadius);
         // 攻击连线
         _attackLine = CreateAttackLine(bPlayerOwned);
         // 阵营标识球（Start 时 bPlayerOwned 已由外部正确设置）
@@ -125,14 +183,46 @@ public class RTSUnit : MonoBehaviour
         marker.MarkerSize   = bFlying ? 9f : 7f;
         marker.HeightOffset = 80f;
         _visualAnimator = GetComponent<UnitVisualAnimator>();
-        // 敌方单位：挂战雾隐藏组件（视野外不显示）
-        if (!bPlayerOwned && GetComponent<FogHideable>() == null)
-            gameObject.AddComponent<FogHideable>();
         // 先清理违和的小装饰（旗子、瞄准镜、子弹、油桶、散件箱），避免它们影响后续缩放包围盒计算
         UnitVisualPolish.Polish(gameObject);
         // 子类显式指定目标尺寸时，强制把可视模型标定到统一比例（解决各 Kenney prefab 尺寸杂乱）
         if (DesiredVisualHeight > 0f && DesiredVisualFootprint > 0f)
-            UnitScaleNormalizer.Normalize(transform, DesiredVisualHeight, DesiredVisualFootprint);
+            UnitScaleNormalizer.Normalize(transform, DesiredVisualHeight, DesiredVisualFootprint, IncludeAttachmentVisualsInScale);
+        // 军事配色：用 MaterialPropertyBlock 叠加颜色，不产生新材质实例
+        ApplyMilitaryTint();
+        // 敌方单位：挂战雾隐藏组件（视野外不显示）
+        if (!bPlayerOwned && GetComponent<FogHideable>() == null)
+            gameObject.AddComponent<FogHideable>();
+    }
+
+    protected virtual void ApplyMilitaryTint()
+    {
+        // Ground units keep the WW2 palette; aircraft need stronger separation from the teal battlefield.
+        Color tint = bPlayerOwned
+            ? (bFlying ? new Color(0.24f, 0.50f, 0.68f) : new Color(0.28f, 0.38f, 0.17f))
+            : (bFlying ? new Color(0.72f, 0.24f, 0.18f) : new Color(0.65f, 0.50f, 0.28f));
+        var block = new MaterialPropertyBlock();
+        block.SetColor("_Color", tint);
+        foreach (var r in GetComponentsInChildren<Renderer>(true))
+        {
+            if (r is ParticleSystemRenderer) continue;
+            string n = r.gameObject.name;
+            if (n == "FactionRing" || n == "FactionDot" || n == "SelectionCircle") continue;
+            if (n == "HPLabel" || n == "UnitLabel" || n == "AttackLine") continue;
+            if (n.StartsWith("FactionStripe") || n.StartsWith("AircraftForwardStripe")) continue;
+            // 排除所有地面光环/圆盘效果（避免半径大的圆盘被染色后覆盖整个屏幕）
+            Transform cur = r.transform;
+            bool skip = false;
+            while (cur != null && cur != transform)
+            {
+                if (cur.name.EndsWith("Aura") || cur.name.EndsWith("Disc")
+                    || cur.name.EndsWith("Ring") || cur.name == "AirShadow")
+                { skip = true; break; }
+                cur = cur.parent;
+            }
+            if (skip) continue;
+            r.SetPropertyBlock(block);
+        }
     }
 
     // 创建扁平圆盘光环，radius 为世界单位半径
@@ -149,6 +239,8 @@ public class RTSUnit : MonoBehaviour
     public void SetSelected(bool selected)
     {
         IsSelected = selected;
+        if (factionRing != null)
+            factionRing.SetActive(selected);
         if (!selectionRing) return;
         bool wasActive = selectionRing.activeSelf;
         selectionRing.SetActive(selected);
@@ -165,11 +257,12 @@ public class RTSUnit : MonoBehaviour
         var lr = gameObject.AddComponent<LineRenderer>();
         var sh = Shader.Find("Unlit/Color");
         lr.material = sh != null ? new Material(sh) : new Material(Shader.Find("Standard"));
-        lr.material.color = playerOwned
-            ? new Color(0.3f, 0.88f, 1f, 1f)
-            : new Color(1f, 0.42f, 0.08f, 1f);
-        lr.startWidth    = 0.14f;
-        lr.endWidth      = 0.04f;
+        Color lineColor = playerOwned
+            ? (bFlying ? new Color(0.62f, 0.96f, 1f, 1f) : new Color(0.3f, 0.88f, 1f, 1f))
+            : (bFlying ? new Color(1f, 0.56f, 0.22f, 1f) : new Color(1f, 0.42f, 0.08f, 1f));
+        RendererColorUtil.TrySetColor(lr.material, lineColor);
+        lr.startWidth    = bFlying ? 0.20f : 0.14f;
+        lr.endWidth      = bFlying ? 0.07f : 0.04f;
         lr.positionCount = 2;
         lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         lr.receiveShadows = false;
@@ -192,6 +285,9 @@ public class RTSUnit : MonoBehaviour
 
     Vector3 GetAttackOrigin()
     {
+        if (bFlying)
+            return transform.position + transform.forward * 0.95f + Vector3.up * 0.18f;
+
         Transform hardpoint = FindWeaponHardpoint(transform);
         if (hardpoint != null)
             return hardpoint.position + hardpoint.forward * 0.35f;
@@ -200,6 +296,16 @@ public class RTSUnit : MonoBehaviour
 
     Quaternion GetAttackRotation(Vector3 fallbackDirection)
     {
+        if (bFlying)
+        {
+            if (fallbackDirection.sqrMagnitude < 0.0001f)
+                fallbackDirection = transform.forward;
+            fallbackDirection.y = 0f;
+            if (fallbackDirection.sqrMagnitude < 0.0001f)
+                fallbackDirection = transform.forward;
+            return Quaternion.LookRotation(fallbackDirection.normalized, Vector3.up);
+        }
+
         Transform hardpoint = FindWeaponHardpoint(transform);
         if (hardpoint != null)
             return hardpoint.rotation;
@@ -267,15 +373,11 @@ public class RTSUnit : MonoBehaviour
 
     void ApplyUnitBodyColor(Color c)
     {
-        // 脚下阵营光圈：贴图圆环（半径 0.55），比 Cylinder 三角面少 ~40 倍。
-        FxResources.MakeGroundDisc(transform, "FactionRing", 0.55f,
+        // 脚下阵营光圈只在选中时显示，避免未选中单位脚底常亮。
+        factionRing = FxResources.MakeGroundDisc(transform, "FactionRing", 0.55f,
             new Color(c.r, c.g, c.b, 0.85f),
             FxResources.DiscStyle.MediumRing, 0.05f);
-        // 头顶阵营标识：广告板小圆点（实心圆），始终面对相机，0.35 尺寸不遮挡血条
-        FxResources.MakeBillboardSprite(transform, "FactionDot", 0.42f,
-            Color.Lerp(c, Color.white, 0.25f),
-            FxResources.DiscStyle.FullDisc,
-            new Vector3(0f, 1.6f, 0f));
+        factionRing.SetActive(IsSelected);
     }
 
     void AddUnitLabel()
@@ -283,7 +385,7 @@ public class RTSUnit : MonoBehaviour
         string label = RTSHUD.GetUnitDisplayNameStatic(this);
         var labelGO = new GameObject("UnitLabel");
         labelGO.transform.SetParent(transform, false);
-        labelGO.transform.localPosition = new Vector3(0f, 2.0f, 0f);
+        labelGO.transform.localPosition = new Vector3(0f, UnitLabelHeight, 0f);
         labelGO.transform.localScale = new Vector3(0.055f, 0.055f, 0.055f);
         var tm = labelGO.AddComponent<TextMesh>();
         tm.text          = label;
@@ -309,9 +411,40 @@ public class RTSUnit : MonoBehaviour
     {
         if (IsDead()) return;
         AttackTimer -= Time.deltaTime;
+        UpdateTechBuffs();
         UpdateAI();
         if (!bPlayerOwned) CheckStuck();
         UpdateLowHpPulse();
+    }
+
+    void UpdateTechBuffs()
+    {
+        bool changed = false;
+        for (int i = _techBuffs.Count - 1; i >= 0; i--)
+        {
+            if (Time.time >= _techBuffs[i].EndTime)
+            {
+                _techBuffs.RemoveAt(i);
+                changed = true;
+            }
+        }
+
+        if (changed)
+            RecalculateTechBuffStats();
+
+        if (_techRegenPerSecond > 0f && CurrentHP < MaxHP)
+        {
+            _techRegenCarry += _techRegenPerSecond * Time.deltaTime;
+            int heal = Mathf.FloorToInt(_techRegenCarry);
+            if (heal > 0)
+            {
+                _techRegenCarry -= heal;
+                CurrentHP = Mathf.Min(MaxHP, CurrentHP + heal);
+                healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
+            }
+        }
+
+        UpdateTechBuffRingVisual();
     }
 
     /// <summary>HP &lt; 25% 时整个 model 持续脉动红光，恢复后还原。</summary>
@@ -341,9 +474,9 @@ public class RTSUnit : MonoBehaviour
         Color warning = new Color(1f, 0.20f, 0.15f);
         for (int i = 0; i < _allRenderers.Length; i++)
         {
-            if (_allRenderers[i] == null || _allRenderers[i].material == null) continue;
+            if (_allRenderers[i] == null || _allRenderers[i].sharedMaterial == null) continue;
             string n = _allRenderers[i].gameObject.name;
-            if (n == "FactionRing" || n == "FactionDot" || n == "SelectionRing" || n == "UnitLabel") continue;
+            if (n == "FactionRing" || n == "FactionDot" || n == "SelectionRing" || n == "TechBuffRing" || n == "UnitLabel") continue;
             RendererColorUtil.TrySetColor(_allRenderers[i], Color.Lerp(_origRenderColors[i], warning, 0.55f * pulse));
         }
     }
@@ -398,7 +531,7 @@ public class RTSUnit : MonoBehaviour
                 UpdateAttackMove();
                 break;
             case CommandType.Stop:
-                if (Agent != null) Agent.ResetPath();
+                SafeResetPath();
                 break;
             case CommandType.Patrol:
                 UpdatePatrol();
@@ -411,8 +544,47 @@ public class RTSUnit : MonoBehaviour
 
     void UpdateMove()
     {
-        if (Agent != null && Agent.isOnNavMesh && !Agent.pathPending && Agent.remainingDistance < 0.5f)
-            CurrentCommand = CommandType.None;
+        UseMoveStoppingDistance();
+        if (HasReachedMoveTarget())
+            CompleteMoveCommand();
+    }
+
+    bool HasReachedMoveTarget()
+    {
+        Vector3 flatDelta = CommandTarget - transform.position;
+        flatDelta.y = 0f;
+        float directDistance = flatDelta.magnitude;
+        float arriveDistance = Mathf.Max(MoveStoppingDistance + MoveArrivalPadding, 0.85f);
+        if (directDistance <= arriveDistance)
+            return true;
+
+        if (Agent == null || !Agent.enabled || !Agent.isOnNavMesh || Agent.pathPending)
+            return false;
+
+        float agentArrival = Mathf.Max(Agent.stoppingDistance + 0.2f, 0.6f);
+        if (!float.IsInfinity(Agent.remainingDistance) && Agent.remainingDistance <= agentArrival)
+            return true;
+
+        // 多个单位挤在同一个集结点时，避障会让 remainingDistance 卡在略大于 stoppingDistance。
+        return Agent.velocity.sqrMagnitude < 0.04f && directDistance <= arriveDistance + 0.65f;
+    }
+
+    void CompleteMoveCommand()
+    {
+        CurrentCommand = CommandType.None;
+        if (SafeResetPath())
+        {
+            Agent.velocity = Vector3.zero;
+        }
+    }
+
+    bool SafeResetPath()
+    {
+        if (Agent == null || !Agent.enabled || !Agent.isOnNavMesh)
+            return false;
+
+        Agent.ResetPath();
+        return true;
     }
 
     void UpdateAttack()
@@ -426,7 +598,7 @@ public class RTSUnit : MonoBehaviour
         float dist = Vector3.Distance(transform.position, AttackTarget.transform.position);
         if (dist <= AttackRange)
         {
-            if (Agent != null) Agent.ResetPath();
+            SafeResetPath();
             // 朝向目标
             Vector3 dir = (AttackTarget.transform.position - transform.position).normalized;
             if (dir != Vector3.zero)
@@ -440,6 +612,7 @@ public class RTSUnit : MonoBehaviour
         }
         else
         {
+            UseCombatStoppingDistance();
             if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(AttackTarget.transform.position);
         }
     }
@@ -462,7 +635,7 @@ public class RTSUnit : MonoBehaviour
             float dist = Vector3.Distance(transform.position, AttackTarget.transform.position);
             if (dist <= AttackRange)
             {
-                if (Agent != null) Agent.ResetPath();
+                SafeResetPath();
                 Vector3 dir = (AttackTarget.transform.position - transform.position).normalized;
                 if (dir != Vector3.zero)
                     transform.rotation = Quaternion.Slerp(transform.rotation,
@@ -475,6 +648,7 @@ public class RTSUnit : MonoBehaviour
             }
             else
             {
+                UseCombatStoppingDistance();
                 if (Agent != null && Agent.isOnNavMesh)
                     Agent.SetDestination(AttackTarget.transform.position);
             }
@@ -496,14 +670,14 @@ public class RTSUnit : MonoBehaviour
                 float dist = Vector3.Distance(transform.position, buildingTarget.transform.position);
                 if (dist <= AttackRange)
                 {
-                    if (Agent != null) Agent.ResetPath();
+                    SafeResetPath();
                     Vector3 dir = (buildingTarget.transform.position - transform.position).normalized;
                     if (dir != Vector3.zero)
                         transform.rotation = Quaternion.Slerp(transform.rotation,
                             Quaternion.LookRotation(dir), Time.deltaTime * 5f);
                     if (AttackTimer <= 0f)
                     {
-                        StartCoroutine(FlashAttackLine(buildingTarget.transform.position));
+                        PlayAttackVisuals(buildingTarget.transform.position);
                         AttackTimer = AttackInterval;
                         var _ns2 = GameNetworkSync.Instance;
                         if (_ns2 == null || !_ns2.IsNetworkGame || _ns2.IsHost)
@@ -517,12 +691,16 @@ public class RTSUnit : MonoBehaviour
                 }
                 else
                 {
+                    UseCombatStoppingDistance();
                     if (Agent != null && Agent.isOnNavMesh)
                         Agent.SetDestination(buildingTarget.transform.position);
                 }
             }
             else
             {
+                UseMoveStoppingDistance();
+                if (Agent != null && Agent.isOnNavMesh)
+                    Agent.SetDestination(CommandTarget);
                 UpdateMove();
             }
         }
@@ -546,13 +724,7 @@ public class RTSUnit : MonoBehaviour
 
     protected virtual void DoAttack(RTSUnit target)
     {
-        _visualAnimator?.TriggerFireAnimation();
-        StartCoroutine(FlashAttackLine(target.transform.position));
-        // 枪口火焰特效（取单位前方约 1m 处作为枪口位置）
-        Vector3 dir = (target.transform.position - transform.position).normalized;
-        Vector3 muzzlePos = GetAttackOrigin();
-        Quaternion muzzleRot = GetAttackRotation(dir);
-        EffectsManager.PlayMuzzleFlash(muzzlePos, muzzleRot, transform);
+        PlayAttackVisuals(target.transform.position);
         // 联机模式：只有 Host（权威端）计算伤害，Guest 只播放攻击特效
         var _ns = GameNetworkSync.Instance;
         if (_ns != null && _ns.IsNetworkGame && !_ns.IsHost) return;
@@ -577,6 +749,19 @@ public class RTSUnit : MonoBehaviour
             target.TakeDamage(AttackDamage);
             if (wasAlive && target.IsDead()) AddKill();
         }
+    }
+
+    protected void PlayAttackVisuals(Vector3 targetPosition)
+    {
+        _visualAnimator?.TriggerFireAnimation();
+        StartCoroutine(FlashAttackLine(targetPosition));
+        // 枪口火焰特效（取单位前方约 1m 处作为枪口位置）
+        Vector3 dir = (targetPosition - transform.position).normalized;
+        Vector3 muzzlePos = GetAttackOrigin();
+        Quaternion muzzleRot = GetAttackRotation(dir);
+        EffectsManager.PlayMuzzleFlash(muzzlePos, muzzleRot, transform);
+        if (bFlying)
+            RTSCamera.Shake(0.045f, 0.055f);
     }
 
     /// <summary>击杀 +1，3 杀晋升老兵（头顶亮星），5 杀晋升精英（金星）。</summary>
@@ -646,16 +831,19 @@ public class RTSUnit : MonoBehaviour
     public virtual void TakeDamage(int dmg)
     {
         if (_isDying) return;
+        if (dmg > 0 && _techDamageReduction > 0f)
+            dmg = Mathf.Max(1, Mathf.CeilToInt(dmg * (1f - _techDamageReduction)));
         int prev = CurrentHP;
         CurrentHP = Mathf.Clamp(CurrentHP - dmg, 0, MaxHP);
         if (CurrentHP == prev) return; // HP 无实际变化（如对满血单位治疗），跳过同步
         if (dmg > 0)
             GameManager.Instance?.RecordDamage(!bPlayerOwned, bPlayerOwned, prev - CurrentHP);
-        healthBar?.SetHP((float)CurrentHP / MaxHP, !bPlayerOwned);
+        healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
         if (dmg > 0)
         {
             StartCoroutine(HitFlash());
             bool crit = dmg >= MaxHP / 4;
+            _visualAnimator?.TriggerHitReaction(crit);
             DamageNumber.Spawn(
                 transform.position + Vector3.up * transform.localScale.y, dmg, crit, gameObject);
             // 受击火星粒子（命中点取单位中心）
@@ -680,27 +868,133 @@ public class RTSUnit : MonoBehaviour
         NetSyncIncoming = false;
     }
 
+    public void ApplyTechBuff(string sourceId, float duration, float moveMultiplier, float damageMultiplier,
+        float attackRangeBonus, float attackIntervalMultiplier, float defenseReduction, float sightRangeBonus,
+        float regenPerSecond, Color tint)
+    {
+        if (IsDead() || duration <= 0f) return;
+        if (_baseMaxHP <= 0) CaptureBaseStats();
+
+        RuntimeTechBuff buff = new RuntimeTechBuff
+        {
+            SourceId = string.IsNullOrEmpty(sourceId) ? "Tech" : sourceId,
+            EndTime = Time.time + duration,
+            MoveMultiplier = moveMultiplier > 0.01f ? moveMultiplier : 1f,
+            DamageMultiplier = damageMultiplier > 0.01f ? damageMultiplier : 1f,
+            AttackRangeBonus = attackRangeBonus,
+            AttackIntervalMultiplier = attackIntervalMultiplier > 0.01f ? attackIntervalMultiplier : 1f,
+            DefenseReduction = Mathf.Max(0f, defenseReduction),
+            SightRangeBonus = sightRangeBonus,
+            RegenPerSecond = Mathf.Max(0f, regenPerSecond),
+            Tint = tint.a > 0.01f ? tint : new Color(0.35f, 0.85f, 1f, 0.75f)
+        };
+
+        _techBuffs.Add(buff);
+        RecalculateTechBuffStats();
+        EnsureTechBuffRing(buff.Tint);
+    }
+
+    void RecalculateTechBuffStats()
+    {
+        if (_baseMaxHP <= 0) CaptureBaseStats();
+
+        float moveMult = 1f;
+        float damageMult = 1f;
+        float intervalMult = 1f;
+        float rangeBonus = 0f;
+        float defense = 0f;
+        float sightBonus = 0f;
+        float regen = 0f;
+
+        for (int i = 0; i < _techBuffs.Count; i++)
+        {
+            RuntimeTechBuff buff = _techBuffs[i];
+            moveMult *= buff.MoveMultiplier;
+            damageMult *= buff.DamageMultiplier;
+            intervalMult *= buff.AttackIntervalMultiplier;
+            rangeBonus += buff.AttackRangeBonus;
+            defense += buff.DefenseReduction;
+            sightBonus += buff.SightRangeBonus;
+            regen += buff.RegenPerSecond;
+        }
+
+        MaxHP = _baseMaxHP;
+        AttackDamage = Mathf.Max(1, Mathf.RoundToInt(_baseAttackDamage * damageMult));
+        AttackRange = Mathf.Max(0.5f, _baseAttackRange + rangeBonus);
+        AttackInterval = Mathf.Max(0.12f, _baseAttackInterval * intervalMult);
+        SightRange = Mathf.Max(1f, _baseSightRange + sightBonus);
+        MoveSpeed = Mathf.Clamp(_baseMoveSpeed * moveMult, 0.1f, _baseMoveSpeed * 3f);
+        _techDamageReduction = Mathf.Clamp(defense, 0f, 0.75f);
+        _techRegenPerSecond = regen;
+
+        if (CurrentHP > MaxHP) CurrentHP = MaxHP;
+        if (Agent != null && Agent.enabled)
+            Agent.speed = MoveSpeed;
+
+        healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
+
+        if (_techBuffs.Count == 0 && _techBuffRing != null)
+        {
+            Destroy(_techBuffRing);
+            _techBuffRing = null;
+            _techBuffRingRenderer = null;
+            _techRegenCarry = 0f;
+        }
+    }
+
+    void EnsureTechBuffRing(Color color)
+    {
+        if (_techBuffRing != null) return;
+
+        float radius = Mathf.Max(0.75f, SelectionRingRadius * 1.22f);
+        _techBuffRing = FxResources.MakeGroundDisc(transform, "TechBuffRing", radius, color,
+            FxResources.DiscStyle.MediumRing, 0.075f);
+        _techBuffRingRenderer = _techBuffRing.GetComponent<Renderer>();
+    }
+
+    void UpdateTechBuffRingVisual()
+    {
+        if (_techBuffs.Count == 0 || _techBuffRing == null) return;
+
+        RuntimeTechBuff latest = _techBuffs[_techBuffs.Count - 1];
+        float pulse = (Mathf.Sin(Time.time * 7.5f) + 1f) * 0.5f;
+        float stackBoost = Mathf.Min(0.32f, (_techBuffs.Count - 1) * 0.055f);
+        float radius = Mathf.Max(0.75f, SelectionRingRadius * (1.16f + stackBoost + pulse * 0.06f));
+        _techBuffRing.transform.localScale = new Vector3(radius * 2f, radius * 2f, 1f);
+
+        if (_techBuffRingRenderer != null)
+        {
+            Color c = latest.Tint;
+            c.a = Mathf.Lerp(0.34f, 0.62f, pulse);
+            RendererColorUtil.TrySetColor(_techBuffRingRenderer, c);
+        }
+    }
+
     System.Collections.IEnumerator HitFlash()
     {
         var renderers = GetComponentsInChildren<Renderer>();
         if (renderers == null || renderers.Length == 0) yield break;
         _flashCount++;
         var origColors = new Color[renderers.Length];
+        var changed = new bool[renderers.Length];
         for (int i = 0; i < renderers.Length; i++)
         {
             if (renderers[i] == null || renderers[i].material == null) continue;
             string n = renderers[i].gameObject.name;
-            if (n == "FactionRing" || n == "FactionDot" || n == "SelectionRing" || n == "UnitLabel") continue;
+            if (n == "FactionRing" || n == "FactionDot" || n == "SelectionRing" || n == "TechBuffRing" || n == "UnitLabel") continue;
+            if (n.StartsWith("FactionStripe") || n.StartsWith("AircraftForwardStripe")) continue;
             Color color;
             if (!RendererColorUtil.TryGetColor(renderers[i], out color)) continue;
             origColors[i] = color;
+            changed[i] = true;
             RendererColorUtil.TrySetColor(renderers[i], new Color(1f, 0.55f, 0.30f));
         }
         yield return new WaitForSeconds(0.07f);
         _flashCount--;
         if (!_isDying && _flashCount == 0)
             for (int i = 0; i < renderers.Length; i++)
-                RendererColorUtil.TrySetColor(renderers[i], origColors[i]);
+                if (changed[i])
+                    RendererColorUtil.TrySetColor(renderers[i], origColors[i]);
     }
 
     protected virtual void OnDeath()
@@ -737,19 +1031,17 @@ public class RTSUnit : MonoBehaviour
     System.Collections.IEnumerator DeathEffect()
     {
         float dur = 0.35f, t = 0f;
-        Vector3 startScale = transform.localScale;
         var renderers = GetComponentsInChildren<Renderer>();
         while (t < dur)
         {
             t += Time.deltaTime;
             float ratio = t / dur;
-            transform.localScale = startScale * (1f + ratio * 0.55f);
             Color dc = Color.Lerp(new Color(1f, 0.42f, 0.08f), new Color(0.1f, 0.04f, 0.04f), ratio);
             foreach (var r in renderers)
             {
                 if (r == null || r.material == null) continue;
                 string n = r.gameObject.name;
-                if (n == "FactionRing" || n == "FactionDot" || n == "SelectionRing") continue;
+                if (n == "FactionRing" || n == "FactionDot" || n == "SelectionRing" || n == "TechBuffRing") continue;
                 RendererColorUtil.TrySetColor(r, dc);
             }
             yield return null;
@@ -780,6 +1072,8 @@ public class RTSUnit : MonoBehaviour
         CurrentCommand = CommandType.Move;
         CommandTarget = dest;
         AttackTarget = null;
+        buildingTarget = null;
+        UseMoveStoppingDistance();
         if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(dest);
     }
 
@@ -787,6 +1081,8 @@ public class RTSUnit : MonoBehaviour
     {
         CurrentCommand = CommandType.Attack;
         AttackTarget = target;
+        buildingTarget = null;
+        UseCombatStoppingDistance();
     }
 
     public void ApplyAttackMoveCommand(Vector3 dest)
@@ -797,6 +1093,7 @@ public class RTSUnit : MonoBehaviour
         AttackTarget = null;
         _enemyScanTimer = 0f;   // 新命令时立即扫描
         _bldgScanTimer  = 0f;
+        UseMoveStoppingDistance();
         if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(dest);
     }
 
@@ -807,6 +1104,7 @@ public class RTSUnit : MonoBehaviour
         buildingTarget = target;
         AttackTarget = null;
         CommandTarget = target.transform.position;
+        UseCombatStoppingDistance();
         if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(target.transform.position);
     }
 
@@ -814,7 +1112,7 @@ public class RTSUnit : MonoBehaviour
     {
         CurrentCommand = CommandType.Stop;
         AttackTarget = null;
-        if (Agent != null) Agent.ResetPath();
+        SafeResetPath();
     }
 
     // 巡逻：在 A、B 两点之间往返，途中敌人进入 SightRange 自动反击
@@ -830,6 +1128,7 @@ public class RTSUnit : MonoBehaviour
         CommandTarget = b;
         _enemyScanTimer = 0f;
         _bldgScanTimer = 0f;
+        UseMoveStoppingDistance();
         if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(b);
     }
 
@@ -850,7 +1149,7 @@ public class RTSUnit : MonoBehaviour
             float dist = Vector3.Distance(transform.position, AttackTarget.transform.position);
             if (dist <= AttackRange)
             {
-                if (Agent != null) Agent.ResetPath();
+                SafeResetPath();
                 Vector3 dir = (AttackTarget.transform.position - transform.position).normalized;
                 if (dir != Vector3.zero)
                     transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Time.deltaTime * 5f);
@@ -858,6 +1157,7 @@ public class RTSUnit : MonoBehaviour
             }
             else if (dist <= SightRange)
             {
+                UseCombatStoppingDistance();
                 if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(AttackTarget.transform.position);
             }
             else
@@ -871,6 +1171,7 @@ public class RTSUnit : MonoBehaviour
         Vector3 target = _patrolTowardsB ? _patrolB : _patrolA;
         if (Agent != null && Agent.isOnNavMesh)
         {
+            UseMoveStoppingDistance();
             if (Agent.destination != target) Agent.SetDestination(target);
             if (!Agent.pathPending && Agent.remainingDistance < 1.0f)
             {
@@ -890,6 +1191,7 @@ public class RTSUnit : MonoBehaviour
     void ResumePatrolMove()
     {
         Vector3 target = _patrolTowardsB ? _patrolB : _patrolA;
+        UseMoveStoppingDistance();
         if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(target);
     }
 
@@ -914,7 +1216,7 @@ public class RTSUnit : MonoBehaviour
         {
             _guardTarget = null;
             CurrentCommand = CommandType.None;
-            if (Agent != null && Agent.isOnNavMesh) Agent.ResetPath();
+            SafeResetPath();
             return;
         }
         Vector3 guardPos = _guardTarget.transform.position;
@@ -939,7 +1241,7 @@ public class RTSUnit : MonoBehaviour
             }
             else if (distToEnemy <= AttackRange)
             {
-                if (Agent != null) Agent.ResetPath();
+                SafeResetPath();
                 Vector3 dir = (AttackTarget.transform.position - transform.position).normalized;
                 if (dir != Vector3.zero)
                     transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Time.deltaTime * 5f);
@@ -948,6 +1250,7 @@ public class RTSUnit : MonoBehaviour
             }
             else if (distToEnemy <= SightRange)
             {
+                UseCombatStoppingDistance();
                 if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(AttackTarget.transform.position);
                 return;
             }
@@ -960,11 +1263,13 @@ public class RTSUnit : MonoBehaviour
         float d = Vector3.Distance(transform.position, guardPos);
         if (d > GuardFollowDistance)
         {
+            UseMoveStoppingDistance();
             if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(guardPos);
         }
         else
         {
-            if (Agent != null && !Agent.pathPending) Agent.ResetPath();
+            if (Agent != null && Agent.enabled && Agent.isOnNavMesh && !Agent.pathPending)
+                SafeResetPath();
         }
     }
 
@@ -979,7 +1284,7 @@ public class RTSUnit : MonoBehaviour
         OwnerPC = pc; bPlayerOwned = true;
         // 更新阵营球颜色为蓝
         var fb = transform.Find("FactionBall");
-        if (fb != null) { var r = fb.GetComponent<Renderer>(); if (r != null) r.material.color = new Color(0.25f, 0.55f, 0.95f); }
+        if (fb != null) { var r = fb.GetComponent<Renderer>(); if (r != null) RendererColorUtil.TrySetColor(r, new Color(0.25f, 0.55f, 0.95f)); }
         // 已变成己方，移除战雾隐藏（如有）
         var fh = GetComponent<FogHideable>();
         if (fh != null) { fh.SetVisible(true); Destroy(fh); }

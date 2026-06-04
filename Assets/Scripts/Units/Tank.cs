@@ -10,12 +10,15 @@ public class Tank : RTSUnit
     // 履带印记
     private Vector3 _lastTrackPos;
     private bool _trackInit = false;
-    private const float TrackStep = 1.6f;       // 每移动 1.6m 生成一对履带印
-    private const float TrackHalfWidth = 0.55f; // 左右轮距
+    private const float TrackStep = 2.2f;       // 每移动 2.2m 生成一对履带印
+    private const float TrackHalfWidth = 0.8f;  // 左右轮距
     private const float TrackLifetime = 12f;
 
-    protected override float DesiredVisualHeight => 2.2f;
-    protected override float DesiredVisualFootprint => 2.5f;
+    protected override float DesiredVisualHeight => 3.0f;
+    protected override float DesiredVisualFootprint => 3.6f;
+    protected override float HealthBarHeight => 3.6f;
+    protected override float UnitLabelHeight => 3.25f;
+    protected override float SelectionRingRadius => 1.9f;
 
     protected override void Awake()
     {

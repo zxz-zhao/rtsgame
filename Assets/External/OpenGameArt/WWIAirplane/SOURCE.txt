@@ -1,0 +1,7 @@
+Asset: WW1 (WWI) Airplane model obj
+Source: https://opengameart.org/content/ww1-wwi-airplane-model-obj
+Download source: https://opengameart.org/sites/default/files/WWIairplane.obj
+Downloaded: 2026-06-02
+License: CC0
+Imported files: WWIairplane.obj
+

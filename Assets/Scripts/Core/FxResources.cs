@@ -106,7 +106,7 @@ public static class FxResources
     }
 
     /// <summary>
-    /// 创建朝上贴在地面上的圆形 Quad（透明贴图）。返回的 GameObject 含 MeshRenderer + 独立材质（可继续 mat.color 动态修改）。
+    /// 创建朝上贴在地面上的圆形 Quad（透明贴图）。返回的 GameObject 含 MeshRenderer + 独立材质（可继续动态修改颜色）。
     /// 若 parent != null，Quad 作为 parent 的子物体居中、抬高 yOffset。
     /// 若 parent == null，调用方需自行设置 transform.position；Quad 旋转固定为 (90,0,0) 平铺。
     /// </summary>
@@ -129,8 +129,7 @@ public static class FxResources
         rd.receiveShadows = false;
         var mat = new Material(GetUnlitTransparentShader());
         mat.mainTexture = GetDiscTexture(style);
-        if (mat.HasProperty("_Color")) mat.color = color;
-        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+        RendererColorUtil.TrySetColor(mat, color);
         rd.sharedMaterial = mat;
         return go;
     }
@@ -157,8 +156,7 @@ public static class FxResources
         rd.receiveShadows = false;
         var mat = new Material(GetUnlitTransparentShader());
         mat.mainTexture = GetDiscTexture(style);
-        if (mat.HasProperty("_Color")) mat.color = color;
-        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+        RendererColorUtil.TrySetColor(mat, color);
         rd.sharedMaterial = mat;
         go.AddComponent<_FxBillboard>();
         return go;

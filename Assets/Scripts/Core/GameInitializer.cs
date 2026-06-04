@@ -31,14 +31,14 @@ public class GameInitializer : MonoBehaviour
         if (rtsCam != null)
         {
             // 玩家蓝方基地位于 (-120, 0, -120)。相机俯视 +z，需要 z 偏移 ~-30 才能让基地处于屏幕中心。
-            float camY = 32f;
-            rtsCam.MinY = Mathf.Min(rtsCam.MinY, 20f);
-            rtsCam.transform.position = new Vector3(-120f, camY, -138f);
-            rtsCam.transform.rotation = Quaternion.Euler(61f, 0f, 0f);
+            // MinY 保持 RTSCamera 自身设定（42f），不强制降低，避免相机贴地后单位铺满全屏。
+            float camY = Mathf.Max(rtsCam.MinY, 75f);   // 75 比 55 高，开局能看到更大范围
+            rtsCam.transform.position = new Vector3(-120f, camY, -148f);
+            rtsCam.transform.rotation = Quaternion.Euler(54f, 0f, 0f);
 
             var cam = rtsCam.GetComponent<Camera>();
             if (cam != null && !cam.orthographic)
-                cam.fieldOfView = 36f;
+                cam.fieldOfView = rtsCam.DefaultFieldOfView;  // 用 RTSCamera 自身默认值 45°，不强制覆盖
         }
     }
 
@@ -90,7 +90,7 @@ public class GameInitializer : MonoBehaviour
 
         var renderer = go.GetComponent<Renderer>();
         if (renderer != null && renderer.material != null)
-            renderer.material.color = color;
+            RendererColorUtil.TrySetColor(renderer.material, color);
     }
 
     static void TintByName(string objectName, Color color)
@@ -99,7 +99,7 @@ public class GameInitializer : MonoBehaviour
         foreach (var renderer in renderers)
         {
             if (renderer != null && renderer.gameObject.name == objectName && renderer.material != null)
-                renderer.material.color = color;
+                RendererColorUtil.TrySetColor(renderer.material, color);
         }
     }
 
@@ -109,7 +109,7 @@ public class GameInitializer : MonoBehaviour
         foreach (var renderer in renderers)
         {
             if (renderer != null && renderer.gameObject.name.StartsWith(prefix) && renderer.material != null)
-                renderer.material.color = color;
+                RendererColorUtil.TrySetColor(renderer.material, color);
         }
     }
 
@@ -240,6 +240,13 @@ public class GameInitializer : MonoBehaviour
             AddBuildingLabel(a.gameObject, "飞机厂", new Color(0.4f,0.85f,1f));
         }
 
+        // 停机场
+        {
+            var af = SpawnBuilding<Airfield>("Airfield_P", new Vector3(-120f,0f,-60f),
+                new Vector3(10,1,8), new Color(0.18f,0.42f,0.58f), true, "停机场");
+            AddBuildingLabel(af.gameObject, "停机场", new Color(0.55f,0.95f,1f));
+        }
+
         // 特需厂
         {
             var tk = SpawnBuilding<TankFactory>("TankFactory_P", new Vector3(-60f,0f,-90f),
@@ -295,6 +302,13 @@ public class GameInitializer : MonoBehaviour
             AddBuildingLabel(ea.gameObject, "飞机厂", new Color(0.5f,0.7f,1f));
         }
 
+        // 停机场
+        {
+            var eaf = SpawnBuilding<Airfield>("Airfield_E", new Vector3(120f,0f,60f),
+                new Vector3(10,1,8), new Color(0.55f,0.30f,0.18f), false, "停机场");
+            AddBuildingLabel(eaf.gameObject, "停机场", new Color(1f,0.62f,0.42f));
+        }
+
         // 特需厂
         {
             var etk = SpawnBuilding<TankFactory>("TankFactory_E", new Vector3(60f,0f,90f),
@@ -346,7 +360,9 @@ public class GameInitializer : MonoBehaviour
         else
         {
             Debug.LogWarning($"[GameInitializer] Prefab not found: {prefabName}; no procedural visual will be drawn");
-            go = CreateBuildingVisual(prefabName, pos, fallbackScale, fallbackColor);
+            go = typeof(T) == typeof(Airfield)
+                ? CreateAirfieldVisual(prefabName, pos, fallbackColor)
+                : CreateBuildingVisual(prefabName, pos, fallbackScale, fallbackColor);
             comp = go.AddComponent<T>();
         }
         comp.bPlayerOwned = playerOwned;
@@ -378,6 +394,36 @@ public class GameInitializer : MonoBehaviour
         collider.center = new Vector3(0f, scale.y * 0.5f, 0f);
         collider.size = scale;
         return go;
+    }
+
+    static GameObject CreateAirfieldVisual(string objName, Vector3 pos, Color color)
+    {
+        var go = CreateBuildingVisual(objName, pos, new Vector3(10.2f, 1.0f, 7.8f), color);
+        AddAirfieldPart(go.transform, "AirfieldPad", new Vector3(0f, 0.04f, 0f), new Vector3(10.2f, 0.08f, 7.8f), color);
+        AddAirfieldPart(go.transform, "RunwayStripe", new Vector3(0f, 0.11f, 0f), new Vector3(0.22f, 0.04f, 6.8f), Color.Lerp(color, Color.white, 0.55f));
+        AddAirfieldPart(go.transform, "ParkingMarkL", new Vector3(-2.7f, 0.12f, -1.4f), new Vector3(1.8f, 0.04f, 0.16f), Color.Lerp(color, Color.white, 0.55f));
+        AddAirfieldPart(go.transform, "ParkingMarkR", new Vector3(2.7f, 0.12f, -1.4f), new Vector3(1.8f, 0.04f, 0.16f), Color.Lerp(color, Color.white, 0.55f));
+        AddAirfieldPart(go.transform, "FuelCrate", new Vector3(3.8f, 0.35f, 2.7f), new Vector3(0.9f, 0.7f, 0.9f), new Color(0.34f, 0.32f, 0.28f));
+        return go;
+    }
+
+    static void AddAirfieldPart(Transform parent, string name, Vector3 localPos, Vector3 localScale, Color color)
+    {
+        var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        part.name = name;
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPos;
+        part.transform.localScale = localScale;
+        var col = part.GetComponent<Collider>();
+        if (col != null) Object.Destroy(col);
+        var renderer = part.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            var shader = Shader.Find("Standard") ?? Shader.Find("Diffuse");
+            var mat = new Material(shader);
+            mat.color = color;
+            renderer.sharedMaterial = mat;
+        }
     }
 
     static void AddBuildingLabel(GameObject building, string label, Color color)

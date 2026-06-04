@@ -100,6 +100,15 @@ npm start
 .\Tools\CaptureAndroidLog.ps1
 ```
 
+## OpenClaw One-Click Setup
+
+This repo also includes local OpenClaw setup entry points:
+
+- Windows: `.\OpenClaw-OneClick-Install.cmd`
+- macOS / Linux / WSL2: `./OpenClaw-OneClick-Install.sh`
+
+See `OPENCLAW.md` for the Chinese feature checklist, model-provider notes, chat-channel notes, and safety reminders.
+
 ## Notes
 
 The project currently contains many local artifacts from build and emulator testing. The new `.gitignore` prevents future churn, but existing files on disk are left in place until explicitly cleaned.

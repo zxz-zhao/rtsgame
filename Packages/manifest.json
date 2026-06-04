@@ -4,9 +4,15 @@
       "name": "Unity China",
       "url": "https://packages.unity.cn",
       "scopes": ["com.unity"]
+    },
+    {
+      "name": "OpenUPM",
+      "url": "https://package.openupm.com",
+      "scopes": ["com.atteneder"]
     }
   ],
   "dependencies": {
+    "com.atteneder.gltfast": "6.10.0",
     "com.unity.ugui": "1.0.0",
     "com.unity.modules.ai": "1.0.0",
     "com.unity.modules.androidjni": "1.0.0",

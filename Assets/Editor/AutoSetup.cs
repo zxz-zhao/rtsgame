@@ -84,8 +84,8 @@ public class AutoSetup
         MakeUnit<Artillery>  ("Artillery_Enemy",   new Color(1f,0.5f,0f),       new Vector3(0.6f,0.8f,0.6f),  false);
         MakeUnit<Flamethrower>("Flame_Player",     Color.yellow,                new Vector3(0.5f,1.1f,0.5f),  true);
         MakeUnit<Flamethrower>("Flame_Enemy",      new Color(1f,0.3f,0.3f),     new Vector3(0.5f,1.1f,0.5f),  false);
-        MakeUnit<Tank>       ("Tank_Player",       Color.blue,                  new Vector3(1.2f,0.7f,1.8f),  true);
-        MakeUnit<Tank>       ("Tank_Enemy",        Color.red,                   new Vector3(1.2f,0.7f,1.8f),  false);
+        MakeUnit<Tank>       ("Tank_Player",       Color.blue,                  new Vector3(1.6f,1.0f,2.4f),  true);
+        MakeUnit<Tank>       ("Tank_Enemy",        Color.red,                   new Vector3(1.6f,1.0f,2.4f),  false);
         MakeUnit<Fighter>    ("Fighter_Player",    new Color(0.2f,0.4f,1f),     new Vector3(1.8f,0.4f,1.2f),  true);
         MakeUnit<Fighter>    ("Fighter_Enemy",     new Color(1f,0.2f,0.2f),     new Vector3(1.8f,0.4f,1.2f),  false);
         MakeUnit<Bomber>     ("Bomber_Player",     new Color(0f,0.6f,1f),       new Vector3(2.5f,0.5f,1.5f),  true);
@@ -348,16 +348,17 @@ public class AutoSetup
         Button skillBtn = MakeBtn(up.transform,"SkillButton","穿甲弹",new Vector2(0.5f,0.22f),new Vector2(150,38),new Color(0.8f,0.4f,0f),font).GetComponent<Button>();
 
         // 右下角：建筑面板
-        GameObject bp = MakePanel(hudGO.transform,"BuildingPanel",Vector2.zero,new Vector2(320,215));
-        SetAnchorBottomRight(bp, new Vector2(-8,8), new Vector2(320,215));
+        GameObject bp = MakePanel(hudGO.transform,"BuildingPanel",Vector2.zero,new Vector2(414,320));
+        SetAnchorBottomRight(bp, new Vector2(-12,34), new Vector2(414,320));
         bp.SetActive(false);
-        Text bnTxt  = MakeTxt(bp.transform,"BuildingNameText","建筑",new Vector2(0.5f,0.9f),new Vector2(280,34),20,Color.white,font).GetComponent<Text>();
-        Slider bhBar = MakeSlider(bp.transform,"BuildingHPBar",new Vector2(0.5f,0.76f),new Vector2(280,16),Color.green);
-        Slider pBar  = MakeSlider(bp.transform,"ProductionBar",new Vector2(0.5f,0.63f),new Vector2(280,13),Color.cyan);
-        Text pTxt    = MakeTxt(bp.transform,"ProductionText","空闲",new Vector2(0.5f,0.5f),new Vector2(240,24),15,Color.white,font).GetComponent<Text>();
+        Text bnTxt  = MakeTxt(bp.transform,"BuildingNameText","建筑",new Vector2(0.5f,0.94f),new Vector2(378,34),23,Color.white,font).GetComponent<Text>();
+        Slider bhBar = MakeSlider(bp.transform,"BuildingHPBar",new Vector2(0.5f,0.75f),new Vector2(372,20),Color.green);
+        Text bhTxt = MakeTxt(bp.transform,"BuildingHPText","---/---",new Vector2(0.82f,0.80f),new Vector2(150,24),15,new Color(0.82f,1f,0.78f),font).GetComponent<Text>();
+        Slider pBar  = MakeSlider(bp.transform,"ProductionBar",new Vector2(0.5f,0.60f),new Vector2(372,16),Color.cyan);
+        Text pTxt    = MakeTxt(bp.transform,"ProductionText","空闲",new Vector2(0.5f,0.5f),new Vector2(360,34),16,Color.white,font).GetComponent<Text>();
         Button[] pBtns = new Button[4];
         for(int i=0;i<4;i++) pBtns[i]=MakeBtn(bp.transform,$"ProductionButton{i}",$"单位{i+1}",
-            new Vector2(0.14f+i*0.24f,0.2f),new Vector2(62,54),new Color(0.2f,0.4f,0.6f),font).GetComponent<Button>();
+            new Vector2(0.20f+(i%3)*0.30f,0.29f-(i/3)*0.25f),new Vector2(122,68),new Color(0.2f,0.4f,0.6f),font).GetComponent<Button>();
 
         // 游戏结束面板（全屏遮罩 + 结算卡）
         GameObject gop = MakeImg(hudGO.transform, "GameOverPanel", new Color(0f, 0f, 0f, 0.78f), Vector2.zero, Vector2.one);
@@ -392,7 +393,7 @@ public class AutoSetup
         Text markTxt = MakeTxt(badge.transform, "Mark", "V", new Vector2(0.5f, 0.5f), new Vector2(56f, 56f), 30, new Color(0.95f, 0.76f, 0.20f, 0.96f), font).GetComponent<Text>();
         markTxt.fontStyle = FontStyle.Bold;
 
-        GameObject report = MakePanel(goCard.transform, "GoReportPanel", new Vector2(0.5f, 0.410f), new Vector2(640f, 205f));
+        GameObject report = MakePanel(goCard.transform, "GoReportPanel", new Vector2(0.5f, 0.410f), new Vector2(640f, 225f));
         report.GetComponent<Image>().color = new Color(0.018f, 0.027f, 0.030f, 0.88f);
         var reportOutline = report.AddComponent<Outline>();
         reportOutline.effectColor = new Color(0.34f, 0.58f, 0.58f, 0.48f);
@@ -412,16 +413,16 @@ public class AutoSetup
         reportRuleRt.anchoredPosition = new Vector2(0f, -42f);
         reportRuleRt.sizeDelta = new Vector2(-44f, 2f);
         reportRule.AddComponent<Image>().color = new Color(0.94f, 0.72f, 0.22f, 0.35f);
-        Text statsTxt = MakeTxt(report.transform, "GameOverStatsText", "", new Vector2(0.5f, 0.5f), new Vector2(590f, 142f), 16, new Color(0.84f, 0.93f, 1f), font).GetComponent<Text>();
+        Text statsTxt = MakeTxt(report.transform, "GameOverStatsText", "", new Vector2(0.5f, 0.5f), new Vector2(602f, 163f), 13, new Color(0.84f, 0.93f, 1f), font).GetComponent<Text>();
         var statsRt = statsTxt.rectTransform;
         statsRt.anchorMin = Vector2.zero;
         statsRt.anchorMax = Vector2.one;
         statsRt.pivot = new Vector2(0.5f, 0.5f);
-        statsRt.offsetMin = new Vector2(24f, 16f);
-        statsRt.offsetMax = new Vector2(-22f, -50f);
-        statsTxt.fontSize = 15;
+        statsRt.offsetMin = new Vector2(20f, 14f);
+        statsRt.offsetMax = new Vector2(-18f, -48f);
+        statsTxt.fontSize = 13;
         statsTxt.alignment = TextAnchor.UpperLeft;
-        statsTxt.lineSpacing = 1.10f;
+        statsTxt.lineSpacing = 1.04f;
         statsTxt.horizontalOverflow = HorizontalWrapMode.Wrap;
         statsTxt.verticalOverflow = VerticalWrapMode.Overflow;
         statsTxt.color = new Color(0.84f, 0.93f, 1f);
@@ -441,11 +442,11 @@ public class AutoSetup
 
         gop.SetActive(false);
 
-        // 暂停菜单
+        // 战局菜单
         GameObject pp = MakePanel(hudGO.transform,"PausePanel",new Vector2(0.5f,0.5f),new Vector2(280,190));
         pp.SetActive(false);
-        MakeTxt(pp.transform,"PT","暂 停",new Vector2(0.5f,0.78f),new Vector2(220,48),34,Color.white,font);
-        MakeBtn(pp.transform,"ResumeButton","继续",new Vector2(0.5f,0.5f),new Vector2(180,48),new Color(0.2f,0.5f,0.2f),font);
+        MakeTxt(pp.transform,"PT","战局菜单",new Vector2(0.5f,0.78f),new Vector2(220,48),34,Color.white,font);
+        MakeBtn(pp.transform,"ResumeButton","返回战场",new Vector2(0.5f,0.5f),new Vector2(180,48),new Color(0.2f,0.5f,0.2f),font);
         MakeBtn(pp.transform,"PauseMenuButton","返回主菜单",new Vector2(0.5f,0.2f),new Vector2(180,44),new Color(0.5f,0.2f,0.2f),font);
 
         // 绑定 RTSHUD 引用
@@ -456,7 +457,7 @@ public class AutoSetup
         hud.UnitInfoPanel=up; hud.UnitNameText=unTxt; hud.UnitHPBar=uhBar;
         hud.UnitHPText=uhTxt; hud.SkillButton=skillBtn;
         hud.BuildingPanel=bp; hud.BuildingNameText=bnTxt; hud.BuildingHPBar=bhBar;
-        hud.ProductionBar=pBar; hud.ProductionText=pTxt; hud.ProductionButtons=pBtns;
+        hud.BuildingHPText=bhTxt; hud.ProductionBar=pBar; hud.ProductionText=pTxt; hud.ProductionButtons=pBtns;
         hud.GameOverPanel=gop; hud.GameOverText=gotTxt; hud.GameOverStatsText=statsTxt;
         hud.RestartButton=restBtn; hud.LobbyButton=lobBtn; hud.MenuButton=menuBtn;
         hud.PausePanel=pp;

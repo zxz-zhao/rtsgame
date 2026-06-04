@@ -90,8 +90,8 @@ public class CombatProjectile : MonoBehaviour
             Material[] materials = renderer.materials;
             for (int i = 0; i < materials.Length; i++)
             {
-                if (materials[i] != null && materials[i].HasProperty("_Color"))
-                    materials[i].color = Color.Lerp(materials[i].color, tint, 0.58f);
+                if (RendererColorUtil.TryGetColor(materials[i], out Color baseColor))
+                    RendererColorUtil.TrySetColor(materials[i], Color.Lerp(baseColor, tint, 0.58f));
             }
         }
     }
@@ -104,8 +104,8 @@ public class CombatProjectile : MonoBehaviour
 
         var shader = Shader.Find("Unlit/Color") ?? Shader.Find("Standard");
         trail.material = new Material(shader) { color = new Color(tint.r, tint.g, tint.b, 0.74f) };
-        trail.time = 0.12f;
-        trail.startWidth = Mathf.Clamp(impactRadius * 0.18f, 0.05f, 0.32f);
+        trail.time = Mathf.Clamp(0.10f + impactRadius * 0.055f, 0.12f, 0.30f);
+        trail.startWidth = Mathf.Clamp(impactRadius * 0.22f, 0.05f, 0.56f);
         trail.endWidth = 0f;
         trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         trail.receiveShadows = false;

@@ -403,29 +403,47 @@ public static class AutomatedProjectTest
         ValidateProjectilePrefab("BattleProjectile_Bomb", failures, "BombModel");
         ValidateProjectilePrefab("BattleProjectile_Flame", failures, "FlameModel");
 
-        ValidatePrefabModel("Infantry_P", failures, "Model", "KenneyCharacter", "KenneyWeapon", "Muzzle", "FactionPlate");
-        ValidatePrefabModel("Infantry_E", failures, "Model", "KenneyCharacter", "KenneyWeapon", "Muzzle", "FactionPlate");
+        ValidatePrefabModel("Infantry_P", failures, "Model", "MixamoBasicShooter", "KenneyWeapon", "WW2RifleBarrel", "Muzzle", "FactionPlate");
+        ValidatePrefabModel("Infantry_E", failures, "Model", "MixamoBasicShooter", "KenneyWeapon", "WW2RifleBarrel", "Muzzle", "FactionPlate");
         ValidatePrefabModel("Tank_P", failures, "Model", "KenneyVehicleBase", "KenneyTankCannon", "Muzzle", "FactionPlate");
         ValidatePrefabModel("Tank_E", failures, "Model", "KenneyVehicleBase", "KenneyTankCannon", "Muzzle", "FactionPlate");
-        ValidatePrefabModel("Artillery_P", failures, "Model", "KenneyVehicleBase", "KenneyCannon", "Muzzle", "KenneyAmmoCrate", "FactionPlate");
-        ValidatePrefabModel("Artillery_E", failures, "Model", "KenneyVehicleBase", "KenneyCannon", "Muzzle", "KenneyAmmoCrate", "FactionPlate");
+        ValidatePrefabModel("Artillery_P", failures, "Model", "MixamoBasicShooter", "KenneyWeapon", "WW2ShoulderTube", "WW2ShoulderMuzzle", "Muzzle", "FactionPlate");
+        ValidatePrefabModel("Artillery_E", failures, "Model", "MixamoBasicShooter", "KenneyWeapon", "WW2ShoulderTube", "WW2ShoulderMuzzle", "Muzzle", "FactionPlate");
+        ValidatePrefabDoesNotContain("Infantry_P", failures, "WW2ShoulderTube", "WW2ShoulderMuzzle");
+        ValidatePrefabDoesNotContain("Infantry_E", failures, "WW2ShoulderTube", "WW2ShoulderMuzzle");
+        ValidatePrefabDoesNotContain("Artillery_P", failures, "WW2RifleBarrel", "WW2RifleStock", "RifleBarrel", "RifleStock", "WW2ShellBandolier", "KenneyAmmoBall", "ArtilleryWeaponSocket");
+        ValidatePrefabDoesNotContain("Artillery_E", failures, "WW2RifleBarrel", "WW2RifleStock", "RifleBarrel", "RifleStock", "WW2ShellBandolier", "KenneyAmmoBall", "ArtilleryWeaponSocket");
         ValidatePrefabModel("Flamethrower_P", failures, "Model", "KenneyVehicleBase", "KenneyWeapon", "KenneyFuelTank", "KenneyFuelTankB", "Muzzle", "WW2FlameArmor", "FactionPlate");
         ValidatePrefabModel("Flamethrower_E", failures, "Model", "KenneyVehicleBase", "KenneyWeapon", "KenneyFuelTank", "KenneyFuelTankB", "Muzzle", "WW2FlameArmor", "FactionPlate");
         ValidatePrefabModel("Fighter_P", failures, "Model", "KenneyAircraft", "KenneyNosePod", "Muzzle", "FactionPlate");
         ValidatePrefabModel("Bomber_P", failures, "Model", "KenneyAircraft", "KenneyBombA", "KenneyBombB", "Muzzle", "FactionPlate");
         ValidatePrefabModel("ScoutPlane_P", failures, "Model", "KenneyAircraft", "KenneySensor", "Muzzle", "FactionPlate");
+        ValidateAircraftSlotRequirement("Fighter_P", true, failures);
+        ValidateAircraftSlotRequirement("Fighter_E", true, failures);
+        ValidateAircraftSlotRequirement("Bomber_P", true, failures);
+        ValidateAircraftSlotRequirement("Bomber_E", true, failures);
+        ValidateAircraftSlotRequirement("ScoutPlane_P", false, failures);
+        ValidateAircraftSlotRequirement("ScoutPlane_E", false, failures);
         ValidatePrefabParts("Turret_P", failures, "Model", "WW2TurretCannon", "Muzzle", "FactionPlate");
         ValidatePrefabParts("Turret_E", failures, "Model", "WW2TurretCannon", "Muzzle", "FactionPlate");
+        ValidatePrefabParts("PowerPlant_P", failures, "Model", "WW2PowerPlantShed", "WW2PowerStackA", "WW2PowerFuelTankL", "WW2PowerGeneratorHouse", "WW2PowerSandbagFence", "FactionPlate");
+        ValidatePrefabParts("PowerPlant_E", failures, "Model", "WW2PowerPlantShed", "WW2PowerStackA", "WW2PowerFuelTankL", "WW2PowerGeneratorHouse", "WW2PowerSandbagFence", "FactionPlate");
         ValidatePrefabAnimator("Infantry_P", failures);
         ValidatePrefabAnimator("Infantry_E", failures);
         ValidatePrefabAnimatorParameters("Infantry_P", failures, "Speed", "Fire", "Die");
         ValidatePrefabAnimatorParameters("Infantry_E", failures, "Speed", "Fire", "Die");
         ValidatePrefabAttachmentBinder("Infantry_P", failures, 2);
         ValidatePrefabAttachmentBinder("Infantry_E", failures, 2);
-        ValidatePrefabAttachmentParent("Infantry_P", failures, "KenneyWeapon", "RightHand", "RightForeArm", "RightArm");
-        ValidatePrefabAttachmentParent("Infantry_P", failures, "FactionPlate", "UpperChest", "Chest", "Spine");
-        ValidatePrefabAttachmentParent("Infantry_E", failures, "KenneyWeapon", "RightHand", "RightForeArm", "RightArm");
-        ValidatePrefabAttachmentParent("Infantry_E", failures, "FactionPlate", "UpperChest", "Chest", "Spine");
+        ValidatePrefabAttachmentParent("Infantry_P", failures, "KenneyWeapon", "RightHand", "RightForeArm", "RightArm", "mixamorig:RightHand");
+        ValidatePrefabAttachmentParent("Infantry_P", failures, "FactionPlate", "UpperChest", "Chest", "Spine", "mixamorig:Spine2", "mixamorig:Spine1");
+        ValidatePrefabAttachmentParent("Infantry_E", failures, "KenneyWeapon", "RightHand", "RightForeArm", "RightArm", "mixamorig:RightHand");
+        ValidatePrefabAttachmentParent("Infantry_E", failures, "FactionPlate", "UpperChest", "Chest", "Spine", "mixamorig:Spine2", "mixamorig:Spine1");
+        ValidateUnitScaleTarget<Infantry>("Infantry_P", failures, 3.6f, 2.0f);
+        ValidateUnitScaleTarget<Infantry>("Infantry_E", failures, 3.6f, 2.0f);
+        ValidateUnitScaleTarget<Artillery>("Artillery_P", failures, 3.6f, 2.0f);
+        ValidateUnitScaleTarget<Artillery>("Artillery_E", failures, 3.6f, 2.0f);
+        ValidateUnitScaleTarget<Fighter>("Fighter_P", failures, 1.2f, 2.6f);
+        ValidateUnitScaleTarget<Fighter>("Fighter_E", failures, 1.2f, 2.6f);
         ValidatePrefabProjectile("Infantry_P", failures, "Prefabs/Projectiles/BattleProjectile_Bullet");
         ValidatePrefabProjectile("Flamethrower_P", failures, "Prefabs/Projectiles/BattleProjectile_Flame");
         ValidatePrefabProjectile("Tank_P", failures, "Prefabs/Projectiles/BattleProjectile_Shell");
@@ -457,6 +475,12 @@ public static class AutomatedProjectTest
         ValidateExternalModelAsset(failures, "Assets/External/Kenney/AnimatedCharactersSurvivors/Animations/idle.fbx");
         ValidateExternalModelAsset(failures, "Assets/External/Kenney/AnimatedCharactersSurvivors/Animations/run.fbx");
         ValidateExternalModelAsset(failures, "Assets/External/Kenney/AnimatedCharactersSurvivors/Animations/jump.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/Downloads/city-industrial/Models/FBX format/building-c.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/Downloads/city-industrial/Models/FBX format/chimney-large.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/Downloads/city-industrial/Models/FBX format/detail-tank.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/Downloads/factory-kit/Models/FBX format/machine-fortified.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/Downloads/factory-kit/Models/FBX format/pipe-large-long.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/Downloads/factory-kit/Models/FBX format/catwalk-straight.fbx");
     }
 
     static void ValidateExternalModelAsset(List<string> failures, string assetPath)
@@ -496,6 +520,56 @@ public static class AutomatedProjectTest
 
         if (prefab.GetComponent<UnitVisualAnimator>() == null)
             failures.Add(prefabName + " 缺少 UnitVisualAnimator。");
+    }
+
+    static void ValidatePrefabDoesNotContain(string prefabName, List<string> failures, params string[] forbiddenParts)
+    {
+        GameObject prefab = Resources.Load<GameObject>("Prefabs/" + prefabName);
+        if (prefab == null) return;
+
+        foreach (string partName in forbiddenParts)
+        {
+            if (HasChildNamed(prefab.transform, partName))
+                failures.Add(prefabName + " still contains forbidden artillery model part: " + partName);
+        }
+    }
+
+    static void ValidatePrefabModelMatches(string prefabName, string referencePrefabName, List<string> failures)
+    {
+        GameObject prefab = Resources.Load<GameObject>("Prefabs/" + prefabName);
+        GameObject referencePrefab = Resources.Load<GameObject>("Prefabs/" + referencePrefabName);
+        if (prefab == null || referencePrefab == null) return;
+
+        Transform model = prefab.transform.Find("Model");
+        Transform referenceModel = referencePrefab.transform.Find("Model");
+        if (model == null || referenceModel == null)
+        {
+            failures.Add(prefabName + " or " + referencePrefabName + " is missing Model for visual comparison.");
+            return;
+        }
+
+        string signature = BuildModelHierarchySignature(model);
+        string referenceSignature = BuildModelHierarchySignature(referenceModel);
+        if (signature != referenceSignature)
+            failures.Add(prefabName + " Model hierarchy must match " + referencePrefabName + "; artillery should reuse the infantry visual model.");
+    }
+
+    static string BuildModelHierarchySignature(Transform modelRoot)
+    {
+        var paths = new List<string>();
+        AppendModelHierarchy(modelRoot, modelRoot.name, paths);
+        paths.Sort();
+        return string.Join("\n", paths.ToArray());
+    }
+
+    static void AppendModelHierarchy(Transform node, string path, List<string> paths)
+    {
+        if (node == null)
+            return;
+
+        paths.Add(path);
+        foreach (Transform child in node)
+            AppendModelHierarchy(child, path + "/" + child.name, paths);
     }
 
     static void ValidatePrefabAnimator(string prefabName, List<string> failures)
@@ -563,6 +637,51 @@ public static class AutomatedProjectTest
             failures.Add(prefabName + " attachment bindings are incomplete.");
     }
 
+    static void ValidateUnitScaleTarget<TUnit>(string prefabName, List<string> failures, float expectedHeight, float expectedFootprint)
+        where TUnit : RTSUnit
+    {
+        GameObject prefab = Resources.Load<GameObject>("Prefabs/" + prefabName);
+        if (prefab == null) return;
+
+        TUnit unit = prefab.GetComponent<TUnit>();
+        if (unit == null)
+        {
+            failures.Add(prefabName + " missing " + typeof(TUnit).Name + " component.");
+            return;
+        }
+
+        float height = ReadProtectedFloat(unit, "DesiredVisualHeight");
+        float footprint = ReadProtectedFloat(unit, "DesiredVisualFootprint");
+        if (!Approximately(height, expectedHeight))
+            failures.Add(prefabName + " visual height mismatch: " + height + " != " + expectedHeight);
+        if (!Approximately(footprint, expectedFootprint))
+            failures.Add(prefabName + " visual footprint mismatch: " + footprint + " != " + expectedFootprint);
+    }
+
+    static float ReadProtectedFloat(object instance, string propertyName)
+    {
+        System.Type type = instance.GetType();
+        while (type != null)
+        {
+            PropertyInfo property = type.GetProperty(propertyName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            if (property != null)
+            {
+                object value = property.GetValue(instance, null);
+                if (value is float f)
+                    return f;
+            }
+
+            type = type.BaseType;
+        }
+
+        return float.NaN;
+    }
+
+    static bool Approximately(float a, float b)
+    {
+        return Mathf.Abs(a - b) <= 0.001f;
+    }
+
     static void ValidatePrefabAttachmentParent(string prefabName, List<string> failures, string attachmentName, params string[] expectedParents)
     {
         GameObject prefab = Resources.Load<GameObject>("Prefabs/" + prefabName);
@@ -623,6 +742,22 @@ public static class AutomatedProjectTest
             failures.Add(prefabName + " projectile path mismatch: " + unit.ProjectilePrefabPath + " expected " + expectedPath);
         if (Resources.Load<GameObject>(unit.ProjectilePrefabPath) == null)
             failures.Add(prefabName + " projectile prefab cannot be loaded: " + unit.ProjectilePrefabPath);
+    }
+
+    static void ValidateAircraftSlotRequirement(string prefabName, bool expected, List<string> failures)
+    {
+        GameObject prefab = Resources.Load<GameObject>("Prefabs/" + prefabName);
+        if (prefab == null) return;
+
+        AirUnit air = prefab.GetComponent<AirUnit>();
+        if (air == null)
+        {
+            failures.Add(prefabName + " missing AirUnit component for airfield slot validation.");
+            return;
+        }
+
+        if (air.RequiresAirfieldSlot != expected)
+            failures.Add(prefabName + " airfield slot requirement mismatch: " + air.RequiresAirfieldSlot + " expected " + expected);
     }
 
     static void ValidateProjectilePrefab(string prefabName, List<string> failures, params string[] requiredParts)

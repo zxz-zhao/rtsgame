@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using System.Collections.Generic;
 
 // 游戏HUD管理器：顶部信息栏、单位信息、建筑生产、游戏结束面板
@@ -24,6 +25,7 @@ public class RTSHUD : MonoBehaviour
     public GameObject BuildingPanel;
     public Text BuildingNameText;
     public Slider BuildingHPBar;
+    public Text BuildingHPText;
     public Slider ProductionBar;
     public Text ProductionText;
     public Button[] ProductionButtons;
@@ -36,7 +38,7 @@ public class RTSHUD : MonoBehaviour
     public Button LobbyButton;
     public Button MenuButton;
 
-    [Header("暂停菜单")]
+    [Header("战局菜单")]
     public GameObject PausePanel;
     public Button ResumeButton;
     public Button SurrenderButton;
@@ -66,6 +68,7 @@ public class RTSHUD : MonoBehaviour
     [Header("建筑Prefab（快捷键 + 移动端按钮用）")]
     public GameObject BarracksPrefab;
     public GameObject AirFactoryPrefab;
+    public GameObject AirfieldPrefab;
     public GameObject TankFactoryPrefab;
     public GameObject TurretPrefab;
     public GameObject GoldMinePrefab;
@@ -74,12 +77,70 @@ public class RTSHUD : MonoBehaviour
     [Header("建造面板（移动端）")]
     public GameObject BuildMenuPanel;     // 折叠/展开的建造菜单
     public Button     BuildMenuToggle;    // 底部建造按钮（展开/收起）
-    public Button[]   BuildButtons;       // 6个建造按钮：兵工厂/飞机厂/特需厂/炮塔/金矿/电厂
+    public Button[]   BuildButtons;       // 建造按钮：兵工厂/飞机厂/停机场/特需厂/炮塔/金矿/电厂
+    const int BuildButtonCount = 7;
+    static readonly string[] BuildButtonLabels = { "兵工厂", "飞机厂", "停机场", "特需厂", "炮塔", "金矿", "电厂" };
+    static readonly Color[] BuildButtonColors = {
+        new Color(0.18f, 0.42f, 0.18f, 0.96f),
+        new Color(0.10f, 0.38f, 0.58f, 0.96f),
+        new Color(0.18f, 0.34f, 0.58f, 0.96f),
+        new Color(0.42f, 0.28f, 0.08f, 0.96f),
+        new Color(0.48f, 0.12f, 0.12f, 0.96f),
+        new Color(0.50f, 0.44f, 0.04f, 0.96f),
+        new Color(0.38f, 0.20f, 0.52f, 0.96f)
+    };
     private bool bBuildMenuOpen = false;
     private int _activeBuildCategory = 0;
     private Button[] _buildCategoryButtons;
     private Text _buildEmptyText;
     private static readonly string[] BuildCategoryNames = { "建筑", "战斗", "经济", "海上", "空军", "陆地" };
+    private const int BuildCategoryColumnCount = 4;
+    private const float BuildCategoryButtonWidth = 144f;
+    private const float BuildCategoryButtonHeight = 84f;
+    private const float BuildCategoryButtonStepX = 154f;
+    private const float BuildCategoryButtonStepY = 96f;
+    private const float BuildCategoryGridStartX = -231f;
+    private const float BuildCategoryGridStartY = 4f;
+    private static readonly Vector2 BuildMenuPopupSize = new Vector2(676f, 356f);
+    private static readonly Vector2 BuildMenuPopupPosition = Vector2.zero;
+    private GameObject TechPanel;
+    private bool _techPanelOpen = false;
+    private Vector2 _lastTechPanelCanvasSize = Vector2.zero;
+    private const float TechPanelMaxWidth = 560f;
+    private const float TechPanelMaxHeight = 320f;
+    private const float TechPanelMinWidth = 300f;
+    private const float TechPanelMinHeight = 220f;
+    private struct BattleTechSpec
+    {
+        public string Id;
+        public string Name;
+        public string Glyph;
+        public float Radius;
+        public float Duration;
+        public float Cooldown;
+        public float MoveMultiplier;
+        public float DamageMultiplier;
+        public float AttackRangeBonus;
+        public float AttackIntervalMultiplier;
+        public float DefenseReduction;
+        public float SightRangeBonus;
+        public float RegenPerSecond;
+        public Color Color;
+    }
+
+    private BattleTechSpec[] _battleTechs;
+    private Button[] _techButtons;
+    private Image[] _techCooldownFills;
+    private Text[] _techCooldownTexts;
+    private float[] _techCooldownEnds;
+    private int _techTargetingIndex = -1;
+    private Vector2 _techTargetStartScreen;
+    private float _techTargetStartTime;
+    private GameObject _techTargetRing;
+    private Renderer _techTargetRingRenderer;
+    private Vector3 _techTargetPoint;
+    private int _techConsumedInputFrame = -1;
+    private bool _techIgnoreInitialRelease;
 
     private RTSPlayerState playerState;
     private List<RTSUnit> currentSelectedUnits = new List<RTSUnit>();
@@ -101,8 +162,6 @@ public class RTSHUD : MonoBehaviour
     private Coroutine _gameOverAutoLobbyRoutine;
     private Coroutine _gameOverCardIntroRoutine;
     private bool _settingsOpen = false;
-    private bool _settingsPausedTime = false;
-    private float _settingsPreviousTimeScale = 1f;
 
     void Awake()
     {
@@ -113,9 +172,14 @@ public class RTSHUD : MonoBehaviour
     void Start()
     {
         playerState = RTSPlayerState.Instance;
+        var startupCanvas = GetComponentInParent<Canvas>();
+        if (startupCanvas == null) startupCanvas = FindObjectOfType<Canvas>();
+        ResolveHudActionUiReferences(startupCanvas);
         // 编辑器未赋值时从 Resources 加载建筑Prefab（保证快捷键和按钮可用）
         if (BarracksPrefab    == null) BarracksPrefab    = Resources.Load<GameObject>("Prefabs/Barracks_P");
         if (AirFactoryPrefab  == null) AirFactoryPrefab  = Resources.Load<GameObject>("Prefabs/AirFactory_P");
+        if (AirfieldPrefab    == null) AirfieldPrefab    = Resources.Load<GameObject>("Prefabs/Airfield_P");
+        if (AirfieldPrefab    == null) AirfieldPrefab    = CreateRuntimeAirfieldPrefab();
         if (TankFactoryPrefab == null) TankFactoryPrefab = Resources.Load<GameObject>("Prefabs/TankFactory_P");
         if (TurretPrefab      == null) TurretPrefab      = Resources.Load<GameObject>("Prefabs/Turret_P");
         if (GoldMinePrefab    == null) GoldMinePrefab    = Resources.Load<GameObject>("Prefabs/GoldMine_P");
@@ -132,7 +196,11 @@ public class RTSHUD : MonoBehaviour
         ApplySavedAudioSettings();
 
         // 建造菜单
-        BuildMenuToggle?.onClick.AddListener(() => { _UiClickAudio.PlayClick(); ToggleBuildMenu(); });
+        if (BuildMenuToggle != null)
+        {
+            BuildMenuToggle.onClick.RemoveListener(OnBuildMenuToggleClicked);
+            BuildMenuToggle.onClick.AddListener(OnBuildMenuToggleClicked);
+        }
         WireBuildButtons();
         // 二战风 RTS 没有主动技能：永久隐藏旧场景里残留的 SkillButton（不绑定 onClick，不创建冷却圆环）
         if (SkillButton != null) SkillButton.gameObject.SetActive(false);
@@ -145,6 +213,11 @@ public class RTSHUD : MonoBehaviour
         if (canvas != null) _vignette = _HudVignettePulse.CreateOnCanvas(canvas);
         // 战场环境背景音乐（程序化合成）
         _BattleAmbientMusic.CreateOnScene();
+    }
+
+    void OnDisable()
+    {
+        StopVoiceCapture();
     }
 
     /// <summary>战场 HUD 完整重新布局：顶部指挥官栏 + 左下地图/建造/科技 + 底部路线。</summary>
@@ -165,17 +238,17 @@ public class RTSHUD : MonoBehaviour
                 rt.anchorMax = new Vector2(1f, 1f);
                 rt.pivot = new Vector2(0.5f, 1f);
                 rt.anchoredPosition = Vector2.zero;
-                rt.sizeDelta = new Vector2(0f, 92f);
+                rt.sizeDelta = new Vector2(0f, 76f);
             }
-            // 重新摆放原有的 4 个文字字段到合适位置
-            RepositionTopBarField(GoldText,      new Vector2(0f, 0.5f), new Vector2(58f, 0f),   TextAnchor.MiddleLeft);
-            RepositionTopBarField(PowerText,     new Vector2(0f, 0.5f), new Vector2(278f, 0f),  TextAnchor.MiddleLeft);
-            RepositionTopBarField(GameTimerText, new Vector2(0.5f, 1f), new Vector2(0f, -8f),   TextAnchor.MiddleCenter);
-            RepositionTopBarField(KillText,      new Vector2(1f, 0.5f), new Vector2(-172f, 0f), TextAnchor.MiddleRight);
-            RepositionTopBarField(PopText,       new Vector2(1f, 0.5f), new Vector2(-30f, 0f),  TextAnchor.MiddleRight);
-            // 资源图标
-            EnsureResourceIcon(topBarGO.transform, "_GoldIcon",  new Vector2(0f, 0.5f), new Vector2(26f, 2f),  "$",  new Color(1f, 0.92f, 0.40f));
-            EnsureResourceIcon(topBarGO.transform, "_PowerIcon", new Vector2(0f, 0.5f), new Vector2(246f, 2f), "⚡", new Color(0.55f, 1f, 0.55f));
+            RepositionTopBarField(GoldText,      new Vector2(0.17f, 0.56f), Vector2.zero, TextAnchor.MiddleCenter);
+            RepositionTopBarField(PopText,       new Vector2(0.32f, 0.56f), Vector2.zero, TextAnchor.MiddleCenter);
+            RepositionTopBarField(PowerText,     new Vector2(0.64f, 0.56f), Vector2.zero, TextAnchor.MiddleCenter);
+            RepositionTopBarField(GameTimerText, new Vector2(0.77f, 0.56f), Vector2.zero, TextAnchor.MiddleCenter);
+            if (KillText != null) KillText.gameObject.SetActive(false);
+            var oldGoldIcon = topBarGO.transform.Find("_GoldIcon");
+            if (oldGoldIcon != null) oldGoldIcon.gameObject.SetActive(false);
+            var oldPowerIcon = topBarGO.transform.Find("_PowerIcon");
+            if (oldPowerIcon != null) oldPowerIcon.gameObject.SetActive(false);
         }
 
         // ── 2. 小地图：固定到左下，避免只露出一小块或被旧父节点裁剪。────
@@ -193,7 +266,7 @@ public class RTSHUD : MonoBehaviour
             rt.anchorMax = new Vector2(0f, 0f);
             rt.pivot = new Vector2(0f, 0f);
             rt.anchoredPosition = new Vector2(10f, 68f);
-            rt.sizeDelta = new Vector2(154f, 116f);
+            rt.sizeDelta = new Vector2(260f, 195f);
             MinimapImage.transform.SetAsLastSibling();
         }
 
@@ -209,7 +282,7 @@ public class RTSHUD : MonoBehaviour
                 rt.anchorMin = new Vector2(0f, 0f);
                 rt.anchorMax = new Vector2(0f, 0f);
                 rt.pivot = new Vector2(0f, 0f);
-                rt.anchoredPosition = new Vector2(16f, 314f);
+                rt.anchoredPosition = new Vector2(16f, 328f);
                 rt.sizeDelta = new Vector2(136f, 42f);
             }
             StyleSideHudButton(BuildMenuToggle, bBuildMenuOpen ? "收起" : "建造", "⌂",
@@ -217,8 +290,9 @@ public class RTSHUD : MonoBehaviour
             BuildMenuToggle.transform.SetAsLastSibling();
         }
         EnsureTechButton(canvas);
+        EnsureBattleTechPanel(canvas);
 
-        // ── 4. 建造菜单 Panel：屏幕中央分类分页框 ────────────
+        // ── 4. 建造菜单 Panel：恢复为底部横向建造栏 ───────────
         if (BuildMenuPanel != null)
         {
             var rt = BuildMenuPanel.GetComponent<RectTransform>();
@@ -227,117 +301,566 @@ public class RTSHUD : MonoBehaviour
                 rt.anchorMin = new Vector2(0.5f, 0.5f);
                 rt.anchorMax = new Vector2(0.5f, 0.5f);
                 rt.pivot = new Vector2(0.5f, 0.5f);
-                rt.anchoredPosition = new Vector2(0f, 10f);
-                rt.sizeDelta = new Vector2(560f, 340f);
+                rt.anchoredPosition = BuildMenuPopupPosition;
+                rt.sizeDelta = BuildMenuPopupSize;
             }
-            EnsureBuildMenuPopupChrome();
-
-            // 把原有建造按钮放进弹窗网格，分类过滤时只显示当前页。
-            string[] iconGlyphs = { "⌂", "✈", "■", "◆", "$", "⚡" };
-            if (BuildButtons != null)
-            {
-                for (int i = 0; i < BuildButtons.Length; i++)
-                {
-                    if (BuildButtons[i] == null) continue;
-                    var brt = BuildButtons[i].GetComponent<RectTransform>();
-                    if (brt == null) continue;
-                    brt.anchorMin = new Vector2(0.5f, 0.5f);
-                    brt.anchorMax = new Vector2(0.5f, 0.5f);
-                    brt.pivot = new Vector2(0.5f, 1f);
-                    int col = i % 3;
-                    int row = i / 3;
-                    brt.anchoredPosition = new Vector2(-172f + col * 172f, 52f - row * 96f);
-                    brt.sizeDelta = new Vector2(148f, 78f);
-                    // 添加顶部 emoji 图标层
-                    if (BuildButtons[i].transform.Find("_BigIcon") == null && i < iconGlyphs.Length)
-                    {
-                        var ig = new GameObject("_BigIcon");
-                        ig.transform.SetParent(BuildButtons[i].transform, false);
-                        var igrt = ig.AddComponent<RectTransform>();
-                        igrt.anchorMin = new Vector2(0f, 0.45f);
-                        igrt.anchorMax = new Vector2(1f, 1f);
-                        igrt.offsetMin = Vector2.zero; igrt.offsetMax = Vector2.zero;
-                        var igt = ig.AddComponent<Text>();
-                        igt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-                        if (igt.font == null) igt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-                        igt.text = iconGlyphs[i];
-                        igt.fontSize = 26;
-                        igt.alignment = TextAnchor.MiddleCenter;
-                        igt.color = new Color(1f, 0.92f, 0.55f);
-                        igt.raycastTarget = false;
-                        // 让原文字往下挪
-                        var origTxt = BuildButtons[i].GetComponentInChildren<Text>();
-                        if (origTxt != null && origTxt != igt)
-                        {
-                            var ort = origTxt.rectTransform;
-                            ort.anchorMin = new Vector2(0f, 0f);
-                            ort.anchorMax = new Vector2(1f, 0.45f);
-                            ort.offsetMin = Vector2.zero; ort.offsetMax = Vector2.zero;
-                            origTxt.fontSize = 12;
-                            origTxt.alignment = TextAnchor.MiddleCenter;
-                        }
-                    }
-                }
-            }
-            SetBuildCategory(_activeBuildCategory);
+            ApplyBuildMenuPopupLayout();
         }
 
         // ── 5. 底部路线快捷栏（新建）───────────────────────
+        LayoutSelectionPanels(canvas);
         EnsureCommandBar(canvas);
         // ── 6. 战场设置入口：音量、继续、返回大厅。────────────
         EnsureGameSettingsUi(canvas);
         // ── 7. 战场内不显示旧返回大厅浮钮，避免误触；设置内提供返回大厅。─────
         RemoveReturnLobbyButton(canvas);
         if (PauseLobbyButton != null) PauseLobbyButton.gameObject.SetActive(false);
-        // ── 8. 战地通讯浮窗会遮挡联机画面，直接清理掉 ─────────
-        RemoveChatPanel(canvas);
+        // ── 8. 战地通讯：固定在建造入口上方，可发文字和队伍语聊 ─────
+        EnsureChatPanel(canvas);
+        RestoreHudActionUiStacking(canvas);
+    }
+
+    void ResolveHudActionUiReferences(Canvas canvas)
+    {
+        if (canvas == null) return;
+
+        if (BuildMenuPanel == null)
+        {
+            var panel = FindUiTransform(canvas.transform, "BuildMenuPanel");
+            if (panel != null) BuildMenuPanel = panel.gameObject;
+            else BuildMenuPanel = CreateRuntimeBuildMenuPanel(canvas.transform);
+        }
+        if (BuildMenuToggle == null)
+        {
+            BuildMenuToggle = FindUiComponent<Button>(canvas.transform, "BuildMenuToggle");
+            if (BuildMenuToggle == null)
+                BuildMenuToggle = CreateRuntimeBuildToggle(canvas.transform);
+        }
+
+        ResolveBuildingProductionUiReferences(canvas);
+
+        bool needsBuildButtons = BuildButtons == null || BuildButtons.Length < BuildButtonCount;
+        if (!needsBuildButtons)
+        {
+            for (int i = 0; i < BuildButtonCount; i++)
+            {
+                if (BuildButtons[i] == null)
+                {
+                    needsBuildButtons = true;
+                    break;
+                }
+            }
+        }
+        if (needsBuildButtons)
+        {
+            var buttons = new Button[BuildButtonCount];
+            for (int i = 0; i < BuildButtonCount; i++)
+            {
+                if (BuildButtons != null && i < BuildButtons.Length)
+                    buttons[i] = BuildButtons[i];
+                if (buttons[i] != null) continue;
+                var button = FindUiComponent<Button>(canvas.transform, "BuildButton" + i);
+                if (button != null) buttons[i] = button;
+            }
+            if (BuildMenuPanel != null)
+            {
+                for (int i = 0; i < BuildButtonCount; i++)
+                {
+                    if (buttons[i] == null)
+                        buttons[i] = CreateRuntimeBuildButton(BuildMenuPanel.transform, i);
+                }
+            }
+            BuildButtons = buttons;
+        }
+    }
+
+    GameObject CreateRuntimeBuildMenuPanel(Transform canvas)
+    {
+        var panel = new GameObject("BuildMenuPanel");
+        panel.transform.SetParent(canvas, false);
+        panel.SetActive(false);
+
+        var rt = panel.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = BuildMenuPopupPosition;
+        rt.sizeDelta = BuildMenuPopupSize;
+
+        var image = panel.AddComponent<Image>();
+        image.color = new Color(0.05f, 0.07f, 0.13f, 0.96f);
+
+        return panel;
+    }
+
+    Button CreateRuntimeBuildToggle(Transform canvas)
+    {
+        var button = CreatePopupButton(canvas, "BuildMenuToggle", "\u5efa\u9020",
+            new Vector2(0f, 0f), new Vector2(84f, 349f), new Vector2(136f, 42f));
+        return button;
+    }
+
+    Button CreateRuntimeBuildButton(Transform parent, int index)
+    {
+        var button = CreatePopupButton(parent, "BuildButton" + index,
+            GetBuildButtonLabel(index),
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            new Vector2(BuildCategoryButtonWidth, BuildCategoryButtonHeight));
+        var rt = button.GetComponent<RectTransform>();
+        if (rt != null)
+            rt.pivot = new Vector2(0.5f, 0.5f);
+        button.gameObject.SetActive(true);
+        return button;
+    }
+
+    string GetBuildButtonLabel(int index)
+    {
+        return index >= 0 && index < BuildButtonLabels.Length ? BuildButtonLabels[index] : "建筑";
+    }
+
+    Color GetBuildButtonColor(int index)
+    {
+        return index >= 0 && index < BuildButtonColors.Length
+            ? BuildButtonColors[index]
+            : new Color(0.18f, 0.22f, 0.13f, 0.96f);
+    }
+
+    void StyleBuildMenuStrip()
+    {
+        if (BuildMenuPanel == null) return;
+
+        var bg = BuildMenuPanel.GetComponent<Image>();
+        if (bg != null)
+        {
+            bg.color = new Color(0.05f, 0.07f, 0.13f, 0.96f);
+            bg.raycastTarget = true;
+        }
+
+        var outline = BuildMenuPanel.GetComponent<Outline>() ?? BuildMenuPanel.AddComponent<Outline>();
+        outline.enabled = true;
+        outline.effectColor = new Color(0.18f, 0.42f, 0.26f, 0.80f);
+        outline.effectDistance = new Vector2(1.2f, -1.2f);
+
+        EnsureBuildStripLine("BmpTopLine", new Color(0.12f, 0.22f, 0.16f, 0.85f), 2f);
+        HideBuildPopupExtras();
+    }
+
+    void ApplyBuildMenuPopupLayout()
+    {
+        if (BuildMenuPanel == null) return;
+
+        var bg = BuildMenuPanel.GetComponent<Image>();
+        if (bg != null)
+        {
+            bg.color = new Color(0.035f, 0.045f, 0.035f, 0.90f);
+            bg.raycastTarget = true;
+        }
+
+        var outline = BuildMenuPanel.GetComponent<Outline>() ?? BuildMenuPanel.AddComponent<Outline>();
+        outline.enabled = true;
+        outline.effectColor = new Color(0.86f, 0.68f, 0.18f, 0.85f);
+        outline.effectDistance = new Vector2(2f, -2f);
+
+        EnsureBuildStripLine("BmpTopLine", new Color(0.18f, 0.34f, 0.20f, 0.88f), 3f);
+        EnsureBuildMenuPopupChrome();
+        SetBuildPopupExtrasActive(true);
+
+        if (BuildButtons != null)
+        {
+            for (int i = 0; i < BuildButtons.Length; i++)
+            {
+                var button = BuildButtons[i];
+                if (button == null) continue;
+                if (button.transform.parent != BuildMenuPanel.transform)
+                    button.transform.SetParent(BuildMenuPanel.transform, false);
+
+                var rt = button.GetComponent<RectTransform>();
+                if (rt != null)
+                {
+                    rt.anchorMin = new Vector2(0.5f, 0.5f);
+                    rt.anchorMax = new Vector2(0.5f, 0.5f);
+                    rt.pivot = new Vector2(0.5f, 0.5f);
+                    rt.sizeDelta = new Vector2(BuildCategoryButtonWidth, BuildCategoryButtonHeight);
+                }
+                button.gameObject.SetActive(true);
+                StyleBuildStripButton(button, i);
+            }
+        }
+
+        RefreshBuildCategoryVisibility();
+        BringBuildPopupChromeToFront();
+    }
+
+    void EnsureBuildStripLine(string name, Color color, float height)
+    {
+        if (BuildMenuPanel == null) return;
+        var line = BuildMenuPanel.transform.Find(name);
+        GameObject go = line != null ? line.gameObject : new GameObject(name);
+        if (line == null)
+            go.transform.SetParent(BuildMenuPanel.transform, false);
+        go.SetActive(true);
+
+        var rt = go.GetComponent<RectTransform>();
+        if (rt == null) rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(0f, -height);
+        rt.offsetMax = Vector2.zero;
+
+        var img = go.GetComponent<Image>();
+        if (img == null) img = go.AddComponent<Image>();
+        img.color = color;
+        img.raycastTarget = false;
+    }
+
+    void HideBuildPopupExtras()
+    {
+        SetBuildPopupExtrasActive(false);
+    }
+
+    void SetBuildPopupExtrasActive(bool active)
+    {
+        if (BuildMenuPanel == null) return;
+        string[] names = { "_BuildPopupTitle", "_BuildPopupClose", "_BuildCategoryTabs", "_BuildEmptyText" };
+        for (int i = 0; i < names.Length; i++)
+        {
+            var child = BuildMenuPanel.transform.Find(names[i]);
+            if (child != null)
+                child.gameObject.SetActive(active);
+        }
+    }
+
+    void BringBuildPopupChromeToFront()
+    {
+        if (BuildMenuPanel == null) return;
+        string[] names = { "BmpTopLine", "_BuildPopupTitle", "_BuildPopupClose", "_BuildCategoryTabs", "_BuildEmptyText" };
+        for (int i = 0; i < names.Length; i++)
+        {
+            var child = BuildMenuPanel.transform.Find(names[i]);
+            if (child != null)
+                child.SetAsLastSibling();
+        }
+    }
+
+    void StyleBuildStripButton(Button button, int index)
+    {
+        if (button == null) return;
+        button.enabled = true;
+        button.interactable = true;
+
+        var bg = button.GetComponent<Image>();
+        if (bg != null)
+        {
+            bg.color = GetBuildButtonColor(index);
+            bg.raycastTarget = true;
+        }
+
+        var outline = button.GetComponent<Outline>() ?? button.gameObject.AddComponent<Outline>();
+        outline.enabled = true;
+        outline.effectColor = Color.Lerp(GetBuildButtonColor(index), Color.white, 0.45f);
+        outline.effectDistance = new Vector2(1.2f, -1.2f);
+
+        var line = button.transform.Find("BtnLine");
+        GameObject lineGO = line != null ? line.gameObject : new GameObject("BtnLine");
+        if (line == null)
+            lineGO.transform.SetParent(button.transform, false);
+        lineGO.SetActive(true);
+        var lineRT = lineGO.GetComponent<RectTransform>();
+        if (lineRT == null) lineRT = lineGO.AddComponent<RectTransform>();
+        lineRT.anchorMin = Vector2.zero;
+        lineRT.anchorMax = new Vector2(1f, 0f);
+        lineRT.offsetMin = Vector2.zero;
+        lineRT.offsetMax = new Vector2(0f, 3f);
+        var lineImg = lineGO.GetComponent<Image>();
+        if (lineImg == null) lineImg = lineGO.AddComponent<Image>();
+        lineImg.color = Color.Lerp(GetBuildButtonColor(index), Color.white, 0.45f);
+        lineImg.raycastTarget = false;
+
+        var icon = button.transform.Find("_BigIcon");
+        if (icon != null)
+            icon.gameObject.SetActive(false);
+
+        var texts = button.GetComponentsInChildren<Text>(true);
+        for (int i = 0; i < texts.Length; i++)
+        {
+            var text = texts[i];
+            if (text == null) continue;
+            if (text.transform.name == "_BigIcon")
+            {
+                text.gameObject.SetActive(false);
+                continue;
+            }
+            if (text.name == "PriceTag")
+            {
+                text.fontSize = 14;
+                text.fontStyle = FontStyle.Bold;
+                text.alignment = TextAnchor.MiddleCenter;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+                var priceRT = text.rectTransform;
+                priceRT.anchorMin = new Vector2(0f, 0f);
+                priceRT.anchorMax = new Vector2(1f, 0f);
+                priceRT.pivot = new Vector2(0.5f, 0f);
+                priceRT.anchoredPosition = new Vector2(0f, 1f);
+                priceRT.sizeDelta = new Vector2(0f, 22f);
+                continue;
+            }
+
+            text.gameObject.SetActive(true);
+            text.text = GetBuildButtonLabel(index);
+            text.fontSize = 16;
+            text.fontStyle = FontStyle.Bold;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.lineSpacing = 0.9f;
+            text.color = new Color(0.96f, 1f, 0.96f);
+            text.raycastTarget = false;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
+            var labelRT = text.rectTransform;
+            labelRT.anchorMin = Vector2.zero;
+            labelRT.anchorMax = Vector2.one;
+            labelRT.offsetMin = new Vector2(4f, 22f);
+            labelRT.offsetMax = new Vector2(-4f, -2f);
+            EnsureReadableTextShadow(text, new Vector2(1f, -1f));
+            EnsureReadableTextOutline(text, new Vector2(1f, -1f), new Color(0f, 0f, 0f, 0.70f));
+        }
+    }
+
+    void ResolveBuildingProductionUiReferences(Canvas canvas)
+    {
+        if (canvas == null) return;
+
+        if (BuildingPanel == null)
+        {
+            var panel = FindUiTransform(canvas.transform, "BuildingPanel");
+            if (panel != null) BuildingPanel = panel.gameObject;
+        }
+
+        if (BuildingNameText == null) BuildingNameText = FindUiComponent<Text>(canvas.transform, "BuildingNameText");
+        if (BuildingHPBar == null) BuildingHPBar = FindUiComponent<Slider>(canvas.transform, "BuildingHPBar");
+        if (BuildingHPText == null) BuildingHPText = FindUiComponent<Text>(canvas.transform, "BuildingHPText");
+        if (BuildingHPText == null && BuildingPanel != null) BuildingHPText = CreateRuntimeBuildingHPText(BuildingPanel.transform);
+        if (ProductionBar == null) ProductionBar = FindUiComponent<Slider>(canvas.transform, "ProductionBar");
+        if (ProductionText == null) ProductionText = FindUiComponent<Text>(canvas.transform, "ProductionText");
+
+        bool needsProductionButtons = ProductionButtons == null || ProductionButtons.Length == 0;
+        if (!needsProductionButtons)
+        {
+            for (int i = 0; i < ProductionButtons.Length; i++)
+            {
+                if (ProductionButtons[i] == null)
+                {
+                    needsProductionButtons = true;
+                    break;
+                }
+            }
+        }
+
+        if (needsProductionButtons)
+        {
+            var buttons = new List<Button>(6);
+            for (int i = 0; i < 6; i++)
+            {
+                var button = FindUiComponent<Button>(canvas.transform, "ProductionButton" + i);
+                if (button != null) buttons.Add(button);
+            }
+
+            if (buttons.Count == 0 && BuildingPanel != null)
+            {
+                for (int i = 0; i < 6; i++)
+                    buttons.Add(CreateRuntimeProductionButton(BuildingPanel.transform, i));
+            }
+
+            if (buttons.Count > 0)
+                ProductionButtons = buttons.ToArray();
+        }
+    }
+
+    Text CreateRuntimeBuildingHPText(Transform parent)
+    {
+        var go = new GameObject("BuildingHPText");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(160f, 20f);
+
+        var text = go.AddComponent<Text>();
+        text.text = "---/---";
+        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.fontSize = 15;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleRight;
+        text.color = new Color(0.82f, 1f, 0.78f);
+        text.raycastTarget = false;
+        EnsureReadableTextShadow(text, new Vector2(1f, -1f));
+        return text;
+    }
+
+    Button CreateRuntimeProductionButton(Transform parent, int index)
+    {
+        var go = new GameObject("ProductionButton" + index);
+        go.transform.SetParent(parent, false);
+        go.SetActive(false);
+
+        var rt = go.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(122f, 68f);
+
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.16f, 0.22f, 0.32f, 0.96f);
+
+        var outline = go.AddComponent<Outline>();
+        outline.effectColor = new Color(0.42f, 0.70f, 0.95f, 0.72f);
+        outline.effectDistance = new Vector2(1.2f, -1.2f);
+
+        var button = go.AddComponent<Button>();
+        button.targetGraphic = img;
+
+        var textGo = new GameObject("Text");
+        textGo.transform.SetParent(go.transform, false);
+        var textRt = textGo.AddComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = new Vector2(6f, 4f);
+        textRt.offsetMax = new Vector2(-6f, -4f);
+
+        var text = textGo.AddComponent<Text>();
+        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (text.font == null) text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        text.text = "";
+        text.fontSize = 14;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Truncate;
+        text.color = new Color(1f, 0.92f, 0.55f);
+        text.raycastTarget = false;
+        var shadow = textGo.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.86f);
+        shadow.effectDistance = new Vector2(1.2f, -1.2f);
+
+        return button;
+    }
+
+    static Transform FindUiTransform(Transform root, string name)
+    {
+        if (root == null || string.IsNullOrEmpty(name)) return null;
+        foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+            if (child.name == name)
+                return child;
+        return null;
+    }
+
+    static T FindUiComponent<T>(Transform root, string name) where T : Component
+    {
+        var transform = FindUiTransform(root, name);
+        return transform != null ? transform.GetComponent<T>() : null;
+    }
+
+    void RestoreHudActionUiStacking(Canvas canvas)
+    {
+        if (canvas == null) return;
+
+        var chat = canvas.transform.Find("_ChatPanel");
+        if (chat != null)
+            chat.SetAsLastSibling();
+
+        if (BuildMenuToggle != null)
+            BuildMenuToggle.transform.SetAsLastSibling();
+
+        var tech = canvas.transform.Find("_TechButton");
+        if (tech != null)
+            tech.SetAsLastSibling();
+
+        if (GameSettingsButton != null)
+            GameSettingsButton.transform.SetAsLastSibling();
+
+        if (TechPanel != null && TechPanel.activeSelf)
+            TechPanel.transform.SetAsLastSibling();
+
+        if (BuildMenuPanel != null && BuildMenuPanel.activeSelf)
+            BuildMenuPanel.transform.SetAsLastSibling();
+
+        if (GameSettingsPanel != null && GameSettingsPanel.activeSelf)
+            GameSettingsPanel.transform.SetAsLastSibling();
+
+        var chatDock = canvas.transform.Find("_ChatDockButton");
+        if (chatDock != null)
+            chatDock.SetAsLastSibling();
+    }
+
+    void OnBuildMenuToggleClicked()
+    {
+        _UiClickAudio.PlayClick();
+        ToggleBuildMenu();
     }
 
     void RepositionTopBarField(Text field, Vector2 anchor, Vector2 offset, TextAnchor align)
     {
         if (field == null) return;
+        field.gameObject.SetActive(true);
         var rt = field.rectTransform;
         rt.anchorMin = anchor; rt.anchorMax = anchor;
-        rt.pivot = new Vector2(anchor.x, field == GameTimerText ? 1f : 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = offset;
-        float width = 130f;
-        if (field == GoldText) width = 200f;
-        else if (field == PowerText) width = 150f;
-        else if (field == GameTimerText) width = 96f;
-        else if (field == KillText) width = 120f;
-        else if (field == PopText) width = 128f;
-        rt.sizeDelta = new Vector2(width, 28f);
+        float width = 140f;
+        if (field == GoldText) width = 230f;
+        else if (field == PowerText) width = 160f;
+        else if (field == GameTimerText) width = 110f;
+        else if (field == PopText) width = 150f;
+        rt.sizeDelta = new Vector2(width, 32f);
         field.alignment = align;
-        field.fontSize = 20;
+        field.fontSize = 22;
         field.fontStyle = FontStyle.Bold;
-        field.color = field == PowerText ? new Color(0.55f, 1f, 0.64f) :
-            field == KillText ? new Color(1f, 0.54f, 0.48f) :
+        field.color = field == GoldText ? new Color(1f, 0.88f, 0.22f) :
+            field == PopText ? new Color(0.70f, 0.92f, 1f) :
+            field == PowerText ? new Color(0.50f, 1f, 0.62f) :
             new Color(0.94f, 0.97f, 1f);
+        var shadow = field.GetComponent<Shadow>() ?? field.gameObject.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.86f);
+        shadow.effectDistance = new Vector2(1.8f, -1.8f);
     }
 
     void EnsureResourceIcon(Transform parent, string name, Vector2 anchor, Vector2 offset, string glyph, Color color)
     {
-        if (parent.Find(name) != null) return;
-        var go = new GameObject(name);
-        go.transform.SetParent(parent, false);
-        var rt = go.AddComponent<RectTransform>();
+        var existing = parent.Find(name);
+        var go = existing != null ? existing.gameObject : new GameObject(name);
+        if (existing == null)
+            go.transform.SetParent(parent, false);
+
+        var rt = go.GetComponent<RectTransform>();
+        if (rt == null) rt = go.AddComponent<RectTransform>();
         rt.anchorMin = anchor; rt.anchorMax = anchor;
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = offset;
         rt.sizeDelta = new Vector2(28f, 28f);
-        var img = go.AddComponent<Image>();
+        var img = go.GetComponent<Image>();
+        if (img == null) img = go.AddComponent<Image>();
+        img.sprite = null;
         img.color = new Color(0.03f, 0.05f, 0.06f, 0.52f);
         img.raycastTarget = false;
-        var ol = go.AddComponent<Outline>();
+        var ol = go.GetComponent<Outline>();
+        if (ol == null) ol = go.AddComponent<Outline>();
+        ol.enabled = true;
         ol.effectColor = new Color(0.20f, 0.32f, 0.42f, 0.70f);
         ol.effectDistance = new Vector2(1f, -1f);
+
+        var spriteGO = go.transform.Find("SpriteIcon")?.gameObject;
+        if (spriteGO != null) spriteGO.SetActive(false);
         // 文字 glyph
-        var txGO = new GameObject("Glyph");
-        txGO.transform.SetParent(go.transform, false);
-        var trt = txGO.AddComponent<RectTransform>();
+        var glyphGO = go.transform.Find("Glyph")?.gameObject;
+        if (glyphGO == null)
+        {
+            glyphGO = new GameObject("Glyph");
+            glyphGO.transform.SetParent(go.transform, false);
+            glyphGO.AddComponent<RectTransform>();
+            glyphGO.AddComponent<Text>();
+        }
+        glyphGO.SetActive(true);
+        var trt = glyphGO.GetComponent<RectTransform>();
         trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
         trt.offsetMin = Vector2.zero; trt.offsetMax = Vector2.zero;
-        var t = txGO.AddComponent<Text>();
+        var t = glyphGO.GetComponent<Text>();
+        if (t == null) t = glyphGO.AddComponent<Text>();
         t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (t.font == null) t.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
         t.text = glyph;
@@ -346,6 +869,84 @@ public class RTSHUD : MonoBehaviour
         t.alignment = TextAnchor.MiddleCenter;
         t.color = color;
         t.raycastTarget = false;
+    }
+
+    void LayoutBuildButtonTextLayers(Button button, string iconGlyph, Text priceText)
+    {
+        if (button == null) return;
+
+        var icon = button.transform.Find("_BigIcon")?.GetComponent<Text>();
+        if (icon == null)
+        {
+            var iconGO = new GameObject("_BigIcon");
+            iconGO.transform.SetParent(button.transform, false);
+            icon = iconGO.AddComponent<Text>();
+            icon.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (icon.font == null) icon.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            icon.raycastTarget = false;
+        }
+
+        icon.text = iconGlyph;
+        icon.fontSize = 30;
+        icon.fontStyle = FontStyle.Bold;
+        icon.alignment = TextAnchor.MiddleCenter;
+        icon.color = new Color(1f, 0.94f, 0.62f);
+        icon.horizontalOverflow = HorizontalWrapMode.Overflow;
+        icon.verticalOverflow = VerticalWrapMode.Overflow;
+        EnsureReadableTextShadow(icon, new Vector2(1.4f, -1.4f));
+        EnsureReadableTextOutline(icon, new Vector2(1f, -1f), new Color(0f, 0f, 0f, 0.72f));
+        LayoutButtonTextRect(icon.rectTransform, 0.58f, 1f, 0f, 0f);
+
+        if (priceText == null)
+            priceText = button.transform.Find("PriceTag")?.GetComponent<Text>();
+        if (priceText != null)
+        {
+            priceText.fontSize = 16;
+            priceText.fontStyle = FontStyle.Bold;
+            priceText.alignment = TextAnchor.MiddleCenter;
+            priceText.raycastTarget = false;
+            priceText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            priceText.verticalOverflow = VerticalWrapMode.Overflow;
+            EnsureReadableTextShadow(priceText, new Vector2(1.2f, -1.2f));
+            EnsureReadableTextOutline(priceText, new Vector2(1f, -1f), new Color(0f, 0f, 0f, 0.78f));
+            LayoutButtonTextRect(priceText.rectTransform, 0f, 0.25f, 0f, 0f);
+        }
+
+        var texts = button.GetComponentsInChildren<Text>(true);
+        for (int j = 0; j < texts.Length; j++)
+        {
+            var text = texts[j];
+            if (text == null || text == icon || text == priceText) continue;
+            text.text = NormalizeBuildButtonLabel(text.text);
+            text.fontSize = 18;
+            text.fontStyle = FontStyle.Bold;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.lineSpacing = 0.9f;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
+            text.color = new Color(0.96f, 1f, 0.96f);
+            EnsureReadableTextShadow(text, new Vector2(1.4f, -1.4f));
+            EnsureReadableTextOutline(text, new Vector2(1f, -1f), new Color(0f, 0f, 0f, 0.82f));
+            LayoutButtonTextRect(text.rectTransform, 0.25f, 0.58f, 4f, 2f);
+        }
+    }
+
+    string NormalizeBuildButtonLabel(string label)
+    {
+        if (string.IsNullOrEmpty(label)) return "";
+        int hotkeyLine = label.IndexOf('\n');
+        if (hotkeyLine >= 0)
+            label = label.Substring(0, hotkeyLine);
+        return label.Replace(" ", "");
+    }
+
+    void LayoutButtonTextRect(RectTransform rt, float bottom, float top, float leftRightPadding, float bottomPadding)
+    {
+        if (rt == null) return;
+        rt.anchorMin = new Vector2(0f, bottom);
+        rt.anchorMax = new Vector2(1f, top);
+        rt.offsetMin = new Vector2(leftRightPadding, bottomPadding);
+        rt.offsetMax = new Vector2(-leftRightPadding, 0f);
     }
 
     void EnsureBuildMenuPopupChrome()
@@ -370,38 +971,61 @@ public class RTSHUD : MonoBehaviour
 
     void EnsureBuildPopupTitle()
     {
-        if (BuildMenuPanel.transform.Find("_BuildPopupTitle") != null) return;
+        var titleRoot = BuildMenuPanel.transform.Find("_BuildPopupTitle");
+        if (titleRoot == null)
+        {
+            var go = new GameObject("_BuildPopupTitle");
+            go.transform.SetParent(BuildMenuPanel.transform, false);
+            titleRoot = go.transform;
+        }
 
-        var go = new GameObject("_BuildPopupTitle");
-        go.transform.SetParent(BuildMenuPanel.transform, false);
-        var rt = go.AddComponent<RectTransform>();
+        var rt = titleRoot.GetComponent<RectTransform>();
+        if (rt == null) rt = titleRoot.gameObject.AddComponent<RectTransform>();
         rt.anchorMin = new Vector2(0f, 1f);
         rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(0.5f, 1f);
-        rt.anchoredPosition = new Vector2(0f, -12f);
+        rt.anchoredPosition = new Vector2(0f, -18f);
         rt.sizeDelta = new Vector2(0f, 34f);
 
-        var text = go.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (text.font == null) text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        var text = titleRoot.GetComponent<Text>();
+        if (text == null) text = titleRoot.gameObject.AddComponent<Text>();
+        if (text.font == null)
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (text.font == null)
+            text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
         text.text = "建造指挥台";
-        text.fontSize = 20;
+        text.fontSize = 22;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
-        text.color = new Color(1f, 0.92f, 0.55f);
+        text.color = new Color(1f, 0.94f, 0.62f);
         text.raycastTarget = false;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
 
-        var shadow = go.AddComponent<Shadow>();
-        shadow.effectColor = new Color(0f, 0f, 0f, 0.9f);
-        shadow.effectDistance = new Vector2(1.5f, -1.5f);
+        EnsureReadableTextShadow(text, new Vector2(1.8f, -1.8f));
+        EnsureReadableTextOutline(text, new Vector2(1.2f, -1.2f), new Color(0f, 0f, 0f, 0.78f));
     }
 
     void EnsureBuildPopupCloseButton()
     {
-        if (BuildMenuPanel.transform.Find("_BuildPopupClose") != null) return;
-
-        var button = CreatePopupButton(BuildMenuPanel.transform, "_BuildPopupClose", "×", new Vector2(1f, 1f), new Vector2(-18f, -14f), new Vector2(34f, 30f));
+        var closeRoot = BuildMenuPanel.transform.Find("_BuildPopupClose");
+        var button = closeRoot != null ? closeRoot.GetComponent<Button>() : null;
+        if (button == null)
+        {
+            button = CreatePopupButton(BuildMenuPanel.transform, "_BuildPopupClose", "×", new Vector2(1f, 1f), new Vector2(-20f, -18f), new Vector2(34f, 30f));
+        }
+        button.onClick.RemoveAllListeners();
         button.onClick.AddListener(() => { _UiClickAudio.PlayClick(); CloseBuildMenu(); });
+
+        var rt = button.GetComponent<RectTransform>();
+        if (rt != null)
+        {
+            rt.anchorMin = new Vector2(1f, 1f);
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(-20f, -18f);
+            rt.sizeDelta = new Vector2(34f, 30f);
+        }
     }
 
     void EnsureBuildCategoryTabs()
@@ -418,18 +1042,60 @@ public class RTSHUD : MonoBehaviour
             trt.anchorMin = new Vector2(0.5f, 1f);
             trt.anchorMax = new Vector2(0.5f, 1f);
             trt.pivot = new Vector2(0.5f, 1f);
-            trt.anchoredPosition = new Vector2(0f, -54f);
-            trt.sizeDelta = new Vector2(516f, 40f);
+            trt.anchoredPosition = new Vector2(0f, -74f);
+            trt.sizeDelta = new Vector2(600f, 40f);
             tabsRoot = tabs.transform;
+        }
+        else
+        {
+            var trt = tabsRoot.GetComponent<RectTransform>();
+            if (trt != null)
+            {
+                trt.anchoredPosition = new Vector2(0f, -74f);
+                trt.sizeDelta = new Vector2(600f, 40f);
+            }
         }
 
         for (int i = 0; i < BuildCategoryNames.Length; i++)
         {
-            if (_buildCategoryButtons[i] != null) continue;
-
             int idx = i;
-            var button = CreatePopupButton(tabsRoot, "_BuildTab_" + i, BuildCategoryNames[i],
-                new Vector2(0f, 0.5f), new Vector2(43f + i * 86f, 0f), new Vector2(78f, 32f));
+            var button = _buildCategoryButtons[i];
+            if (button == null)
+            {
+                var existing = tabsRoot.Find("_BuildTab_" + i);
+                button = existing != null ? existing.GetComponent<Button>() : null;
+            }
+            if (button == null)
+            {
+                button = CreatePopupButton(tabsRoot, "_BuildTab_" + i, BuildCategoryNames[i],
+                    new Vector2(0f, 0.5f), new Vector2(50f + i * 100f, 0f), new Vector2(88f, 34f));
+            }
+            else if (button.transform.parent != tabsRoot)
+            {
+                button.transform.SetParent(tabsRoot, false);
+            }
+
+            var rt = button.GetComponent<RectTransform>();
+            if (rt != null)
+            {
+                rt.anchorMin = new Vector2(0f, 0.5f);
+                rt.anchorMax = new Vector2(0f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.anchoredPosition = new Vector2(50f + i * 100f, 0f);
+                rt.sizeDelta = new Vector2(88f, 34f);
+            }
+            var label = button.GetComponentInChildren<Text>(true);
+            if (label != null)
+            {
+                label.text = BuildCategoryNames[i];
+                label.fontSize = 17;
+                label.fontStyle = FontStyle.Bold;
+                label.horizontalOverflow = HorizontalWrapMode.Overflow;
+                label.verticalOverflow = VerticalWrapMode.Overflow;
+                EnsureReadableTextShadow(label, new Vector2(1.2f, -1.2f));
+                EnsureReadableTextOutline(label, new Vector2(1f, -1f), new Color(0f, 0f, 0f, 0.70f));
+            }
+            button.onClick.RemoveAllListeners();
             button.onClick.AddListener(() => { _UiClickAudio.PlayClick(); SetBuildCategory(idx); });
             _buildCategoryButtons[i] = button;
         }
@@ -495,11 +1161,15 @@ public class RTSHUD : MonoBehaviour
         text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (text.font == null) text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
         text.text = label;
-        text.fontSize = label == "×" ? 24 : 15;
+        text.fontSize = label == "×" ? 26 : 16;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
-        text.color = new Color(1f, 0.92f, 0.55f);
+        text.color = new Color(1f, 0.94f, 0.62f);
         text.raycastTarget = false;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
+        EnsureReadableTextShadow(text, new Vector2(1.2f, -1.2f));
+        EnsureReadableTextOutline(text, new Vector2(1f, -1f), new Color(0f, 0f, 0f, 0.70f));
         return button;
     }
 
@@ -537,6 +1207,8 @@ public class RTSHUD : MonoBehaviour
     void StyleSideHudButton(Button button, string label, string iconGlyph, Color accent)
     {
         if (button == null) return;
+        button.enabled = true;
+        button.interactable = true;
 
         var bg = button.GetComponent<Image>();
         if (bg != null)
@@ -546,6 +1218,7 @@ public class RTSHUD : MonoBehaviour
         }
 
         var outline = button.GetComponent<Outline>() ?? button.gameObject.AddComponent<Outline>();
+        outline.enabled = true;
         outline.effectColor = accent;
         outline.effectDistance = new Vector2(1.3f, -1.3f);
 
@@ -592,6 +1265,89 @@ public class RTSHUD : MonoBehaviour
         }
     }
 
+    void StyleIconOnlyHudButton(Button button, string spritePath, string fallbackGlyph, Color accent)
+    {
+        if (button == null) return;
+        button.enabled = true;
+        button.interactable = true;
+        button.gameObject.SetActive(true);
+
+        var bg = button.GetComponent<Image>();
+        if (bg != null)
+        {
+            bg.color = new Color(0f, 0f, 0f, 0f);
+            bg.raycastTarget = true;
+            button.targetGraphic = bg;
+        }
+
+        var outline = button.GetComponent<Outline>() ?? button.gameObject.AddComponent<Outline>();
+        outline.enabled = false;
+
+        var label = button.transform.Find("Text")?.GetComponent<Text>();
+        if (label != null)
+        {
+            label.text = "";
+            label.raycastTarget = false;
+        }
+
+        var sprite = LoadHudSprite(spritePath);
+        var imageGO = button.transform.Find("_HudIcon")?.gameObject;
+        var glyph = button.transform.Find("_HudIconGlyph")?.GetComponent<Text>();
+        if (sprite != null)
+        {
+            if (imageGO == null)
+            {
+                imageGO = new GameObject("_HudIcon");
+                imageGO.transform.SetParent(button.transform, false);
+                imageGO.AddComponent<RectTransform>();
+                imageGO.AddComponent<Image>();
+            }
+
+            imageGO.SetActive(true);
+            var iconRT = imageGO.GetComponent<RectTransform>();
+            iconRT.anchorMin = Vector2.zero;
+            iconRT.anchorMax = Vector2.one;
+            iconRT.offsetMin = new Vector2(4f, 4f);
+            iconRT.offsetMax = new Vector2(-4f, -4f);
+
+            var iconImage = imageGO.GetComponent<Image>();
+            if (iconImage == null) iconImage = imageGO.AddComponent<Image>();
+            iconImage.sprite = sprite;
+            iconImage.preserveAspect = true;
+            iconImage.color = Color.white;
+            iconImage.raycastTarget = false;
+
+            if (glyph != null) glyph.gameObject.SetActive(false);
+            return;
+        }
+
+        if (imageGO != null) imageGO.SetActive(false);
+        if (glyph == null)
+        {
+            var glyphGO = new GameObject("_HudIconGlyph");
+            glyphGO.transform.SetParent(button.transform, false);
+            glyph = glyphGO.AddComponent<Text>();
+            glyph.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (glyph.font == null) glyph.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            glyph.raycastTarget = false;
+        }
+
+        glyph.gameObject.SetActive(true);
+        var glyphRT = glyph.rectTransform;
+        glyphRT.anchorMin = Vector2.zero;
+        glyphRT.anchorMax = Vector2.one;
+        glyphRT.offsetMin = Vector2.zero;
+        glyphRT.offsetMax = Vector2.zero;
+        glyph.text = fallbackGlyph;
+        glyph.fontSize = 26;
+        glyph.fontStyle = FontStyle.Bold;
+        glyph.alignment = TextAnchor.MiddleCenter;
+        glyph.color = new Color(0.96f, 0.98f, 1f);
+        var shadow = glyph.GetComponent<Shadow>() ?? glyph.gameObject.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.82f);
+        shadow.effectDistance = new Vector2(1.4f, -1.4f);
+    }
+
     void EnsureTechButton(Canvas canvas)
     {
         if (canvas == null) return;
@@ -624,18 +1380,654 @@ public class RTSHUD : MonoBehaviour
                 ShowAlert("科技中心：已定位主基地");
             });
         }
+        button.onClick.RemoveAllListeners();
+        button.onClick.AddListener(OnTechButtonClicked);
         if (rt != null)
         {
             rt.anchorMin = new Vector2(0f, 0f);
             rt.anchorMax = new Vector2(0f, 0f);
             rt.pivot = new Vector2(0f, 0f);
-            rt.anchoredPosition = new Vector2(16f, 264f);
+            rt.anchoredPosition = new Vector2(16f, 278f);
             rt.sizeDelta = new Vector2(136f, 42f);
         }
 
         StyleSideHudButton(button, "科技", "◎",
             new Color(0.46f, 0.82f, 1f, 0.92f));
         button.transform.SetAsLastSibling();
+    }
+
+    void OnTechButtonClicked()
+    {
+        _UiClickAudio.PlayClick();
+        CloseBuildMenu();
+
+        var baseBuilding = GameManager.Instance?.PlayerMainBase;
+        if (baseBuilding == null || baseBuilding.GetHP() <= 0)
+        {
+            _UiClickAudio.PlayDeny();
+            ShowAlert("主基地已摧毁，科技不可用");
+            return;
+        }
+
+        var pc = RTSPlayerController.Instance;
+        if (pc != null)
+            pc.SelectOwnedBuilding(baseBuilding, true);
+        else
+            OnSelectionChanged(new List<RTSUnit>(), baseBuilding);
+
+        SetTechPanelOpen(true);
+        ShowAlert("科技中心已打开");
+    }
+
+    void EnsureBattleTechPanel(Canvas canvas)
+    {
+        if (canvas == null) return;
+        EnsureBattleTechDefinitions();
+        if (TechPanel == null)
+        {
+            var existing = FindUiTransform(canvas.transform, "_BattleTechPanel");
+            TechPanel = existing != null ? existing.gameObject : CreateBattleTechPanel(canvas.transform);
+        }
+
+        ApplyBattleTechPanelLayout(canvas);
+        EnsureBattleTechButtons(TechPanel.transform);
+        TechPanel.SetActive(_techPanelOpen);
+        if (_techPanelOpen) TechPanel.transform.SetAsLastSibling();
+    }
+
+    Vector2 GetCanvasRectSize(Canvas canvas)
+    {
+        var canvasRt = canvas != null ? canvas.GetComponent<RectTransform>() : null;
+        if (canvasRt != null && canvasRt.rect.width > 1f && canvasRt.rect.height > 1f)
+            return canvasRt.rect.size;
+
+        return new Vector2(Screen.width, Screen.height);
+    }
+
+    void ApplyBattleTechPanelLayout(Canvas canvas)
+    {
+        if (TechPanel == null || canvas == null) return;
+
+        Vector2 canvasSize = GetCanvasRectSize(canvas);
+        _lastTechPanelCanvasSize = canvasSize;
+
+        float maxVisibleWidth = Mathf.Max(120f, canvasSize.x - 16f);
+        float maxVisibleHeight = Mathf.Max(120f, canvasSize.y - 16f);
+        float desiredWidth = Mathf.Min(TechPanelMaxWidth, maxVisibleWidth);
+        float desiredHeight = Mathf.Min(TechPanelMaxHeight, maxVisibleHeight);
+        float panelWidth = maxVisibleWidth >= TechPanelMinWidth ? Mathf.Max(TechPanelMinWidth, desiredWidth) : maxVisibleWidth;
+        float panelHeight = maxVisibleHeight >= TechPanelMinHeight ? Mathf.Max(TechPanelMinHeight, desiredHeight) : maxVisibleHeight;
+
+        var rt = TechPanel.GetComponent<RectTransform>();
+        if (rt != null)
+        {
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = new Vector2(panelWidth, panelHeight);
+        }
+
+        var titleRt = TechPanel.transform.Find("_TechTitle") as RectTransform;
+        if (titleRt != null)
+        {
+            titleRt.anchorMin = titleRt.anchorMax = titleRt.pivot = new Vector2(0.5f, 1f);
+            titleRt.anchoredPosition = new Vector2(0f, -26f);
+            titleRt.sizeDelta = new Vector2(Mathf.Max(160f, panelWidth - 112f), 34f);
+            var title = titleRt.GetComponent<Text>();
+            if (title != null) title.fontSize = panelHeight < 250f ? 18 : 22;
+        }
+
+        var closeRt = TechPanel.transform.Find("_TechCloseButton") as RectTransform;
+        if (closeRt != null)
+        {
+            closeRt.anchorMin = closeRt.anchorMax = new Vector2(1f, 1f);
+            closeRt.pivot = new Vector2(0.5f, 0.5f);
+            closeRt.anchoredPosition = new Vector2(-28f, -24f);
+            closeRt.sizeDelta = new Vector2(42f, 30f);
+        }
+
+        if (_techButtons == null) return;
+        for (int i = 0; i < _techButtons.Length; i++)
+            LayoutBattleTechButton(_techButtons[i], i);
+    }
+
+    GameObject CreateBattleTechPanel(Transform canvas)
+    {
+        var panel = new GameObject("_BattleTechPanel");
+        panel.transform.SetParent(canvas, false);
+        var rt = panel.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = new Vector2(TechPanelMaxWidth, TechPanelMaxHeight);
+
+        var bg = panel.AddComponent<Image>();
+        bg.color = new Color(0.018f, 0.024f, 0.030f, 0.96f);
+        var outline = panel.AddComponent<Outline>();
+        outline.effectColor = new Color(0.46f, 0.82f, 1f, 0.85f);
+        outline.effectDistance = new Vector2(2f, -2f);
+
+        CreateSettingsBar(panel.transform, "_TopBlue", new Vector2(0f, 1f), Vector2.one, new Color(0.20f, 0.56f, 0.90f, 0.92f));
+        CreateSettingsText(panel.transform, "_TechTitle", "科技中心",
+            new Vector2(0.5f, 1f), new Vector2(0f, -28f), new Vector2(260f, 36f), 22,
+            TextAnchor.MiddleCenter, new Color(0.86f, 0.96f, 1f));
+
+        var closeButton = CreatePopupButton(panel.transform, "_TechCloseButton", "关闭",
+            new Vector2(1f, 1f), new Vector2(-34f, -28f), new Vector2(48f, 34f));
+        closeButton.onClick.AddListener(() =>
+        {
+            _UiClickAudio.PlayClick();
+            SetTechPanelOpen(false);
+        });
+
+        EnsureBattleTechButtons(panel.transform);
+        panel.SetActive(false);
+        return panel;
+    }
+
+    void EnsureBattleTechDefinitions()
+    {
+        if (_battleTechs != null && _battleTechs.Length == 8) return;
+
+        _battleTechs = new BattleTechSpec[]
+        {
+            new BattleTechSpec { Id = "speed", Name = "加速", Glyph = "速", Radius = 13f, Duration = 14f, Cooldown = 28f, MoveMultiplier = 1.32f, DamageMultiplier = 1f, AttackIntervalMultiplier = 1f, Color = new Color(0.38f, 0.92f, 1f, 0.78f) },
+            new BattleTechSpec { Id = "armor", Name = "加防御", Glyph = "甲", Radius = 12f, Duration = 16f, Cooldown = 34f, MoveMultiplier = 1f, DamageMultiplier = 1f, AttackIntervalMultiplier = 1f, DefenseReduction = 0.28f, Color = new Color(0.55f, 0.78f, 1f, 0.78f) },
+            new BattleTechSpec { Id = "firepower", Name = "加火力", Glyph = "火", Radius = 12f, Duration = 12f, Cooldown = 32f, MoveMultiplier = 1f, DamageMultiplier = 1.30f, AttackIntervalMultiplier = 1f, Color = new Color(1f, 0.48f, 0.22f, 0.80f) },
+            new BattleTechSpec { Id = "repair", Name = "维修", Glyph = "修", Radius = 11f, Duration = 10f, Cooldown = 30f, MoveMultiplier = 1f, DamageMultiplier = 1f, AttackIntervalMultiplier = 1f, DefenseReduction = 0.10f, RegenPerSecond = 18f, Color = new Color(0.42f, 1f, 0.58f, 0.78f) },
+            new BattleTechSpec { Id = "radar", Name = "侦察", Glyph = "视", Radius = 14f, Duration = 18f, Cooldown = 30f, MoveMultiplier = 1f, DamageMultiplier = 1f, AttackIntervalMultiplier = 1f, AttackRangeBonus = 2f, SightRangeBonus = 16f, Color = new Color(0.96f, 0.88f, 0.36f, 0.78f) },
+            new BattleTechSpec { Id = "rapid", Name = "速射", Glyph = "射", Radius = 11f, Duration = 12f, Cooldown = 36f, MoveMultiplier = 1f, DamageMultiplier = 1f, AttackIntervalMultiplier = 0.72f, Color = new Color(1f, 0.70f, 0.30f, 0.78f) },
+            new BattleTechSpec { Id = "hold", Name = "坚守", Glyph = "守", Radius = 10f, Duration = 18f, Cooldown = 40f, MoveMultiplier = 0.92f, DamageMultiplier = 1.12f, AttackIntervalMultiplier = 1f, AttackRangeBonus = 1.2f, DefenseReduction = 0.18f, Color = new Color(0.72f, 1f, 0.78f, 0.78f) },
+            new BattleTechSpec { Id = "assault", Name = "突击", Glyph = "突", Radius = 13f, Duration = 14f, Cooldown = 38f, MoveMultiplier = 1.18f, DamageMultiplier = 1.16f, AttackIntervalMultiplier = 0.90f, Color = new Color(1f, 0.34f, 0.48f, 0.78f) }
+        };
+
+        if (_techCooldownEnds == null || _techCooldownEnds.Length != _battleTechs.Length)
+            _techCooldownEnds = new float[_battleTechs.Length];
+    }
+
+    void EnsureBattleTechButtons(Transform panel)
+    {
+        if (panel == null) return;
+        EnsureBattleTechDefinitions();
+
+        if (_techButtons == null || _techButtons.Length != _battleTechs.Length)
+        {
+            _techButtons = new Button[_battleTechs.Length];
+            _techCooldownFills = new Image[_battleTechs.Length];
+            _techCooldownTexts = new Text[_battleTechs.Length];
+        }
+
+        var legacySummary = panel.Find("_TechSummary");
+        if (legacySummary != null) legacySummary.gameObject.SetActive(false);
+        var legacyFocus = panel.Find("_TechFocusBaseButton");
+        if (legacyFocus != null) legacyFocus.gameObject.SetActive(false);
+
+        for (int i = 0; i < _battleTechs.Length; i++)
+        {
+            if (_techButtons[i] == null)
+                _techButtons[i] = CreateBattleTechButton(panel, i);
+
+            LayoutBattleTechButton(_techButtons[i], i);
+        }
+    }
+
+    Button CreateBattleTechButton(Transform parent, int index)
+    {
+        BattleTechSpec spec = _battleTechs[index];
+        Button button = CreatePopupButton(parent, "_BattleTech_" + index, spec.Name,
+            new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(112f, 82f));
+        button.onClick.RemoveAllListeners();
+
+        var img = button.GetComponent<Image>();
+        if (img != null) img.color = new Color(0.075f, 0.095f, 0.090f, 0.96f);
+        var outline = button.GetComponent<Outline>() ?? button.gameObject.AddComponent<Outline>();
+        outline.effectColor = spec.Color;
+        outline.effectDistance = new Vector2(1.3f, -1.3f);
+
+        var glyphGo = new GameObject("Glyph");
+        glyphGo.transform.SetParent(button.transform, false);
+        var grt = glyphGo.AddComponent<RectTransform>();
+        grt.anchorMin = new Vector2(0.5f, 1f);
+        grt.anchorMax = new Vector2(0.5f, 1f);
+        grt.pivot = new Vector2(0.5f, 1f);
+        grt.anchoredPosition = new Vector2(0f, -9f);
+        grt.sizeDelta = new Vector2(78f, 38f);
+        var glyph = glyphGo.AddComponent<Text>();
+        glyph.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (glyph.font == null) glyph.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        glyph.text = spec.Glyph;
+        glyph.fontSize = 28;
+        glyph.fontStyle = FontStyle.Bold;
+        glyph.alignment = TextAnchor.MiddleCenter;
+        glyph.color = new Color(0.95f, 0.98f, 1f);
+        glyph.raycastTarget = false;
+
+        var label = button.transform.Find("Text")?.GetComponent<Text>();
+        if (label != null)
+        {
+            label.text = spec.Name;
+            label.fontSize = 16;
+            label.alignment = TextAnchor.LowerCenter;
+            label.color = new Color(1f, 0.92f, 0.55f);
+            label.rectTransform.offsetMin = new Vector2(4f, 5f);
+            label.rectTransform.offsetMax = new Vector2(-4f, -44f);
+        }
+
+        var fillGo = new GameObject("CooldownFill");
+        fillGo.transform.SetParent(button.transform, false);
+        var frt = fillGo.AddComponent<RectTransform>();
+        frt.anchorMin = Vector2.zero;
+        frt.anchorMax = Vector2.one;
+        frt.offsetMin = new Vector2(2f, 2f);
+        frt.offsetMax = new Vector2(-2f, -2f);
+        var fill = fillGo.AddComponent<Image>();
+        fill.color = new Color(0f, 0f, 0f, 0.58f);
+        fill.type = Image.Type.Filled;
+        fill.fillMethod = Image.FillMethod.Vertical;
+        fill.fillOrigin = 1;
+        fill.fillAmount = 0f;
+        fill.raycastTarget = false;
+        fillGo.transform.SetSiblingIndex(0);
+        _techCooldownFills[index] = fill;
+
+        var cdGo = new GameObject("CooldownText");
+        cdGo.transform.SetParent(button.transform, false);
+        var crt = cdGo.AddComponent<RectTransform>();
+        crt.anchorMin = Vector2.zero;
+        crt.anchorMax = Vector2.one;
+        crt.offsetMin = Vector2.zero;
+        crt.offsetMax = Vector2.zero;
+        var cd = cdGo.AddComponent<Text>();
+        cd.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (cd.font == null) cd.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        cd.text = "";
+        cd.fontSize = 22;
+        cd.fontStyle = FontStyle.Bold;
+        cd.alignment = TextAnchor.MiddleCenter;
+        cd.color = Color.white;
+        cd.raycastTarget = false;
+        _techCooldownTexts[index] = cd;
+
+        var trigger = button.GetComponent<EventTrigger>() ?? button.gameObject.AddComponent<EventTrigger>();
+        trigger.triggers.Clear();
+        AddTechPointerEvent(trigger, EventTriggerType.PointerDown, index, true);
+        AddTechPointerEvent(trigger, EventTriggerType.PointerUp, index, false);
+
+        return button;
+    }
+
+    void AddTechPointerEvent(EventTrigger trigger, EventTriggerType type, int index, bool down)
+    {
+        var entry = new EventTrigger.Entry { eventID = type };
+        entry.callback.AddListener((data) =>
+        {
+            var pointer = data as PointerEventData;
+            Vector2 screen = pointer != null ? pointer.position : (Vector2)Input.mousePosition;
+            if (down) BeginTechTargeting(index, screen);
+            else ReleaseTechTargeting(index, screen, false);
+        });
+        trigger.triggers.Add(entry);
+    }
+
+    void LayoutBattleTechButton(Button button, int index)
+    {
+        if (button == null) return;
+        var rt = button.GetComponent<RectTransform>();
+        if (rt == null) return;
+
+        var panelRt = button.transform.parent as RectTransform;
+        float panelWidth = panelRt != null && panelRt.rect.width > 1f ? panelRt.rect.width : TechPanelMaxWidth;
+        float panelHeight = panelRt != null && panelRt.rect.height > 1f ? panelRt.rect.height : TechPanelMaxHeight;
+
+        float sidePadding = Mathf.Clamp(panelWidth * 0.05f, 10f, 28f);
+        float minTopPadding = panelHeight < 180f ? 32f : 48f;
+        float minButtonHeight = panelHeight < 180f ? 28f : 40f;
+        float topPadding = Mathf.Clamp(panelHeight * 0.20f, minTopPadding, 66f);
+        float bottomPadding = Mathf.Clamp(panelHeight * 0.08f, 12f, 24f);
+        float gapX = Mathf.Clamp(panelWidth * 0.018f, 5f, 10f);
+        float gapY = Mathf.Clamp(panelHeight * 0.035f, 6f, 12f);
+        float buttonWidth = Mathf.Min(112f, Mathf.Max(48f, (panelWidth - sidePadding * 2f - gapX * 3f) / 4f));
+        float buttonHeight = Mathf.Min(82f, Mathf.Max(minButtonHeight, (panelHeight - topPadding - bottomPadding - gapY) / 2f));
+
+        float gridWidth = buttonWidth * 4f + gapX * 3f;
+        float startX = -gridWidth * 0.5f + buttonWidth * 0.5f;
+        float startY = panelHeight * 0.5f - topPadding - buttonHeight * 0.5f;
+
+        int col = index % 4;
+        int row = index / 4;
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(startX + col * (buttonWidth + gapX), startY - row * (buttonHeight + gapY));
+        rt.sizeDelta = new Vector2(buttonWidth, buttonHeight);
+
+        var glyphRt = button.transform.Find("Glyph") as RectTransform;
+        if (glyphRt != null)
+        {
+            glyphRt.anchorMin = glyphRt.anchorMax = new Vector2(0.5f, 1f);
+            glyphRt.pivot = new Vector2(0.5f, 1f);
+            glyphRt.anchoredPosition = new Vector2(0f, -Mathf.Clamp(buttonHeight * 0.10f, 4f, 9f));
+            glyphRt.sizeDelta = new Vector2(Mathf.Max(34f, buttonWidth - 16f), Mathf.Clamp(buttonHeight * 0.46f, 22f, 38f));
+            var glyph = glyphRt.GetComponent<Text>();
+            if (glyph != null) glyph.fontSize = Mathf.RoundToInt(Mathf.Clamp(buttonHeight * 0.34f, 14f, 28f));
+        }
+
+        var labelRt = button.transform.Find("Text") as RectTransform;
+        if (labelRt != null)
+        {
+            labelRt.offsetMin = new Vector2(3f, Mathf.Clamp(buttonHeight * 0.06f, 3f, 5f));
+            labelRt.offsetMax = new Vector2(-3f, -Mathf.Clamp(buttonHeight * 0.52f, 24f, 44f));
+            var label = labelRt.GetComponent<Text>();
+            if (label != null) label.fontSize = Mathf.RoundToInt(Mathf.Clamp(buttonHeight * 0.20f, 10f, 16f));
+        }
+
+        var cd = button.transform.Find("CooldownText")?.GetComponent<Text>();
+        if (cd != null) cd.fontSize = Mathf.RoundToInt(Mathf.Clamp(buttonHeight * 0.30f, 12f, 22f));
+    }
+
+    void BeginTechTargeting(int index, Vector2 screenPos)
+    {
+        EnsureBattleTechDefinitions();
+        if (index < 0 || index >= _battleTechs.Length) return;
+
+        var baseBuilding = GameManager.Instance?.PlayerMainBase;
+        if (baseBuilding == null || baseBuilding.GetHP() <= 0)
+        {
+            _UiClickAudio.PlayDeny();
+            ShowAlert("主基地已摧毁，科技不可用");
+            return;
+        }
+
+        var pc = RTSPlayerController.Instance;
+        if (pc != null && pc.IsInPlacementMode)
+        {
+            _UiClickAudio.PlayDeny();
+            ShowAlert("建造放置中，无法释放科技");
+            return;
+        }
+
+        float remain = GetTechCooldownRemaining(index);
+        if (remain > 0f)
+        {
+            _UiClickAudio.PlayDeny();
+            ShowAlert($"{_battleTechs[index].Name} 冷却中：{Mathf.CeilToInt(remain)}秒");
+            if (_techButtons != null && index < _techButtons.Length && _techButtons[index] != null)
+                StartCoroutine(ShakeButton(_techButtons[index].GetComponent<RectTransform>()));
+            return;
+        }
+
+        _techTargetingIndex = index;
+        _techTargetStartScreen = screenPos;
+        _techTargetStartTime = Time.unscaledTime;
+        _techConsumedInputFrame = Time.frameCount;
+        _techIgnoreInitialRelease = true;
+        SetTechPanelOpen(false);
+        CloseBuildMenu();
+        EnsureTechTargetRing(index);
+        UpdateTechTargetPoint(screenPos);
+        _UiClickAudio.PlayClick();
+        ShowAlert($"选择{_battleTechs[index].Name}释放范围");
+    }
+
+    void ReleaseTechTargeting(int index, Vector2 screenPos, bool force)
+    {
+        if (_techTargetingIndex < 0) return;
+        if (force && _techConsumedInputFrame == Time.frameCount) return;
+        if (index >= 0 && index != _techTargetingIndex) return;
+
+        int active = _techTargetingIndex;
+        bool overUiRelease = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+        bool initialButtonRelease = _techIgnoreInitialRelease
+            && Vector2.Distance(screenPos, _techTargetStartScreen) < 18f;
+        bool tinyButtonTap = initialButtonRelease || (!force && overUiRelease);
+
+        if (tinyButtonTap)
+        {
+            _techIgnoreInitialRelease = false;
+            _techConsumedInputFrame = Time.frameCount;
+            return;
+        }
+        _techIgnoreInitialRelease = false;
+
+        if (!TryGetTechWorldPoint(screenPos, out Vector3 point))
+        {
+            _UiClickAudio.PlayDeny();
+            ShowAlert("请选择战场地面释放科技");
+            _techConsumedInputFrame = Time.frameCount;
+            return;
+        }
+
+        CastBattleTech(active, point);
+        CancelTechTargeting(false);
+        _techConsumedInputFrame = Time.frameCount;
+    }
+
+    void CancelTechTargeting(bool notify)
+    {
+        if (_techTargetingIndex < 0) return;
+        _techTargetingIndex = -1;
+        if (_techTargetRing != null)
+        {
+            Destroy(_techTargetRing);
+            _techTargetRing = null;
+            _techTargetRingRenderer = null;
+        }
+        _techIgnoreInitialRelease = false;
+        if (notify) ShowAlert("已取消科技释放");
+    }
+
+    void EnsureTechTargetRing(int index)
+    {
+        BattleTechSpec spec = _battleTechs[index];
+        if (_techTargetRing == null)
+        {
+            _techTargetRing = FxResources.MakeGroundDisc(null, "TechTargetRange", spec.Radius,
+                spec.Color, FxResources.DiscStyle.MediumRing, 0.06f);
+            _techTargetRingRenderer = _techTargetRing.GetComponent<Renderer>();
+        }
+
+        _techTargetRing.transform.localScale = new Vector3(spec.Radius * 2f, spec.Radius * 2f, 1f);
+        if (_techTargetRingRenderer != null)
+            RendererColorUtil.TrySetColor(_techTargetRingRenderer, spec.Color);
+    }
+
+    void UpdateTechTargeting()
+    {
+        if (_techTargetingIndex < 0) return;
+
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            CancelTechTargeting(true);
+            _techConsumedInputFrame = Time.frameCount;
+            return;
+        }
+
+        if (TryGetTechPointerScreenPosition(out Vector2 screenPos))
+            UpdateTechTargetPoint(screenPos);
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (Input.touchCount == 1)
+        {
+            Touch t = Input.GetTouch(0);
+            if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
+            {
+                if (t.phase == TouchPhase.Canceled) CancelTechTargeting(false);
+                else ReleaseTechTargeting(_techTargetingIndex, t.position, true);
+            }
+        }
+#else
+        if (Input.GetMouseButtonUp(0))
+            ReleaseTechTargeting(_techTargetingIndex, Input.mousePosition, true);
+#endif
+    }
+
+    bool TryGetTechPointerScreenPosition(out Vector2 screenPos)
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (Input.touchCount > 0)
+        {
+            screenPos = Input.GetTouch(0).position;
+            return true;
+        }
+        screenPos = Vector2.zero;
+        return false;
+#else
+        screenPos = Input.mousePosition;
+        return true;
+#endif
+    }
+
+    void UpdateTechTargetPoint(Vector2 screenPos)
+    {
+        if (_techTargetingIndex < 0) return;
+        if (!TryGetTechWorldPoint(screenPos, out _techTargetPoint)) return;
+
+        if (_techTargetRing != null)
+        {
+            BattleTechSpec spec = _battleTechs[_techTargetingIndex];
+            _techTargetRing.transform.position = new Vector3(_techTargetPoint.x, _techTargetPoint.y + 0.06f, _techTargetPoint.z);
+            float pulse = 1f + Mathf.Sin(Time.unscaledTime * 7f) * 0.035f;
+            _techTargetRing.transform.localScale = new Vector3(spec.Radius * 2f * pulse, spec.Radius * 2f * pulse, 1f);
+        }
+    }
+
+    bool TryGetTechWorldPoint(Vector2 screenPos, out Vector3 point)
+    {
+        point = Vector3.zero;
+        Camera cam = Camera.main;
+        if (cam == null) return false;
+
+        Ray ray = cam.ScreenPointToRay(screenPos);
+        Plane ground = new Plane(Vector3.up, Vector3.zero);
+        if (!ground.Raycast(ray, out float distance)) return false;
+
+        point = ray.GetPoint(distance);
+        point.y = 0f;
+        return true;
+    }
+
+    void CastBattleTech(int index, Vector3 point)
+    {
+        if (index < 0 || index >= _battleTechs.Length) return;
+        BattleTechSpec spec = _battleTechs[index];
+        int affected = ApplyBattleTechToUnits(spec, point);
+        _techCooldownEnds[index] = Time.time + spec.Cooldown;
+        SpawnTechCastPulse(spec, point);
+        _UiClickAudio.PlayConfirm();
+        ShowAlert($"{spec.Name} 已释放：影响 {affected} 个单位");
+    }
+
+    int ApplyBattleTechToUnits(BattleTechSpec spec, Vector3 point)
+    {
+        int affected = 0;
+        var units = GameManager.Instance?.GetAllUnits();
+        if (units == null) return 0;
+
+        Vector2 center = new Vector2(point.x, point.z);
+        for (int i = 0; i < units.Count; i++)
+        {
+            RTSUnit unit = units[i];
+            if (unit == null || unit.IsDead() || !unit.IsPlayerOwned()) continue;
+
+            Vector3 pos = unit.transform.position;
+            if (Vector2.Distance(center, new Vector2(pos.x, pos.z)) > spec.Radius) continue;
+
+            unit.ApplyTechBuff(spec.Id, spec.Duration, spec.MoveMultiplier, spec.DamageMultiplier,
+                spec.AttackRangeBonus, spec.AttackIntervalMultiplier, spec.DefenseReduction,
+                spec.SightRangeBonus, spec.RegenPerSecond, spec.Color);
+            affected++;
+        }
+
+        return affected;
+    }
+
+    void SpawnTechCastPulse(BattleTechSpec spec, Vector3 point)
+    {
+        var pulse = FxResources.MakeGroundDisc(null, "TechCastPulse_" + spec.Id, spec.Radius,
+            spec.Color, FxResources.DiscStyle.SoftDisc, 0.065f);
+        pulse.transform.position = new Vector3(point.x, point.y + 0.065f, point.z);
+        StartCoroutine(AnimateTechCastPulse(pulse, spec.Color));
+    }
+
+    System.Collections.IEnumerator AnimateTechCastPulse(GameObject pulse, Color color)
+    {
+        if (pulse == null) yield break;
+        Renderer rd = pulse.GetComponent<Renderer>();
+        Vector3 origin = pulse.transform.localScale;
+        float t = 0f;
+        const float dur = 0.42f;
+        while (t < dur && pulse != null)
+        {
+            t += Time.unscaledDeltaTime;
+            float r = Mathf.Clamp01(t / dur);
+            float s = Mathf.Lerp(0.35f, 1.08f, 1f - Mathf.Pow(1f - r, 2f));
+            pulse.transform.localScale = origin * s;
+            if (rd != null)
+            {
+                Color c = color;
+                c.a = Mathf.Lerp(0.34f, 0f, r);
+                RendererColorUtil.TrySetColor(rd, c);
+            }
+            yield return null;
+        }
+        if (pulse != null) Destroy(pulse);
+    }
+
+    float GetTechCooldownRemaining(int index)
+    {
+        if (_techCooldownEnds == null || index < 0 || index >= _techCooldownEnds.Length) return 0f;
+        return Mathf.Max(0f, _techCooldownEnds[index] - Time.time);
+    }
+
+    void UpdateTechCooldownUi()
+    {
+        EnsureBattleTechDefinitions();
+        if (_techButtons == null || _techButtons.Length == 0) return;
+
+        for (int i = 0; i < _techButtons.Length; i++)
+        {
+            if (_techButtons[i] == null) continue;
+            BattleTechSpec spec = _battleTechs[i];
+            float remain = GetTechCooldownRemaining(i);
+            bool cooling = remain > 0f;
+            bool targeting = _techTargetingIndex == i;
+
+            _techButtons[i].interactable = !cooling && _techTargetingIndex < 0;
+
+            if (_techCooldownFills != null && i < _techCooldownFills.Length && _techCooldownFills[i] != null)
+                _techCooldownFills[i].fillAmount = cooling ? Mathf.Clamp01(remain / Mathf.Max(0.01f, spec.Cooldown)) : 0f;
+
+            if (_techCooldownTexts != null && i < _techCooldownTexts.Length && _techCooldownTexts[i] != null)
+                _techCooldownTexts[i].text = cooling ? Mathf.CeilToInt(remain).ToString() : "";
+
+            var img = _techButtons[i].GetComponent<Image>();
+            if (img != null)
+            {
+                Color baseColor = new Color(0.075f, 0.095f, 0.090f, 0.96f);
+                img.color = cooling
+                    ? new Color(0.035f, 0.045f, 0.045f, 0.78f)
+                    : targeting
+                        ? Color.Lerp(baseColor, spec.Color, 0.48f)
+                        : baseColor;
+            }
+        }
+    }
+
+    public bool IsTechTargetingInputActive => _techTargetingIndex >= 0 || _techConsumedInputFrame == Time.frameCount;
+
+    void SetTechPanelOpen(bool open)
+    {
+        var canvas = GetComponentInParent<Canvas>() ?? FindObjectOfType<Canvas>();
+        if (TechPanel == null && canvas != null && open)
+            EnsureBattleTechPanel(canvas);
+
+        _techPanelOpen = open;
+        if (TechPanel != null)
+        {
+            if (open && canvas != null)
+                ApplyBattleTechPanelLayout(canvas);
+            TechPanel.SetActive(open);
+            if (open) TechPanel.transform.SetAsLastSibling();
+        }
     }
 
     void EnsureGameSettingsUi(Canvas canvas)
@@ -646,13 +2038,17 @@ public class RTSHUD : MonoBehaviour
         GameSettingsPanel = EnsureSettingsPanel(canvas.transform);
 
         BindSettingsUiRefs();
+        ApplySettingsPanelActionLayout();
         WireSettingsUi();
         SyncSettingsSlidersFromPrefs();
 
         if (GameSettingsPanel != null)
             GameSettingsPanel.SetActive(_settingsOpen);
         if (GameSettingsButton != null)
+        {
+            EnsureSettingsButtonInput(GameSettingsButton);
             GameSettingsButton.transform.SetAsLastSibling();
+        }
     }
 
     Button EnsureSettingsButton(Transform canvas)
@@ -661,22 +2057,89 @@ public class RTSHUD : MonoBehaviour
         Button button = existing != null ? existing.GetComponent<Button>() : null;
         if (button == null)
         {
-            button = CreatePopupButton(canvas, "GameSettingsButton", "设置",
-                new Vector2(1f, 1f), new Vector2(-12f, -62f), new Vector2(92f, 40f));
+            button = CreatePopupButton(canvas, "GameSettingsButton", "",
+                new Vector2(0.86f, 1f), new Vector2(0f, -34f), new Vector2(38f, 38f));
         }
 
         var rt = button.GetComponent<RectTransform>();
         if (rt != null)
         {
-            rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
-            rt.pivot = new Vector2(1f, 1f);
-            rt.anchoredPosition = new Vector2(-12f, -62f);
-            rt.sizeDelta = new Vector2(92f, 40f);
+            rt.anchorMin = rt.anchorMax = new Vector2(0.86f, 1f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(0f, -34f);
+            rt.sizeDelta = new Vector2(38f, 38f);
         }
 
-        StyleSideHudButton(button, "设置", "◎",
+        StyleIconOnlyHudButton(button, "icons3/gear", "⚙",
             new Color(0.80f, 0.70f, 0.42f, 0.95f));
+        EnsureSettingsButtonInput(button);
         return button;
+    }
+
+    void EnsureSettingsButtonInput(Button button)
+    {
+        if (button == null) return;
+
+        button.gameObject.SetActive(true);
+        button.enabled = true;
+        button.interactable = true;
+
+        var image = button.GetComponent<Image>();
+        if (image == null)
+            image = button.gameObject.AddComponent<Image>();
+        image.raycastTarget = true;
+        button.targetGraphic = image;
+
+        var group = button.GetComponent<CanvasGroup>();
+        if (group == null)
+            group = button.gameObject.AddComponent<CanvasGroup>();
+        group.alpha = 1f;
+        group.interactable = true;
+        group.blocksRaycasts = true;
+        group.ignoreParentGroups = true;
+
+        button.onClick.RemoveListener(ToggleGameSettings);
+        button.onClick.AddListener(ToggleGameSettings);
+    }
+
+    void MaintainGameSettingsEntry(Canvas canvas)
+    {
+        if (canvas == null || IsGameOverVisible()) return;
+
+        if (GameSettingsButton == null)
+            GameSettingsButton = FindUiComponent<Button>(canvas.transform, "GameSettingsButton");
+
+        if (GameSettingsPanel == null)
+        {
+            var panel = FindUiTransform(canvas.transform, "GameSettingsPanel");
+            if (panel != null) GameSettingsPanel = panel.gameObject;
+        }
+
+        if (GameSettingsButton == null || GameSettingsPanel == null)
+        {
+            EnsureGameSettingsUi(canvas);
+            return;
+        }
+
+        EnsureSettingsButtonInput(GameSettingsButton);
+
+        if (GameSettingsCloseButton == null || GameSettingsReturnLobbyButton == null ||
+            MasterVolumeSlider == null || SfxVolumeSlider == null)
+        {
+            BindSettingsUiRefs();
+            ApplySettingsPanelActionLayout();
+            WireSettingsUi();
+        }
+
+        if (_settingsOpen)
+        {
+            GameSettingsPanel.SetActive(true);
+            GameSettingsPanel.transform.SetAsLastSibling();
+        }
+        else
+        {
+            GameSettingsButton.transform.SetAsLastSibling();
+        }
     }
 
     GameObject EnsureSettingsPanel(Transform canvas)
@@ -707,6 +2170,10 @@ public class RTSHUD : MonoBehaviour
             new Color(0.78f, 0.62f, 0.18f, 0.95f));
         CreateSettingsText(card.transform, "SettingsTitle", "设置",
             new Vector2(0.5f, 1f), new Vector2(0f, -38f), new Vector2(360f, 48f), 28, TextAnchor.MiddleCenter, Color.white);
+        var closeButton = CreatePopupButton(card.transform, "GameSettingsCloseButton", "×",
+            new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(36f, 32f));
+        var closeImg = closeButton.GetComponent<Image>();
+        if (closeImg != null) closeImg.color = new Color(0.10f, 0.12f, 0.15f, 0.96f);
         CreateSettingsText(card.transform, "MasterVolumeLabel", "总音量",
             new Vector2(0f, 1f), new Vector2(96f, -118f), new Vector2(110f, 30f), 18, TextAnchor.MiddleLeft, new Color(0.90f, 0.96f, 1f));
         CreateSettingsText(card.transform, "MasterVolumeValueText", "80%",
@@ -721,13 +2188,8 @@ public class RTSHUD : MonoBehaviour
         CreateSettingsSlider(card.transform, "SfxVolumeSlider",
             new Vector2(0.5f, 1f), new Vector2(20f, -241f), new Vector2(330f, 24f), new Color(0.70f, 0.88f, 0.42f));
 
-        var closeButton = CreatePopupButton(card.transform, "GameSettingsCloseButton", "继续游戏",
-            new Vector2(0.30f, 0f), new Vector2(0f, 54f), new Vector2(160f, 48f));
-        var closeImg = closeButton.GetComponent<Image>();
-        if (closeImg != null) closeImg.color = new Color(0.16f, 0.45f, 0.24f, 0.98f);
-
         var lobbyButton = CreatePopupButton(card.transform, "GameSettingsReturnLobbyButton", "返回大厅",
-            new Vector2(0.70f, 0f), new Vector2(0f, 54f), new Vector2(160f, 48f));
+            new Vector2(0.5f, 0f), new Vector2(0f, 24f), new Vector2(180f, 44f));
         var lobbyImg = lobbyButton.GetComponent<Image>();
         if (lobbyImg != null) lobbyImg.color = new Color(0.54f, 0.16f, 0.16f, 0.98f);
 
@@ -745,6 +2207,40 @@ public class RTSHUD : MonoBehaviour
         MasterVolumeValueText = FindSettingsComponent<Text>(root, "MasterVolumeValueText");
         SfxVolumeSlider = FindSettingsComponent<Slider>(root, "SfxVolumeSlider");
         SfxVolumeValueText = FindSettingsComponent<Text>(root, "SfxVolumeValueText");
+    }
+
+    void ApplySettingsPanelActionLayout()
+    {
+        if (GameSettingsCloseButton == null && GameSettingsPanel != null)
+        {
+            var card = GameSettingsPanel.transform.Find("SettingsCard");
+            if (card != null)
+                GameSettingsCloseButton = CreatePopupButton(card, "GameSettingsCloseButton", "×",
+                    new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(36f, 32f));
+        }
+
+        if (GameSettingsCloseButton != null)
+        {
+            GameSettingsCloseButton.gameObject.SetActive(true);
+            var closeRt = GameSettingsCloseButton.GetComponent<RectTransform>();
+            if (closeRt != null)
+            {
+                closeRt.anchorMin = closeRt.anchorMax = new Vector2(1f, 1f);
+                closeRt.pivot = new Vector2(0.5f, 0.5f);
+                closeRt.anchoredPosition = new Vector2(-24f, -24f);
+                closeRt.sizeDelta = new Vector2(36f, 32f);
+            }
+            var closeImg = GameSettingsCloseButton.GetComponent<Image>();
+            if (closeImg != null) closeImg.color = new Color(0.10f, 0.12f, 0.15f, 0.96f);
+        }
+
+        if (GameSettingsReturnLobbyButton == null) return;
+        GameSettingsReturnLobbyButton.gameObject.SetActive(true);
+        var rt = GameSettingsReturnLobbyButton.GetComponent<RectTransform>();
+        if (rt == null) return;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0f);
+        rt.anchoredPosition = new Vector2(0f, 24f);
+        rt.sizeDelta = new Vector2(180f, 44f);
     }
 
     void WireSettingsUi()
@@ -814,6 +2310,9 @@ public class RTSHUD : MonoBehaviour
         if ((GameSettingsPanel == null || GameSettingsButton == null) && canvas != null)
             EnsureGameSettingsUi(canvas);
 
+        if (open)
+            SetTechPanelOpen(false);
+
         _settingsOpen = open;
         if (GameSettingsPanel != null)
         {
@@ -825,17 +2324,7 @@ public class RTSHUD : MonoBehaviour
         {
             CloseBuildMenu();
             _UiClickAudio.PlayClick();
-            if (!IsOnlineMatch() && !_settingsPausedTime)
-            {
-                _settingsPreviousTimeScale = Time.timeScale;
-                Time.timeScale = 0f;
-                _settingsPausedTime = true;
-            }
-        }
-        else if (_settingsPausedTime)
-        {
-            Time.timeScale = bPaused ? 0f : (_settingsPreviousTimeScale <= 0f ? 1f : _settingsPreviousTimeScale);
-            _settingsPausedTime = false;
+            EnsureBattleTimeRunning();
         }
     }
 
@@ -844,7 +2333,6 @@ public class RTSHUD : MonoBehaviour
         _UiClickAudio.PlayConfirm();
         if (GameSettingsPanel != null) GameSettingsPanel.SetActive(false);
         _settingsOpen = false;
-        _settingsPausedTime = false;
         Time.timeScale = 1f;
         GameManager.Instance?.ReturnToLobby();
     }
@@ -938,11 +2426,11 @@ public class RTSHUD : MonoBehaviour
 
         var fill = new GameObject("Fill");
         fill.transform.SetParent(fillArea.transform, false);
-        var frt = fill.AddComponent<RectTransform>();
-        frt.anchorMin = Vector2.zero;
-        frt.anchorMax = Vector2.one;
-        frt.offsetMin = Vector2.zero;
-        frt.offsetMax = Vector2.zero;
+        var sliderFillRT = fill.AddComponent<RectTransform>();
+        sliderFillRT.anchorMin = Vector2.zero;
+        sliderFillRT.anchorMax = Vector2.one;
+        sliderFillRT.offsetMin = Vector2.zero;
+        sliderFillRT.offsetMax = Vector2.zero;
         var fillImg = fill.AddComponent<Image>();
         fillImg.color = fillColor;
 
@@ -964,7 +2452,7 @@ public class RTSHUD : MonoBehaviour
         var slider = go.AddComponent<Slider>();
         slider.minValue = 0f;
         slider.maxValue = 1f;
-        slider.fillRect = frt;
+        slider.fillRect = sliderFillRT;
         slider.handleRect = hrt;
         slider.targetGraphic = handleImg;
         slider.value = 1f;
@@ -1004,14 +2492,18 @@ public class RTSHUD : MonoBehaviour
         var existing = canvas.transform.Find("_CommandBar");
         if (existing != null)
         {
-            if (_commandButtons != null && _commandButtons.Length == 2) return;
+            if (_commandButtons != null && _commandButtons.Length == CommandButtonCount)
+            {
+                existing.SetAsLastSibling();
+                return;
+            }
             Destroy(existing.gameObject);
         }
 
-        _commandButtons = new Button[2];
-        _commandButtonImages = new Image[2];
-        _commandButtonBaseColors = new Color[2];
-        _commandButtonAccentColors = new Color[2];
+        _commandButtons = new Button[CommandButtonCount];
+        _commandButtonImages = new Image[CommandButtonCount];
+        _commandButtonBaseColors = new Color[CommandButtonCount];
+        _commandButtonAccentColors = new Color[CommandButtonCount];
 
         var bar = new GameObject("_CommandBar");
         bar.transform.SetParent(canvas.transform, false);
@@ -1020,7 +2512,7 @@ public class RTSHUD : MonoBehaviour
         rt.anchorMax = new Vector2(0.5f, 0f);
         rt.pivot = new Vector2(0.5f, 0f);
         rt.anchoredPosition = new Vector2(0f, 8f);
-        rt.sizeDelta = new Vector2(CommandButtonPad * 2f + CommandButtonWidth + CommandButtonStep, 62f);
+        rt.sizeDelta = new Vector2(CommandButtonPad * 2f + CommandButtonWidth + CommandButtonStep * (CommandButtonCount - 1), 62f);
 
         var bg = bar.AddComponent<Image>();
         bg.color = new Color(0.02f, 0.025f, 0.025f, 0.78f);
@@ -1030,9 +2522,299 @@ public class RTSHUD : MonoBehaviour
         ol.effectDistance = new Vector2(1.2f, -1.2f);
 
         RegisterCommandButton(0, CreateCommandIconButton(bar.transform, 0, "_Cmd_SelectAll", "◎", new Color(0.65f, 0.90f, 1f),
-            () => SelectAllOwnedUnits()));
+            () => SelectAllOwnedUnits(), "icons/btn_select_all", "全选"));
         RegisterCommandButton(1, CreateCommandIconButton(bar.transform, 1, "_Cmd_BoxSelect", "□", new Color(1f, 0.78f, 0.32f),
-            () => FindObjectOfType<RTSPlayerController>()?.ArmBoxSelectMode()));
+            () => FindObjectOfType<RTSPlayerController>()?.ArmBoxSelectMode(), "icons/btn_box_select", "框选"));
+        RegisterCommandButton(2, CreateCommandIconButton(bar.transform, 2, "_Cmd_ParkAircraft", "P", new Color(0.42f, 0.96f, 0.78f),
+            () => ParkSelectedAircraft(), null, "停机"));
+    }
+
+    void LayoutSelectionPanels(Canvas canvas)
+    {
+        if (canvas == null) return;
+
+        const float bottomClearance = 34f;
+        PositionSelectionPanel(UnitInfoPanel, canvas.transform, new Vector2(248f, 132f), bottomClearance);
+        PositionSelectionPanel(BuildingPanel, canvas.transform, new Vector2(414f, 320f), bottomClearance);
+        LayoutUnitPanelControls();
+        LayoutBuildingPanelControls();
+        ConfigurePanelCanvasGroup(UnitInfoPanel, 0.88f, false);
+        ConfigurePanelCanvasGroup(BuildingPanel, 0.96f, true);
+    }
+
+    void PositionSelectionPanel(GameObject panel, Transform canvasRoot, Vector2 preferredSize, float bottomClearance)
+    {
+        if (panel == null || canvasRoot == null) return;
+        if (panel.transform.parent != canvasRoot)
+            panel.transform.SetParent(canvasRoot, false);
+
+        var rt = panel.GetComponent<RectTransform>();
+        if (rt == null) return;
+
+        rt.anchorMin = new Vector2(1f, 0f);
+        rt.anchorMax = new Vector2(1f, 0f);
+        rt.pivot = new Vector2(1f, 0f);
+        rt.anchoredPosition = new Vector2(-12f, bottomClearance);
+        rt.sizeDelta = preferredSize;
+    }
+
+    void LayoutUnitPanelControls()
+    {
+        if (UnitInfoPanel == null) return;
+        Transform panelRoot = UnitInfoPanel.transform;
+
+        LayoutTopCenterText(UnitNameText, panelRoot, 4f, 26f, 18, TextAnchor.MiddleCenter);
+        LayoutTopStretchText(FindPanelText(panelRoot, "UnitHPLabel"), panelRoot, 16f, 16f, 34f, 14f, 11, TextAnchor.MiddleLeft);
+        LayoutTopStretch(UnitHPBar != null ? UnitHPBar.GetComponent<RectTransform>() : null, panelRoot, 14f, 14f, 54f, 14f);
+        LayoutTopCenterText(UnitHPText, panelRoot, 72f, 40f, 12, TextAnchor.MiddleCenter);
+        if (UnitHPText != null)
+        {
+            UnitHPText.verticalOverflow = VerticalWrapMode.Overflow;
+            UnitHPText.lineSpacing = 0.9f;
+        }
+
+        if (SkillButton != null)
+            SkillButton.gameObject.SetActive(false);
+    }
+
+    void ConfigurePanelCanvasGroup(GameObject panel, float alpha, bool blocksRaycasts)
+    {
+        if (panel == null) return;
+
+        var group = panel.GetComponent<CanvasGroup>();
+        if (group == null)
+            group = panel.AddComponent<CanvasGroup>();
+
+        group.alpha = alpha;
+        group.interactable = blocksRaycasts;
+        group.blocksRaycasts = blocksRaycasts;
+    }
+
+    void LayoutBuildingPanelControls()
+    {
+        if (BuildingPanel == null) return;
+        Transform panelRoot = BuildingPanel.transform;
+        RTSBuilding selectedBuilding = currentSelectedBuilding;
+        bool isConstructing = selectedBuilding != null && selectedBuilding.bUnderConstruction;
+        bool hasProduction = selectedBuilding != null
+            && selectedBuilding.ProductionUnits != null
+            && selectedBuilding.ProductionUnits.Length > 0;
+        bool showProductionSection = isConstructing || hasProduction;
+        bool showStatusOnlyText = selectedBuilding != null
+            && !showProductionSection
+            && selectedBuilding.bIsMainBase;
+        bool showProductionText = showProductionSection || showStatusOnlyText;
+
+        LayoutTopCenterText(BuildingNameText, panelRoot, 5f, 30f, 23, TextAnchor.MiddleCenter);
+        EnsureReadableTextShadow(BuildingNameText, new Vector2(1.2f, -1.2f));
+        var hpLabel = FindPanelText(panelRoot, "BldHPLabel");
+        var prodLabel = FindPanelText(panelRoot, "ProdLabel");
+        LayoutTopStretchText(hpLabel, panelRoot, 20f, 20f, 40f, 18f, 15, TextAnchor.MiddleLeft);
+        EnsureReadableTextShadow(hpLabel, new Vector2(1f, -1f));
+        LayoutTopStretchText(BuildingHPText, panelRoot, 148f, 20f, 40f, 18f, 15, TextAnchor.MiddleRight);
+        if (BuildingHPText != null)
+        {
+            BuildingHPText.fontStyle = FontStyle.Bold;
+            BuildingHPText.color = new Color(0.82f, 1f, 0.78f);
+            BuildingHPText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            EnsureReadableTextShadow(BuildingHPText, new Vector2(1f, -1f));
+        }
+        LayoutTopStretch(BuildingHPBar != null ? BuildingHPBar.GetComponent<RectTransform>() : null, panelRoot, 18f, 18f, 64f, 18f);
+
+        SetUiActive(prodLabel, showProductionSection);
+        SetUiActive(ProductionBar, showProductionSection);
+        SetUiActive(ProductionText, showProductionText);
+        if (showProductionSection)
+        {
+            LayoutTopStretchText(prodLabel, panelRoot, 20f, 20f, 92f, 18f, 15, TextAnchor.MiddleLeft);
+            EnsureReadableTextShadow(prodLabel, new Vector2(1f, -1f));
+            LayoutTopStretch(ProductionBar != null ? ProductionBar.GetComponent<RectTransform>() : null, panelRoot, 18f, 18f, 116f, 14f);
+        }
+
+        if (ProductionText != null)
+        {
+            if (ProductionText.transform.parent != panelRoot)
+                ProductionText.transform.SetParent(panelRoot, false);
+            ProductionText.transform.SetAsLastSibling();
+            var rt = ProductionText.rectTransform;
+            rt.anchorMin = new Vector2(0f, 1f);
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(0.5f, 1f);
+            if (showProductionSection)
+            {
+                rt.offsetMin = new Vector2(18f, -166f);
+                rt.offsetMax = new Vector2(-18f, -136f);
+                ProductionText.fontSize = 14;
+            }
+            else
+            {
+                rt.offsetMin = new Vector2(18f, -124f);
+                rt.offsetMax = new Vector2(-18f, -96f);
+                ProductionText.fontSize = showStatusOnlyText ? 15 : 14;
+            }
+            ProductionText.alignment = TextAnchor.MiddleCenter;
+            ProductionText.fontStyle = FontStyle.Bold;
+            ProductionText.lineSpacing = 0.9f;
+            ProductionText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            ProductionText.verticalOverflow = VerticalWrapMode.Truncate;
+            EnsureReadableTextShadow(ProductionText, new Vector2(1.2f, -1.2f));
+        }
+
+        if (ProductionButtons != null)
+        {
+            const float left = 18f;
+            const float top = 174f;
+            const float width = 122f;
+            const float height = 68f;
+            const float gapX = 10f;
+            const float gapY = 10f;
+            const int columns = 3;
+            for (int i = 0; i < ProductionButtons.Length; i++)
+            {
+                var btn = ProductionButtons[i];
+                if (btn == null) continue;
+                if (btn.transform.parent != panelRoot)
+                    btn.transform.SetParent(panelRoot, false);
+                btn.transform.SetAsLastSibling();
+                var rt = btn.GetComponent<RectTransform>();
+                if (rt == null) continue;
+                int col = i % columns;
+                int row = i / columns;
+                rt.anchorMin = new Vector2(0f, 1f);
+                rt.anchorMax = new Vector2(0f, 1f);
+                rt.pivot = new Vector2(0f, 1f);
+                rt.anchoredPosition = new Vector2(left + col * (width + gapX), -top - row * (height + gapY));
+                rt.sizeDelta = new Vector2(width, height);
+
+                var text = btn.GetComponentInChildren<Text>();
+                if (text != null)
+                {
+                    text.fontSize = 14;
+                    text.fontStyle = FontStyle.Bold;
+                    text.lineSpacing = 0.92f;
+                    text.alignment = TextAnchor.MiddleCenter;
+                    text.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    text.verticalOverflow = VerticalWrapMode.Truncate;
+                    EnsureReadableTextShadow(text, new Vector2(1f, -1f));
+                }
+            }
+        }
+
+        LayoutCancelProductionButton();
+    }
+
+    void LayoutTopCenterText(Text text, Transform panelRoot, float top, float height, int fontSize, TextAnchor alignment)
+    {
+        if (text == null || panelRoot == null) return;
+        if (text.transform.parent != panelRoot)
+            text.transform.SetParent(panelRoot, false);
+        text.transform.SetAsLastSibling();
+        var rt = text.rectTransform;
+        rt.anchorMin = new Vector2(0.5f, 1f);
+        rt.anchorMax = new Vector2(0.5f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(0f, -top);
+        var panelRect = panelRoot.GetComponent<RectTransform>();
+        float panelWidth = panelRect != null ? Mathf.Max(panelRect.rect.width, panelRect.sizeDelta.x) : 276f;
+        float width = Mathf.Max(220f, panelWidth - 36f);
+        rt.sizeDelta = new Vector2(width, height);
+        text.fontSize = fontSize;
+        text.alignment = alignment;
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Truncate;
+    }
+
+    void EnsureReadableTextShadow(Text text, Vector2 distance)
+    {
+        if (text == null) return;
+        var shadow = GetOrAddUiShadow(text.gameObject);
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.86f);
+        shadow.effectDistance = distance;
+    }
+
+    static void SetUiActive(Component component, bool active)
+    {
+        if (component == null) return;
+        if (component.gameObject.activeSelf != active)
+            component.gameObject.SetActive(active);
+    }
+
+    void EnsureReadableTextOutline(Text text, Vector2 distance, Color color)
+    {
+        if (text == null) return;
+        var outline = text.GetComponent<Outline>();
+        if (outline == null)
+            outline = text.gameObject.AddComponent<Outline>();
+        outline.effectColor = color;
+        outline.effectDistance = distance;
+    }
+
+    Text FindPanelText(Transform panelRoot, string name)
+    {
+        if (panelRoot == null || string.IsNullOrEmpty(name)) return null;
+
+        var direct = panelRoot.Find(name);
+        if (direct != null)
+        {
+            var directText = direct.GetComponent<Text>();
+            if (directText != null) return directText;
+        }
+
+        var texts = panelRoot.GetComponentsInChildren<Text>(true);
+        for (int i = 0; i < texts.Length; i++)
+        {
+            if (texts[i] != null && texts[i].name == name)
+                return texts[i];
+        }
+
+        return null;
+    }
+
+    void LayoutTopStretchText(Text text, Transform panelRoot, float left, float right, float top, float height, int fontSize, TextAnchor alignment)
+    {
+        if (text == null || panelRoot == null) return;
+        if (text.transform.parent != panelRoot)
+            text.transform.SetParent(panelRoot, false);
+        text.gameObject.SetActive(true);
+        text.transform.SetAsLastSibling();
+        var rt = text.rectTransform;
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.offsetMin = new Vector2(left, -top - height);
+        rt.offsetMax = new Vector2(-right, -top);
+        text.fontSize = fontSize;
+        text.alignment = alignment;
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Truncate;
+    }
+
+    void LayoutTopStretch(RectTransform rt, Transform panelRoot, float left, float right, float top, float height)
+    {
+        if (rt == null || panelRoot == null) return;
+        if (rt.transform.parent != panelRoot)
+            rt.transform.SetParent(panelRoot, false);
+        rt.transform.SetAsLastSibling();
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.offsetMin = new Vector2(left, -top - height);
+        rt.offsetMax = new Vector2(-right, -top);
+    }
+
+    void LayoutCancelProductionButton()
+    {
+        if (_cancelProductionBtn == null || BuildingPanel == null) return;
+        if (_cancelProductionBtn.transform.parent != BuildingPanel.transform)
+            _cancelProductionBtn.transform.SetParent(BuildingPanel.transform, false);
+        _cancelProductionBtn.transform.SetAsLastSibling();
+        var rt = _cancelProductionBtn.GetComponent<RectTransform>();
+        if (rt == null) return;
+        rt.anchorMin = new Vector2(1f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(1f, 1f);
+        rt.anchoredPosition = new Vector2(-10f, -7f);
+        rt.sizeDelta = new Vector2(38f, 30f);
     }
 
     struct CommandButtonParts
@@ -1047,6 +2829,7 @@ public class RTSHUD : MonoBehaviour
     private Image[] _commandButtonImages;
     private Color[] _commandButtonBaseColors;
     private Color[] _commandButtonAccentColors;
+    private const int CommandButtonCount = 3;
     private const float CommandButtonPad = 8f;
     private const float CommandButtonWidth = 58f;
     private const float CommandButtonStep = 66f;
@@ -1060,7 +2843,7 @@ public class RTSHUD : MonoBehaviour
         _commandButtonAccentColors[index] = parts.AccentColor;
     }
 
-    CommandButtonParts CreateCommandIconButton(Transform parent, int index, string name, string glyph, Color accent, UnityEngine.Events.UnityAction action)
+    CommandButtonParts CreateCommandIconButton(Transform parent, int index, string name, string glyph, Color accent, UnityEngine.Events.UnityAction action, string spritePath = null, string caption = null)
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
@@ -1101,6 +2884,12 @@ public class RTSHUD : MonoBehaviour
         trt.anchorMax = Vector2.one;
         trt.offsetMin = new Vector2(2f, 1f);
         trt.offsetMax = new Vector2(-2f, -1f);
+        if (!string.IsNullOrEmpty(caption))
+        {
+            trt.anchorMax = new Vector2(1f, 0.78f);
+            trt.offsetMin = new Vector2(2f, 6f);
+            trt.offsetMax = new Vector2(-2f, -1f);
+        }
         var tx = textGO.AddComponent<Text>();
         tx.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (tx.font == null) tx.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
@@ -1112,6 +2901,50 @@ public class RTSHUD : MonoBehaviour
         tx.raycastTarget = false;
         tx.horizontalOverflow = HorizontalWrapMode.Overflow;
         tx.verticalOverflow = VerticalWrapMode.Overflow;
+
+        // 有图片路径时，覆盖文字 glyph，用 Sprite 显示
+        if (!string.IsNullOrEmpty(spritePath))
+        {
+            var sp = LoadHudSprite(spritePath);
+            if (sp != null)
+            {
+                tx.text = "";
+                var iconGO = new GameObject("SpriteIcon");
+                iconGO.transform.SetParent(go.transform, false);
+                var irt = iconGO.AddComponent<RectTransform>();
+                irt.anchorMin = !string.IsNullOrEmpty(caption) ? new Vector2(0.14f, 0.30f) : new Vector2(0.1f, 0.1f);
+                irt.anchorMax = !string.IsNullOrEmpty(caption) ? new Vector2(0.86f, 0.88f) : new Vector2(0.9f, 0.9f);
+                irt.offsetMin = Vector2.zero;
+                irt.offsetMax = Vector2.zero;
+                var simg = iconGO.AddComponent<Image>();
+                simg.sprite = sp;
+                simg.preserveAspect = true;
+                simg.raycastTarget = false;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(caption))
+        {
+            var captionGO = new GameObject("Caption");
+            captionGO.transform.SetParent(go.transform, false);
+            var crt = captionGO.AddComponent<RectTransform>();
+            crt.anchorMin = Vector2.zero;
+            crt.anchorMax = new Vector2(1f, 0.34f);
+            crt.offsetMin = new Vector2(1f, 1f);
+            crt.offsetMax = new Vector2(-1f, -1f);
+            var ctext = captionGO.AddComponent<Text>();
+            ctext.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (ctext.font == null) ctext.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            ctext.text = caption;
+            ctext.fontSize = 11;
+            ctext.fontStyle = FontStyle.Bold;
+            ctext.alignment = TextAnchor.MiddleCenter;
+            ctext.color = new Color(0.88f, 0.96f, 1f);
+            ctext.raycastTarget = false;
+            ctext.horizontalOverflow = HorizontalWrapMode.Overflow;
+            ctext.verticalOverflow = VerticalWrapMode.Overflow;
+            EnsureReadableTextShadow(ctext, new Vector2(1f, -1f));
+        }
 
         return new CommandButtonParts
         {
@@ -1130,6 +2963,7 @@ public class RTSHUD : MonoBehaviour
 
         SetCommandButtonState(0, pc != null && !inPlacement, false);
         SetCommandButtonState(1, pc != null && !inPlacement, pc != null && pc.IsBoxSelectArmed);
+        SetCommandButtonState(2, pc != null && !inPlacement && HasParkableSelectedAircraft(), HasSelectedAircraftParking());
     }
 
     void SetCommandButtonState(int index, bool enabled, bool active)
@@ -1156,36 +2990,97 @@ public class RTSHUD : MonoBehaviour
         pc?.SelectAllOwnedUnits();
     }
 
+    void ParkSelectedAircraft()
+    {
+        RTSPlayerController.Instance?.ParkSelectedAircraft();
+    }
+
+    bool HasParkableSelectedAircraft()
+    {
+        for (int i = 0; i < currentSelectedUnits.Count; i++)
+        {
+            var air = currentSelectedUnits[i] as AirUnit;
+            if (air != null && air.CanParkAtAirfield)
+                return true;
+        }
+        return false;
+    }
+
+    bool HasSelectedAircraftParking()
+    {
+        for (int i = 0; i < currentSelectedUnits.Count; i++)
+        {
+            var air = currentSelectedUnits[i] as AirUnit;
+            if (air != null && air.IsReturningToRefuel)
+                return true;
+        }
+        return false;
+    }
+
     // 战地通讯消息队列
     private System.Collections.Generic.List<Text> _chatLines;
     private const int ChatMaxLines = 4;
+    private const int BattleVoiceSampleRate = 12000;
+    private const int BattleVoiceLoopSeconds = 2;
+    private const float BattleVoiceChunkSeconds = 0.16f;
+    private const float BattleVoiceMinChunkSeconds = 0.08f;
     private Transform _chatBody;
+    private InputField _chatInput;
+    private Button _chatSendButton;
+    private Button _voiceButton;
+    private Text _voiceButtonLabel;
+    private bool _chatSeeded;
+    private bool _voiceRecording;
+    private string _voiceDeviceName;
+    private AudioClip _voiceClip;
+    private AudioSource _voicePlaybackSource;
+    private int _voiceReadPosition;
+    private float _remoteVoiceActiveUntil;
+    private string _remoteVoiceSpeaker;
+    private RectTransform _chatPanelRect;
+    private Button _chatDockButton;
+    private Image _chatDockButtonImage;
+    private Image _chatDockTailImage;
+    private Image _chatDockUnreadDot;
+    private Text _chatDockButtonLabel;
+    private bool _chatPanelCollapsed = true;
+    private bool _chatUnreadWhileCollapsed;
 
-    /// <summary>外部调用：在右下战地通讯面板追加一条消息（自动滚动）。</summary>
+    /// <summary>外部调用：在战地通讯面板追加一条消息（自动滚动）。</summary>
     public void AppendChatMessage(string speaker, string message, Color color = default)
     {
-        // 不再显示战地通讯浮窗，避免遮挡血条、建造面板和战场视野。
         if (!ShouldShowBattleChatPanel()) return;
+        if (_chatBody == null || _chatLines == null)
+        {
+            var canvas = GetComponentInParent<Canvas>() ?? FindObjectOfType<Canvas>();
+            EnsureChatPanel(canvas);
+        }
         if (_chatBody == null || _chatLines == null) return;
+
         if (color.a < 0.01f) color = new Color(1f, 0.92f, 0.55f);
-        // 已满则丢弃最早一条
+        speaker = string.IsNullOrWhiteSpace(speaker) ? "通讯" : speaker.Trim();
+        message = string.IsNullOrWhiteSpace(message) ? "" : message.Trim();
+        if (message.Length > 80) message = message.Substring(0, 80) + "...";
+
         if (_chatLines.Count >= ChatMaxLines)
         {
             var first = _chatLines[0];
             if (first != null) Destroy(first.gameObject);
             _chatLines.RemoveAt(0);
         }
+
         var ln = new GameObject("Line");
         ln.transform.SetParent(_chatBody, false);
         var rt = ln.AddComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0f, 1f); rt.anchorMax = new Vector2(1f, 1f);
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(0f, 1f);
-        rt.sizeDelta = new Vector2(0f, 18f);
+        rt.sizeDelta = new Vector2(0f, 19f);
         var tx = ln.AddComponent<Text>();
         tx.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (tx.font == null) tx.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
         tx.text = $"[{speaker}] {message}";
-        tx.fontSize = 12;
+        tx.fontSize = 13;
         tx.alignment = TextAnchor.MiddleLeft;
         tx.color = color;
         tx.raycastTarget = false;
@@ -1195,80 +3090,621 @@ public class RTSHUD : MonoBehaviour
         shadow.effectColor = new Color(0f, 0f, 0f, 0.95f);
         shadow.effectDistance = new Vector2(1f, -1f);
         _chatLines.Add(tx);
-        // 重新摆位
+
         for (int i = 0; i < _chatLines.Count; i++)
         {
             if (_chatLines[i] == null) continue;
-            var lrt = _chatLines[i].rectTransform;
-            lrt.anchoredPosition = new Vector2(8f, -i * 20f - 6f);
+            _chatLines[i].rectTransform.anchoredPosition = new Vector2(0f, -i * 20f);
+        }
+
+        if (_chatPanelCollapsed)
+        {
+            _chatUnreadWhileCollapsed = true;
+            RefreshChatDockButtonState();
         }
     }
 
-    /// <summary>右侧会话/聊天占位面板（半透明，不挡视野）。</summary>
     void EnsureChatPanel(Canvas canvas)
-    {
-        if (canvas.transform.Find("_ChatPanel") != null) return;
-        var p = new GameObject("_ChatPanel");
-        p.transform.SetParent(canvas.transform, false);
-        var rt = p.AddComponent<RectTransform>();
-        rt.anchorMin = new Vector2(1f, 0f);
-        rt.anchorMax = new Vector2(1f, 0f);
-        rt.pivot = new Vector2(1f, 0f);
-        rt.anchoredPosition = new Vector2(-12f, 76f);
-        rt.sizeDelta = new Vector2(260f, 116f);
-        var bg = p.AddComponent<Image>();
-        bg.color = new Color(0.04f, 0.05f, 0.03f, 0.14f);
-        bg.raycastTarget = false;
-        var ol = p.AddComponent<Outline>();
-        ol.effectColor = new Color(0.78f, 0.62f, 0.18f, 0.32f);
-        ol.effectDistance = new Vector2(1f, -1f);
-        // 标题
-        var hd = new GameObject("Header");
-        hd.transform.SetParent(p.transform, false);
-        var hdrt = hd.AddComponent<RectTransform>();
-        hdrt.anchorMin = new Vector2(0f, 1f); hdrt.anchorMax = new Vector2(1f, 1f);
-        hdrt.pivot = new Vector2(0.5f, 1f);
-        hdrt.anchoredPosition = Vector2.zero;
-        hdrt.sizeDelta = new Vector2(0f, 22f);
-        hd.AddComponent<Image>().color = new Color(0.10f, 0.12f, 0.07f, 0.30f);
-        var ht = new GameObject("Txt");
-        ht.transform.SetParent(hd.transform, false);
-        var htrt = ht.AddComponent<RectTransform>();
-        htrt.anchorMin = Vector2.zero; htrt.anchorMax = Vector2.one;
-        htrt.offsetMin = Vector2.zero; htrt.offsetMax = Vector2.zero;
-        var hT = ht.AddComponent<Text>();
-        hT.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (hT.font == null) hT.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-        hT.text = "战地通讯";
-        hT.fontSize = 13;
-        hT.fontStyle = FontStyle.Bold;
-        hT.alignment = TextAnchor.MiddleCenter;
-        hT.color = new Color(1f, 0.92f, 0.55f);
-        hT.raycastTarget = false;
-
-        // 内容区
-        var body = new GameObject("Body");
-        body.transform.SetParent(p.transform, false);
-        var brt = body.AddComponent<RectTransform>();
-        brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
-        brt.offsetMin = new Vector2(0f, 0f);
-        brt.offsetMax = new Vector2(0f, -22f);
-        _chatBody = body.transform;
-        _chatLines = new System.Collections.Generic.List<Text>();
-
-        // 初始欢迎消息
-        AppendChatMessage("司令部", "战斗开始，全军进入备战状态", new Color(1f, 0.92f, 0.55f));
-        AppendChatMessage("情报部", "侦察到敌方基地位置已锁定", new Color(0.55f, 0.85f, 1f));
-    }
-
-    void RemoveChatPanel(Canvas canvas)
     {
         if (canvas == null) return;
         var existing = canvas.transform.Find("_ChatPanel");
         if (existing != null)
+        {
+            if (_chatBody != null && _chatInput != null)
+            {
+                _chatPanelRect = existing as RectTransform;
+                LayoutChatPanel(_chatPanelRect);
+                EnsureChatDockButton(canvas);
+                SetChatPanelCollapsed(_chatPanelCollapsed);
+                return;
+            }
             Destroy(existing.gameObject);
+        }
+
+        var p = new GameObject("_ChatPanel");
+        p.transform.SetParent(canvas.transform, false);
+        var rt = p.AddComponent<RectTransform>();
+        _chatPanelRect = rt;
+        LayoutChatPanel(rt);
+        var bg = p.AddComponent<Image>();
+        bg.color = new Color(0.025f, 0.035f, 0.040f, 0.78f);
+        bg.raycastTarget = true;
+        var ol = p.AddComponent<Outline>();
+        ol.effectColor = new Color(0.78f, 0.62f, 0.18f, 0.55f);
+        ol.effectDistance = new Vector2(1.2f, -1.2f);
+
+        var body = new GameObject("Body");
+        body.transform.SetParent(p.transform, false);
+        var brt = body.AddComponent<RectTransform>();
+        brt.anchorMin = Vector2.zero;
+        brt.anchorMax = Vector2.one;
+        brt.offsetMin = new Vector2(10f, 45f);
+        brt.offsetMax = new Vector2(-10f, -9f);
+        _chatBody = body.transform;
+        _chatLines = new System.Collections.Generic.List<Text>();
+
+        _voiceButton = CreateChatButton(p.transform, "VoiceButton", "语聊",
+            new Vector2(8f, 8f), new Vector2(52f, 30f), new Color(0.16f, 0.30f, 0.54f, 0.96f));
+        _voiceButtonLabel = _voiceButton.GetComponentInChildren<Text>(true);
+        if (_voiceButtonLabel != null)
+        {
+            _voiceButtonLabel.text = "\u260E";
+            _voiceButtonLabel.fontSize = 20;
+        }
+        var voicePress = _voiceButton.gameObject.AddComponent<BattleChatVoicePressHandler>();
+        voicePress.Owner = this;
+        RefreshVoiceButtonState();
+
+        _chatInput = CreateChatInputField(p.transform, "ChatInput", "输入文字...",
+            new Vector2(68f, 8f), new Vector2(248f, 30f));
+        _chatInput.onEndEdit.AddListener(_ =>
+        {
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                OnChatSendClicked();
+        });
+
+        _chatSendButton = CreateChatButton(p.transform, "SendButton", "发送",
+            new Vector2(324f, 8f), new Vector2(68f, 30f), new Color(0.12f, 0.42f, 0.18f, 0.96f));
+        _chatSendButton.onClick.AddListener(OnChatSendClicked);
+
+        if (!_chatSeeded)
+        {
+            _chatSeeded = true;
+            AppendChatMessage("司令部", "战斗开始，全军进入备战状态", new Color(1f, 0.92f, 0.55f));
+            AppendChatMessage("情报部", "侦察到敌方基地位置已锁定", new Color(0.55f, 0.85f, 1f));
+        }
+
+        EnsureChatDockButton(canvas);
+        SetChatPanelCollapsed(_chatPanelCollapsed);
+    }
+
+    void LayoutChatPanel(RectTransform rt)
+    {
+        if (rt == null) return;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
+        rt.anchoredPosition = new Vector2(68f, 382f);
+        rt.sizeDelta = new Vector2(400f, 150f);
+    }
+
+    void EnsureChatDockButton(Canvas canvas)
+    {
+        if (canvas == null) return;
+
+        var existing = canvas.transform.Find("_ChatDockButton");
+        if (existing != null)
+        {
+            _chatDockButton = existing.GetComponent<Button>();
+            _chatDockButtonImage = existing.GetComponent<Image>();
+            _chatDockButtonLabel = existing.GetComponentInChildren<Text>(true);
+            var tail = existing.Find("Tail");
+            _chatDockTailImage = tail != null ? tail.GetComponent<Image>() : null;
+            var unreadDot = existing.Find("UnreadDot");
+            _chatDockUnreadDot = unreadDot != null ? unreadDot.GetComponent<Image>() : null;
+            LayoutChatDockButton(existing as RectTransform);
+            RefreshChatDockButtonState();
+            return;
+        }
+
+        _chatDockButton = CreateChatButton(canvas.transform, "_ChatDockButton", "...",
+            new Vector2(16f, 382f), new Vector2(44f, 44f), new Color(0.10f, 0.16f, 0.22f, 0.96f));
+        _chatDockButton.onClick.AddListener(ToggleChatPanelVisibility);
+        _chatDockButtonImage = _chatDockButton.GetComponent<Image>();
+        _chatDockButtonLabel = _chatDockButton.GetComponentInChildren<Text>(true);
+        if (_chatDockButtonLabel != null)
+        {
+            _chatDockButtonLabel.fontSize = 20;
+            _chatDockButtonLabel.alignment = TextAnchor.MiddleCenter;
+            _chatDockButtonLabel.rectTransform.anchoredPosition = new Vector2(0f, -2f);
+        }
+
+        var outline = _chatDockButton.gameObject.AddComponent<Outline>();
+        outline.effectColor = new Color(0.78f, 0.62f, 0.18f, 0.55f);
+        outline.effectDistance = new Vector2(1.2f, -1.2f);
+
+        var tailGo = new GameObject("Tail");
+        tailGo.transform.SetParent(_chatDockButton.transform, false);
+        var tailRt = tailGo.AddComponent<RectTransform>();
+        tailRt.anchorMin = tailRt.anchorMax = tailRt.pivot = new Vector2(0f, 0f);
+        tailRt.anchoredPosition = new Vector2(8f, -2f);
+        tailRt.sizeDelta = new Vector2(12f, 12f);
+        tailRt.localRotation = Quaternion.Euler(0f, 0f, 45f);
+        _chatDockTailImage = tailGo.AddComponent<Image>();
+        _chatDockTailImage.raycastTarget = false;
+
+        var unreadGo = new GameObject("UnreadDot");
+        unreadGo.transform.SetParent(_chatDockButton.transform, false);
+        var unreadRt = unreadGo.AddComponent<RectTransform>();
+        unreadRt.anchorMin = unreadRt.anchorMax = unreadRt.pivot = new Vector2(1f, 1f);
+        unreadRt.anchoredPosition = new Vector2(-5f, -5f);
+        unreadRt.sizeDelta = new Vector2(10f, 10f);
+        _chatDockUnreadDot = unreadGo.AddComponent<Image>();
+        _chatDockUnreadDot.color = new Color(1f, 0.80f, 0.24f, 0.98f);
+        _chatDockUnreadDot.raycastTarget = false;
+        var unreadOutline = unreadGo.AddComponent<Outline>();
+        unreadOutline.effectColor = new Color(0f, 0f, 0f, 0.85f);
+        unreadOutline.effectDistance = new Vector2(1f, -1f);
+
+        LayoutChatDockButton(_chatDockButton.transform as RectTransform);
+        RefreshChatDockButtonState();
+    }
+
+    void LayoutChatDockButton(RectTransform rt)
+    {
+        if (rt == null) return;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
+        rt.anchoredPosition = new Vector2(16f, 382f);
+        rt.sizeDelta = new Vector2(44f, 44f);
+    }
+
+    void ToggleChatPanelVisibility()
+    {
+        SetChatPanelCollapsed(!_chatPanelCollapsed);
+    }
+
+    void SetChatPanelCollapsed(bool collapsed)
+    {
+        _chatPanelCollapsed = collapsed;
+
+        if (_chatPanelRect != null)
+            _chatPanelRect.gameObject.SetActive(!collapsed);
+
+        if (collapsed)
+        {
+            if (_voiceRecording)
+                EndVoiceRecording();
+        }
+        else
+        {
+            _chatUnreadWhileCollapsed = false;
+            if (_chatInput != null)
+                _chatInput.ActivateInputField();
+        }
+
+        RefreshChatDockButtonState();
+    }
+
+    void RefreshChatDockButtonState()
+    {
+        Color bubbleColor;
+        if (_chatPanelCollapsed)
+            bubbleColor = _chatUnreadWhileCollapsed ? new Color(0.30f, 0.24f, 0.08f, 0.98f) : new Color(0.10f, 0.16f, 0.22f, 0.96f);
+        else
+            bubbleColor = new Color(0.16f, 0.30f, 0.54f, 0.96f);
+
+        SetChatButtonColor(_chatDockButton, bubbleColor);
+        if (_chatDockButtonImage != null)
+            _chatDockButtonImage.color = bubbleColor;
+        if (_chatDockTailImage != null)
+            _chatDockTailImage.color = bubbleColor;
+        if (_chatDockButtonLabel != null)
+            _chatDockButtonLabel.color = _chatUnreadWhileCollapsed ? new Color(1f, 0.95f, 0.76f) : new Color(0.96f, 0.98f, 1f);
+        if (_chatDockUnreadDot != null)
+            _chatDockUnreadDot.gameObject.SetActive(_chatPanelCollapsed && _chatUnreadWhileCollapsed);
+
+        var outline = _chatDockButton != null ? _chatDockButton.GetComponent<Outline>() : null;
+        if (outline != null)
+        {
+            outline.effectColor = _chatUnreadWhileCollapsed
+                ? new Color(1f, 0.80f, 0.26f, 0.92f)
+                : (_chatPanelCollapsed ? new Color(0.78f, 0.62f, 0.18f, 0.55f) : new Color(0.46f, 0.72f, 1f, 0.75f));
+        }
+    }
+
+    Button CreateChatButton(Transform parent, string name, string label, Vector2 pos, Vector2 size, Color color)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
+        rt.anchoredPosition = pos;
+        rt.sizeDelta = size;
+
+        var img = go.AddComponent<Image>();
+        img.color = color;
+        var button = go.AddComponent<Button>();
+        button.targetGraphic = img;
+        SetChatButtonColor(button, color);
+
+        var textGO = new GameObject("Text");
+        textGO.transform.SetParent(go.transform, false);
+        var trt = textGO.AddComponent<RectTransform>();
+        trt.anchorMin = Vector2.zero;
+        trt.anchorMax = Vector2.one;
+        trt.offsetMin = Vector2.zero;
+        trt.offsetMax = Vector2.zero;
+        var text = textGO.AddComponent<Text>();
+        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (text.font == null) text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        text.text = label;
+        text.fontSize = 14;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = new Color(0.96f, 0.98f, 1f);
+        text.raycastTarget = false;
+        EnsureReadableTextShadow(text, new Vector2(1f, -1f));
+        return button;
+    }
+
+    void SetChatButtonColor(Button button, Color color)
+    {
+        if (button == null) return;
+
+        var img = button.GetComponent<Image>();
+        if (img != null)
+            img.color = color;
+
+        var colors = button.colors;
+        colors.normalColor = color;
+        colors.highlightedColor = Color.Lerp(color, Color.white, 0.20f);
+        colors.pressedColor = Color.Lerp(color, Color.black, 0.24f);
+        colors.selectedColor = Color.Lerp(color, Color.white, 0.12f);
+        button.colors = colors;
+    }
+
+    InputField CreateChatInputField(Transform parent, string name, string placeholder, Vector2 pos, Vector2 size)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
+        rt.anchoredPosition = pos;
+        rt.sizeDelta = size;
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.04f, 0.055f, 0.065f, 0.96f);
+
+        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+
+        var phGO = new GameObject("Placeholder");
+        phGO.transform.SetParent(go.transform, false);
+        var phrt = phGO.AddComponent<RectTransform>();
+        phrt.anchorMin = Vector2.zero;
+        phrt.anchorMax = Vector2.one;
+        phrt.offsetMin = new Vector2(8f, 0f);
+        phrt.offsetMax = new Vector2(-8f, 0f);
+        var ph = phGO.AddComponent<Text>();
+        ph.font = font;
+        ph.text = placeholder;
+        ph.fontSize = 13;
+        ph.alignment = TextAnchor.MiddleLeft;
+        ph.color = new Color(0.65f, 0.72f, 0.78f, 0.75f);
+        ph.raycastTarget = false;
+
+        var txtGO = new GameObject("Text");
+        txtGO.transform.SetParent(go.transform, false);
+        var trt = txtGO.AddComponent<RectTransform>();
+        trt.anchorMin = Vector2.zero;
+        trt.anchorMax = Vector2.one;
+        trt.offsetMin = new Vector2(8f, 0f);
+        trt.offsetMax = new Vector2(-8f, 0f);
+        var txt = txtGO.AddComponent<Text>();
+        txt.font = font;
+        txt.fontSize = 14;
+        txt.alignment = TextAnchor.MiddleLeft;
+        txt.color = Color.white;
+        txt.horizontalOverflow = HorizontalWrapMode.Wrap;
+
+        var input = go.AddComponent<InputField>();
+        input.textComponent = txt;
+        input.placeholder = ph;
+        input.lineType = InputField.LineType.SingleLine;
+        input.characterLimit = 60;
+        return input;
+    }
+
+    void OnChatSendClicked()
+    {
+        if (_chatInput == null) return;
+        string msg = (_chatInput.text ?? "").Trim();
+        if (string.IsNullOrEmpty(msg))
+        {
+            _chatInput.ActivateInputField();
+            return;
+        }
+
+        _chatInput.text = "";
+        SendLocalChatText(msg);
+        _chatInput.ActivateInputField();
+    }
+
+    void SendLocalChatText(string msg)
+    {
+        AppendChatMessage("我", msg, new Color(0.80f, 1f, 0.78f));
+        GameNetworkSync.Instance?.SendChatText(GetLocalChatName(), msg);
+    }
+
+    string GetLocalChatName()
+    {
+        var net = NetworkClient.Instance;
+        if (net != null && !string.IsNullOrWhiteSpace(net.UserName))
+            return net.UserName.Trim();
+        return "队友";
+    }
+
+    public void BeginVoiceRecording()
+    {
+        if (_voiceRecording) return;
+        var netSync = GameNetworkSync.Instance;
+        if (netSync == null || !netSync.IsNetworkGame || !netSync.PeerConnected)
+        {
+            AppendChatMessage("系统", "团队语聊需要先连接房间内另一名玩家", new Color(1f, 0.75f, 0.45f));
+            return;
+        }
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Microphone))
+        {
+            UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.Microphone);
+            AppendChatMessage("系统", "已请求麦克风权限，请再次按住语聊", new Color(1f, 0.75f, 0.45f));
+            return;
+        }
+#endif
+        if (Microphone.devices == null || Microphone.devices.Length == 0)
+        {
+            AppendChatMessage("系统", "当前设备没有可用麦克风", new Color(1f, 0.52f, 0.42f));
+            return;
+        }
+
+        try
+        {
+            _voiceDeviceName = Microphone.devices[0];
+            _voiceClip = Microphone.Start(_voiceDeviceName, true, BattleVoiceLoopSeconds, BattleVoiceSampleRate);
+            _voiceReadPosition = 0;
+            _voiceRecording = true;
+            RefreshVoiceButtonState();
+        }
+        catch (System.Exception e)
+        {
+            AppendChatMessage("系统", "无法接入团队语聊：" + e.Message, new Color(1f, 0.52f, 0.42f));
+            StopVoiceCapture();
+            RefreshVoiceButtonState();
+        }
+    }
+
+    public void EndVoiceRecording()
+    {
+        if (!_voiceRecording) return;
+        FlushVoiceRecordingChunks(true);
+        StopVoiceCapture();
+        RefreshVoiceButtonState();
+    }
+
+    void UpdateVoiceRecording()
+    {
+        if (_voiceRecording)
+            FlushVoiceRecordingChunks(false);
+
+        if (!string.IsNullOrEmpty(_remoteVoiceSpeaker) && !IsRemoteVoiceActive())
+        {
+            _remoteVoiceSpeaker = null;
+            RefreshVoiceButtonState();
+        }
+    }
+
+    int GetVoiceChunkSamples()
+    {
+        return Mathf.Max(1, Mathf.RoundToInt(BattleVoiceSampleRate * BattleVoiceChunkSeconds));
+    }
+
+    int GetVoiceMinChunkSamples()
+    {
+        return Mathf.Max(1, Mathf.RoundToInt(BattleVoiceSampleRate * BattleVoiceMinChunkSeconds));
+    }
+
+    void FlushVoiceRecordingChunks(bool flushPartial)
+    {
+        if (!_voiceRecording || _voiceClip == null || string.IsNullOrEmpty(_voiceDeviceName))
+            return;
+
+        int currentPosition;
+        try { currentPosition = Microphone.GetPosition(_voiceDeviceName); }
+        catch { return; }
+
+        int availableSamples = GetBufferedVoiceSampleCount(currentPosition);
+        int chunkSamples = GetVoiceChunkSamples();
+        while (availableSamples >= chunkSamples)
+        {
+            SendVoiceChunk(chunkSamples);
+            availableSamples -= chunkSamples;
+        }
+
+        if (flushPartial && availableSamples >= GetVoiceMinChunkSamples())
+            SendVoiceChunk(availableSamples);
+    }
+
+    int GetBufferedVoiceSampleCount(int currentPosition)
+    {
+        if (_voiceClip == null || currentPosition < 0)
+            return 0;
+        if (currentPosition >= _voiceReadPosition)
+            return currentPosition - _voiceReadPosition;
+        return (_voiceClip.samples - _voiceReadPosition) + currentPosition;
+    }
+
+    void SendVoiceChunk(int sampleCount)
+    {
+        if (_voiceClip == null || sampleCount <= 0) return;
+
+        var samples = ReadVoiceSamples(_voiceReadPosition, sampleCount);
+        _voiceReadPosition = (_voiceReadPosition + sampleCount) % Mathf.Max(1, _voiceClip.samples);
+        if (samples == null || samples.Length == 0) return;
+
+        string pcm = EncodeVoiceSamples(samples);
+        if (string.IsNullOrEmpty(pcm)) return;
+
+        GameNetworkSync.Instance?.SendVoiceStreamChunk(GetLocalChatName(), BattleVoiceSampleRate, pcm);
+    }
+
+    float[] ReadVoiceSamples(int startSample, int sampleCount)
+    {
+        if (_voiceClip == null || sampleCount <= 0) return null;
+        sampleCount = Mathf.Clamp(sampleCount, 0, _voiceClip.samples);
+        if (sampleCount <= 0) return null;
+
+        var samples = new float[sampleCount];
+        if (startSample + sampleCount <= _voiceClip.samples)
+        {
+            if (!_voiceClip.GetData(samples, startSample)) return null;
+            return samples;
+        }
+
+        int firstCount = _voiceClip.samples - startSample;
+        if (firstCount > 0)
+        {
+            var first = new float[firstCount];
+            if (!_voiceClip.GetData(first, startSample)) return null;
+            System.Array.Copy(first, 0, samples, 0, firstCount);
+        }
+
+        int secondCount = sampleCount - firstCount;
+        if (secondCount > 0)
+        {
+            var second = new float[secondCount];
+            if (!_voiceClip.GetData(second, 0)) return null;
+            System.Array.Copy(second, 0, samples, firstCount, secondCount);
+        }
+
+        return samples;
+    }
+
+    string EncodeVoiceSamples(float[] samples)
+    {
+        if (samples == null || samples.Length == 0) return "";
+        var bytes = new byte[samples.Length * 2];
+        for (int i = 0; i < samples.Length; i++)
+        {
+            short v = (short)Mathf.Clamp(Mathf.RoundToInt(samples[i] * 32767f), short.MinValue, short.MaxValue);
+            bytes[i * 2] = (byte)(v & 0xff);
+            bytes[i * 2 + 1] = (byte)((v >> 8) & 0xff);
+        }
+        return System.Convert.ToBase64String(bytes);
+    }
+
+    public void ReceiveVoiceChatStream(string speaker, int sampleRate, string pcmBase64)
+    {
+        _remoteVoiceSpeaker = string.IsNullOrWhiteSpace(speaker) ? "队友" : speaker;
+        _remoteVoiceActiveUntil = Time.realtimeSinceStartup + 0.35f;
+        RefreshVoiceButtonState();
+        PlayVoiceMessage(sampleRate, pcmBase64);
+    }
+
+    bool IsRemoteVoiceActive()
+    {
+        return !string.IsNullOrEmpty(_remoteVoiceSpeaker) && Time.realtimeSinceStartup <= _remoteVoiceActiveUntil;
+    }
+
+    void RefreshVoiceButtonState()
+    {
+        if (_voiceButtonLabel != null)
+        {
+            _voiceButtonLabel.text = "\u260E";
+            _voiceButtonLabel.fontSize = _voiceRecording ? 21 : 20;
+            _voiceButtonLabel.color = IsRemoteVoiceActive()
+                ? new Color(0.94f, 0.98f, 1f)
+                : new Color(0.96f, 0.98f, 1f);
+        }
+
+        if (_voiceRecording)
+            SetChatButtonColor(_voiceButton, new Color(0.65f, 0.14f, 0.12f, 0.98f));
+        else if (IsRemoteVoiceActive())
+            SetChatButtonColor(_voiceButton, new Color(0.24f, 0.46f, 0.72f, 0.98f));
+        else
+            SetChatButtonColor(_voiceButton, new Color(0.16f, 0.30f, 0.54f, 0.96f));
+    }
+
+    void PlayVoiceMessage(int sampleRate, string pcmBase64)
+    {
+        if (string.IsNullOrEmpty(pcmBase64) || sampleRate <= 0) return;
+        byte[] bytes;
+        try { bytes = System.Convert.FromBase64String(pcmBase64); }
+        catch { return; }
+
+        int count = bytes.Length / 2;
+        if (count <= 0) return;
+        var data = new float[count];
+        for (int i = 0; i < count; i++)
+        {
+            short v = (short)(bytes[i * 2] | (bytes[i * 2 + 1] << 8));
+            data[i] = Mathf.Clamp(v / 32768f, -1f, 1f);
+        }
+
+        var clip = AudioClip.Create("BattleChatVoice", count, 1, sampleRate, false);
+        clip.SetData(data, 0);
+        if (_voicePlaybackSource == null)
+        {
+            _voicePlaybackSource = gameObject.GetComponent<AudioSource>() ?? gameObject.AddComponent<AudioSource>();
+            _voicePlaybackSource.playOnAwake = false;
+            _voicePlaybackSource.spatialBlend = 0f;
+            _voicePlaybackSource.ignoreListenerPause = true;
+        }
+        _voicePlaybackSource.PlayOneShot(clip, 1f);
+        Destroy(clip, clip.length + 0.25f);
+    }
+
+    void StopVoiceCapture()
+    {
+        if (!string.IsNullOrEmpty(_voiceDeviceName))
+        {
+            try { Microphone.End(_voiceDeviceName); }
+            catch { }
+        }
+
+        _voiceRecording = false;
+        _voiceDeviceName = null;
+        _voiceClip = null;
+        _voiceReadPosition = 0;
+    }
+
+    void RemoveChatPanel(Canvas canvas)
+    {
+        StopVoiceCapture();
+        if (canvas == null) return;
+        var existing = canvas.transform.Find("_ChatPanel");
+        if (existing != null)
+            Destroy(existing.gameObject);
+        var dock = canvas.transform.Find("_ChatDockButton");
+        if (dock != null)
+            Destroy(dock.gameObject);
+        _chatPanelRect = null;
         _chatBody = null;
+        _chatInput = null;
+        _chatSendButton = null;
+        _voiceButton = null;
+        _voiceButtonLabel = null;
+        _chatDockButton = null;
+        _chatDockButtonImage = null;
+        _chatDockTailImage = null;
+        _chatDockUnreadDot = null;
+        _chatDockButtonLabel = null;
+        _chatUnreadWhileCollapsed = false;
         _chatLines = null;
+    }
+
+    void DisableLegacyPanelChild(Transform parent, string childName)
+    {
+        if (parent == null || string.IsNullOrEmpty(childName)) return;
+        var child = parent.Find(childName);
+        if (child != null && child.gameObject.activeSelf)
+            child.gameObject.SetActive(false);
     }
 
     void RuntimeUIPolish()
@@ -1278,53 +3714,22 @@ public class RTSHUD : MonoBehaviour
         if (topBarGO != null)
         {
             var img = topBarGO.GetComponent<Image>();
-            // 半透明暗背景（地图最大化可见，但仍有可读对比）
-            if (img != null) img.color = new Color(0.015f, 0.020f, 0.026f, 0.88f);
-            // 顶部金色描边
-            if (topBarGO.transform.Find("_TopAccent") == null)
+            if (img != null)
             {
-                var acc = new GameObject("_TopAccent");
-                acc.transform.SetParent(topBarGO.transform, false);
-                var ar = acc.AddComponent<RectTransform>();
-                ar.anchorMin = new Vector2(0f, 1f); ar.anchorMax = new Vector2(1f, 1f);
-                ar.offsetMin = new Vector2(0f, -2f); ar.offsetMax = Vector2.zero;
-                acc.AddComponent<Image>().color = new Color(0.20f, 0.32f, 0.42f, 0.80f);
+                img.color = new Color(0f, 0f, 0f, 0f);
+                img.raycastTarget = false;
             }
-            // 中央头像 + 官职 + 名字
+            foreach (Transform child in topBarGO.transform)
+            {
+                if (child.name == "Div" || child.name == "TopBarAccent" || child.name == "_TopAccent" ||
+                    child.name == "_Accent" || child.name.StartsWith("_Sep") ||
+                    child.name == "_GoldIcon" || child.name == "_PowerIcon")
+                {
+                    child.gameObject.SetActive(false);
+                }
+            }
+            if (KillText != null) KillText.gameObject.SetActive(false);
             EnsureCommanderHeader(topBarGO.transform);
-            // 字段之间垂直分隔线
-            var fields = new System.Collections.Generic.List<Text>(4);
-            if (PopText) fields.Add(PopText);
-            if (KillText) fields.Add(KillText);
-            if (PowerText) fields.Add(PowerText);
-            if (GameTimerText) fields.Add(GameTimerText);
-            for (int i = 0; i < fields.Count; i++)
-            {
-                if (fields[i] == null || fields[i].rectTransform.parent != topBarGO.transform) continue;
-                string sepName = "_Sep" + i;
-                if (topBarGO.transform.Find(sepName) != null) continue;
-                var sep = new GameObject(sepName);
-                sep.transform.SetParent(topBarGO.transform, false);
-                var srt = sep.AddComponent<RectTransform>();
-                // 把分隔线放在每个字段的左侧 anchorMin/Max
-                Vector2 anchor = fields[i].rectTransform.anchorMin;
-                srt.anchorMin = new Vector2(anchor.x, 0.18f);
-                srt.anchorMax = new Vector2(anchor.x, 0.82f);
-                srt.pivot = new Vector2(0.5f, 0.5f);
-                srt.anchoredPosition = Vector2.zero;
-                srt.sizeDelta = new Vector2(2f, 0f);
-                sep.AddComponent<Image>().color = new Color(1f, 1f, 1f, 0.07f);
-            }
-            // 金色底部强调线
-            if (topBarGO.transform.Find("_Accent") == null)
-            {
-                var acc = new GameObject("_Accent");
-                acc.transform.SetParent(topBarGO.transform, false);
-                var ar = acc.AddComponent<RectTransform>();
-                ar.anchorMin = Vector2.zero; ar.anchorMax = new Vector2(1f, 0f);
-                ar.offsetMin = Vector2.zero; ar.offsetMax = new Vector2(0f, 2f);
-                acc.AddComponent<Image>().color = new Color(0.16f, 0.26f, 0.34f, 0.85f);
-            }
         }
         // 文字加粗
         foreach (var t in new Text[]{ GoldText, PopText, KillText, PowerText, GameTimerText })
@@ -1334,7 +3739,8 @@ public class RTSHUD : MonoBehaviour
         if (UnitInfoPanel != null)
         {
             var bg = UnitInfoPanel.GetComponent<Image>();
-            if (bg != null) bg.color = new Color(0.018f, 0.026f, 0.034f, 0.96f);
+            if (bg != null) bg.color = new Color(0.018f, 0.026f, 0.034f, 0.82f);
+            DisableLegacyPanelChild(UnitInfoPanel.transform, "UnitPanelHeader");
             if (UnitInfoPanel.transform.Find("_Header") == null)
             {
                 var h = new GameObject("_Header");
@@ -1362,7 +3768,8 @@ public class RTSHUD : MonoBehaviour
         if (BuildingPanel != null)
         {
             var bg = BuildingPanel.GetComponent<Image>();
-            if (bg != null) bg.color = new Color(0.018f, 0.026f, 0.034f, 0.96f);
+            if (bg != null) bg.color = new Color(0.018f, 0.026f, 0.034f, 0.90f);
+            DisableLegacyPanelChild(BuildingPanel.transform, "BldPanelHeader");
             if (BuildingPanel.transform.Find("_Header") == null)
             {
                 var h = new GameObject("_Header");
@@ -1390,39 +3797,7 @@ public class RTSHUD : MonoBehaviour
         // ── BuildMenuPanel 军用风格 ─────────────────────────
         if (BuildMenuPanel != null)
         {
-            var bg = BuildMenuPanel.GetComponent<Image>();
-            // 暗橄榄绿背景
-            if (bg != null) bg.color = new Color(0.018f, 0.024f, 0.030f, 0.96f);
-            // 顶部金色边线（如果还没有就加）
-            if (BuildMenuPanel.transform.Find("_TopGold") == null)
-            {
-                var gl = new GameObject("_TopGold");
-                gl.transform.SetParent(BuildMenuPanel.transform, false);
-                var rt = gl.AddComponent<RectTransform>();
-                rt.anchorMin = new Vector2(0f, 1f); rt.anchorMax = new Vector2(1f, 1f);
-                rt.offsetMin = new Vector2(0f, -2f); rt.offsetMax = Vector2.zero;
-                gl.AddComponent<Image>().color = new Color(0.18f, 0.42f, 0.26f, 0.92f);
-            }
-            // 全部建造按钮统一军用色（橄榄绿 + 金描边阴影）
-            if (BuildButtons != null)
-            {
-                foreach (var btn in BuildButtons)
-                {
-                    if (btn == null) continue;
-                    var bImg = btn.GetComponent<Image>();
-                    if (bImg != null) bImg.color = new Color(0.07f, 0.10f, 0.11f, 0.98f);
-                    // 给按钮本体加金色 Outline（如果还没加）
-                    if (btn.GetComponent<Outline>() == null)
-                    {
-                        var ol = btn.gameObject.AddComponent<Outline>();
-                        ol.effectColor = new Color(0.35f, 0.75f, 0.48f, 0.75f);
-                        ol.effectDistance = new Vector2(1.2f, -1.2f);
-                    }
-                    // 按钮文字也调成金黄
-                    var bt = btn.GetComponentInChildren<Text>();
-                    if (bt != null) bt.color = new Color(0.92f, 0.98f, 0.92f);
-                }
-            }
+            ApplyBuildMenuPopupLayout();
         }
         // BuildMenuToggle 也调成军用风
         if (BuildMenuToggle != null)
@@ -1559,7 +3934,7 @@ public class RTSHUD : MonoBehaviour
     {
         if (BuildButtons == null) return;
         GameObject[] prefabs = {
-            BarracksPrefab, AirFactoryPrefab, TankFactoryPrefab,
+            BarracksPrefab, AirFactoryPrefab, AirfieldPrefab, TankFactoryPrefab,
             TurretPrefab,   GoldMinePrefab,   PowerPlantPrefab
         };
         _buildPriceTexts = new Text[BuildButtons.Length];
@@ -1570,6 +3945,8 @@ public class RTSHUD : MonoBehaviour
         {
             if (BuildButtons[i] == null) continue;
             int idx = i;
+            BuildButtons[i].onClick.RemoveAllListeners();
+            SetButtonText(BuildButtons[i], GetBuildButtonLabel(i));
             BuildButtons[i].onClick.AddListener(() => {
                 if (idx < prefabs.Length && prefabs[idx] != null)
                 {
@@ -1588,6 +3965,7 @@ public class RTSHUD : MonoBehaviour
                 var b = prefabs[idx].GetComponent<RTSBuilding>();
                 if (b != null)
                 {
+                    b.ApplyDefinitionDefaults();
                     price = b.GoldCost;
                     powerCost = b.PowerCost;
                     isPlant = b.bIsPowerPlant;
@@ -1601,6 +3979,53 @@ public class RTSHUD : MonoBehaviour
         }
     }
 
+    GameObject CreateRuntimeAirfieldPrefab()
+    {
+        var go = new GameObject("Airfield_P_RuntimePrefab");
+        go.SetActive(false);
+
+        var collider = go.AddComponent<BoxCollider>();
+        collider.center = new Vector3(0f, 0.45f, 0f);
+        collider.size = new Vector3(10.2f, 1.0f, 7.8f);
+
+        BuildRuntimeAirfieldVisual(go.transform, true);
+
+        var airfield = go.AddComponent<Airfield>();
+        airfield.bPlayerOwned = true;
+        airfield.ApplyDefinitionDefaults();
+        return go;
+    }
+
+    void BuildRuntimeAirfieldVisual(Transform parent, bool playerOwned)
+    {
+        Color baseColor = playerOwned ? new Color(0.18f, 0.42f, 0.58f) : new Color(0.55f, 0.30f, 0.18f);
+        Color stripeColor = playerOwned ? new Color(0.60f, 0.88f, 1f) : new Color(1f, 0.55f, 0.35f);
+        AddRuntimeAirfieldPart(parent, "AirfieldPad", new Vector3(0f, 0.04f, 0f), new Vector3(10.2f, 0.08f, 7.8f), baseColor);
+        AddRuntimeAirfieldPart(parent, "RunwayStripe", new Vector3(0f, 0.11f, 0f), new Vector3(0.22f, 0.04f, 6.8f), stripeColor);
+        AddRuntimeAirfieldPart(parent, "ParkingMarkL", new Vector3(-2.7f, 0.12f, -1.4f), new Vector3(1.8f, 0.04f, 0.16f), stripeColor);
+        AddRuntimeAirfieldPart(parent, "ParkingMarkR", new Vector3(2.7f, 0.12f, -1.4f), new Vector3(1.8f, 0.04f, 0.16f), stripeColor);
+        AddRuntimeAirfieldPart(parent, "FuelCrate", new Vector3(3.8f, 0.35f, 2.7f), new Vector3(0.9f, 0.7f, 0.9f), new Color(0.34f, 0.32f, 0.28f));
+    }
+
+    void AddRuntimeAirfieldPart(Transform parent, string name, Vector3 localPos, Vector3 localScale, Color color)
+    {
+        var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        part.name = name;
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPos;
+        part.transform.localScale = localScale;
+        var col = part.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        var renderer = part.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            var shader = Shader.Find("Standard") ?? Shader.Find("Diffuse");
+            var mat = new Material(shader);
+            mat.color = color;
+            renderer.sharedMaterial = mat;
+        }
+    }
+
     Text CreateBuildPriceTag(Transform parent, int price)
     {
         var go = new GameObject("PriceTag");
@@ -1610,20 +4035,21 @@ public class RTSHUD : MonoBehaviour
         rt.anchorMin = new Vector2(0f, 0f);
         rt.anchorMax = new Vector2(1f, 0f);
         rt.pivot = new Vector2(0.5f, 0f);
-        rt.anchoredPosition = new Vector2(0f, 2f);
-        rt.sizeDelta = new Vector2(0f, 18f);
+        rt.anchoredPosition = new Vector2(0f, 1f);
+        rt.sizeDelta = new Vector2(0f, 24f);
         var t = go.AddComponent<Text>();
         t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (t.font == null) t.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
         t.text = $"$ {price}";
-        t.fontSize = 14;
+        t.fontSize = 16;
         t.fontStyle = FontStyle.Bold;
         t.alignment = TextAnchor.MiddleCenter;
-        t.color = new Color(1f, 0.92f, 0.55f);
+        t.color = new Color(1f, 0.94f, 0.58f);
         t.raycastTarget = false;
-        var sh = go.AddComponent<Shadow>();
-        sh.effectColor = new Color(0f, 0f, 0f, 0.85f);
-        sh.effectDistance = new Vector2(1.2f, -1.2f);
+        t.horizontalOverflow = HorizontalWrapMode.Overflow;
+        t.verticalOverflow = VerticalWrapMode.Overflow;
+        EnsureReadableTextShadow(t, new Vector2(1.2f, -1.2f));
+        EnsureReadableTextOutline(t, new Vector2(1f, -1f), new Color(0f, 0f, 0f, 0.78f));
         return t;
     }
 
@@ -1646,7 +4072,7 @@ public class RTSHUD : MonoBehaviour
             var img = BuildButtons[i].GetComponent<Image>();
             if (img != null)
             {
-                Color baseC = new Color(0.18f, 0.22f, 0.13f, 0.96f);
+                Color baseC = GetBuildButtonColor(i);
                 img.color = enabled ? baseC : new Color(baseC.r * 0.6f, baseC.g * 0.6f, baseC.b * 0.6f, 0.85f);
             }
             // 价格文字：金币不足=红，电力不足=橙，都正常=金
@@ -1677,11 +4103,19 @@ public class RTSHUD : MonoBehaviour
                 BuildButtons[i].gameObject.SetActive(visible);
                 if (!visible) continue;
 
-                int col = visibleCount % 3;
-                int row = visibleCount / 3;
+                int col = visibleCount % BuildCategoryColumnCount;
+                int row = visibleCount / BuildCategoryColumnCount;
                 var rt = BuildButtons[i].GetComponent<RectTransform>();
                 if (rt != null)
-                    rt.anchoredPosition = new Vector2(-172f + col * 172f, 52f - row * 96f);
+                {
+                    rt.anchorMin = new Vector2(0.5f, 0.5f);
+                    rt.anchorMax = new Vector2(0.5f, 0.5f);
+                    rt.pivot = new Vector2(0.5f, 0.5f);
+                    rt.anchoredPosition = new Vector2(
+                        BuildCategoryGridStartX + col * BuildCategoryButtonStepX,
+                        BuildCategoryGridStartY - row * BuildCategoryButtonStepY);
+                    rt.sizeDelta = new Vector2(BuildCategoryButtonWidth, BuildCategoryButtonHeight);
+                }
                 visibleCount++;
             }
         }
@@ -1703,11 +4137,11 @@ public class RTSHUD : MonoBehaviour
         switch (category)
         {
             case 0: return true;
-            case 1: return buildIndex == 0 || buildIndex == 1 || buildIndex == 2 || buildIndex == 3;
-            case 2: return buildIndex == 4 || buildIndex == 5;
+            case 1: return buildIndex == 0 || buildIndex == 1 || buildIndex == 2 || buildIndex == 3 || buildIndex == 4;
+            case 2: return buildIndex == 5 || buildIndex == 6;
             case 3: return false;
-            case 4: return buildIndex == 1;
-            case 5: return buildIndex == 0 || buildIndex == 2 || buildIndex == 3;
+            case 4: return buildIndex == 1 || buildIndex == 2;
+            case 5: return buildIndex == 0 || buildIndex == 3 || buildIndex == 4;
             default: return true;
         }
     }
@@ -1722,13 +4156,21 @@ public class RTSHUD : MonoBehaviour
             var img = button.GetComponent<Image>();
             if (img != null)
                 img.color = i == _activeBuildCategory
-                    ? new Color(0.48f, 0.34f, 0.08f, 0.96f)
-                    : new Color(0.14f, 0.18f, 0.11f, 0.86f);
+                    ? new Color(0.55f, 0.39f, 0.09f, 0.98f)
+                    : new Color(0.13f, 0.16f, 0.10f, 0.92f);
             var text = button.GetComponentInChildren<Text>();
             if (text != null)
+            {
+                text.fontSize = 17;
+                text.fontStyle = FontStyle.Bold;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                text.verticalOverflow = VerticalWrapMode.Overflow;
                 text.color = i == _activeBuildCategory
-                    ? Color.white
-                    : new Color(1f, 0.92f, 0.55f);
+                    ? new Color(1f, 1f, 0.94f)
+                    : new Color(1f, 0.93f, 0.58f);
+                EnsureReadableTextShadow(text, new Vector2(1.2f, -1.2f));
+                EnsureReadableTextOutline(text, new Vector2(1f, -1f), new Color(0f, 0f, 0f, 0.70f));
+            }
         }
     }
 
@@ -1740,6 +4182,7 @@ public class RTSHUD : MonoBehaviour
         if (playerState.Gold < price)
         {
             _UiClickAudio.PlayDeny();
+            ShowAlert($"金币不足：需要 {price}");
             if (btn != null) StartCoroutine(ShakeButton(btn.GetComponent<RectTransform>()));
             return false;
         }
@@ -1749,6 +4192,8 @@ public class RTSHUD : MonoBehaviour
         if (!isPlant && powerCost > playerState.PowerCap - playerState.PowerUsed)
         {
             _UiClickAudio.PlayDeny();
+            int deficit = powerCost - (playerState.PowerCap - playerState.PowerUsed);
+            ShowAlert($"电力不足：先建电厂（还差 {Mathf.Max(1, deficit)}）");
             if (btn != null) StartCoroutine(ShakeButton(btn.GetComponent<RectTransform>()));
             return false;
         }
@@ -1774,13 +4219,17 @@ public class RTSHUD : MonoBehaviour
     void ToggleBuildMenu()
     {
         bBuildMenuOpen = !bBuildMenuOpen;
+        if (bBuildMenuOpen)
+            CancelTechTargeting(false);
+        if (bBuildMenuOpen)
+            SetTechPanelOpen(false);
         if (BuildMenuPanel)
         {
             BuildMenuPanel.SetActive(bBuildMenuOpen);
             if (bBuildMenuOpen)
             {
                 BuildMenuPanel.transform.SetAsLastSibling();
-                SetBuildCategory(_activeBuildCategory);
+                ApplyBuildMenuPopupLayout();
             }
         }
         // 更新按钮文本
@@ -1804,21 +4253,33 @@ public class RTSHUD : MonoBehaviour
 
     void Update()
     {
-        RemoveChatPanel(GetComponentInParent<Canvas>() ?? FindObjectOfType<Canvas>());
+        var canvas = GetComponentInParent<Canvas>() ?? FindObjectOfType<Canvas>();
+        EnsureChatPanel(canvas);
+        if (TechPanel != null && TechPanel.activeSelf && canvas != null)
+        {
+            Vector2 canvasSize = GetCanvasRectSize(canvas);
+            if ((canvasSize - _lastTechPanelCanvasSize).sqrMagnitude > 1f)
+                ApplyBattleTechPanelLayout(canvas);
+        }
+        EnsureBattleTimeRunning();
         if (IsOnlineMatch() && (bPaused || (PausePanel != null && PausePanel.activeSelf)))
             HidePauseMenu();
+        MaintainGameSettingsEntry(canvas);
+        UpdateVoiceRecording();
+        UpdateTechTargeting();
         UpdateTopBar();
         UpdateSelectionUI();
         UpdateAlert();
         RefreshBuildButtonStates();
         UpdateCommandBarState();
+        UpdateTechCooldownUi();
         UpdateResourceWarnings();
         UpdateEdgeThreatIndicators();
     }
 
     bool ShouldShowBattleChatPanel()
     {
-        return false;
+        return true;
     }
 
     // 屏幕边缘威胁箭头：指向屏幕外靠近基地的敌人
@@ -2399,18 +4860,10 @@ public class RTSHUD : MonoBehaviour
         if (BuildingPanel == null) return;
         if (_cancelProductionBtn == null)
         {
-            // 创建在 ProductionBar 旁边或 BuildingPanel 内
             Transform parent = BuildingPanel.transform;
-            if (ProductionBar != null) parent = ProductionBar.transform.parent;
             var go = new GameObject("CancelProdBtn");
             go.transform.SetParent(parent, false);
-            var rt = go.AddComponent<RectTransform>();
-            // 锚定到 BuildingPanel 右上
-            rt.anchorMin = new Vector2(1f, 1f);
-            rt.anchorMax = new Vector2(1f, 1f);
-            rt.pivot = new Vector2(1f, 1f);
-            rt.anchoredPosition = new Vector2(-8f, -42f);
-            rt.sizeDelta = new Vector2(46f, 28f);
+            go.AddComponent<RectTransform>();
             var img = go.AddComponent<Image>();
             img.color = new Color(0.55f, 0.18f, 0.10f, 0.95f);
             var btn = go.AddComponent<Button>();
@@ -2430,6 +4883,7 @@ public class RTSHUD : MonoBehaviour
             t.raycastTarget = false;
             _cancelProductionBtn = btn;
         }
+        LayoutCancelProductionButton();
         // 重新绑定（每次选中不同建筑时刷新 onClick）
         _cancelProductionBtn.onClick.RemoveAllListeners();
         _cancelProductionBtn.onClick.AddListener(() =>
@@ -2463,27 +4917,70 @@ public class RTSHUD : MonoBehaviour
         rt.localScale = origin;
     }
 
-    // 指挥官头像/名字/官职引用
+    // 指挥官头像/军衔引用；战场 HUD 中头像和军衔作为一个整体显示。
     private Text _commanderRankText;
     private Text _commanderNameText;
     // 主基地血量条
     private Image _baseHpFill;
     private Text  _baseHpText;
-    // 官职变化检测
+    // 军衔变化检测
     private string _prevRank = "";
 
-    /// <summary>顶部中央插入圆形头像 + 官职（少校等）+ 玩家名。</summary>
+    /// <summary>顶部中央插入头像 + 军衔组。</summary>
     void EnsureCommanderHeader(Transform topBar)
     {
         if (topBar.Find("_CommanderHeader") != null) return;
         var holder = new GameObject("_CommanderHeader");
         holder.transform.SetParent(topBar, false);
         var hrt = holder.AddComponent<RectTransform>();
-        hrt.anchorMin = new Vector2(0.5f, 0f);
-        hrt.anchorMax = new Vector2(0.5f, 1f);
-        hrt.pivot = new Vector2(0.5f, 0.5f);
-        hrt.anchoredPosition = Vector2.zero;
-        hrt.sizeDelta = new Vector2(280f, 0f);
+        hrt.anchorMin = hrt.anchorMax = new Vector2(0.5f, 1f);
+        hrt.pivot = new Vector2(0.5f, 1f);
+        hrt.anchoredPosition = new Vector2(0f, -2f);
+        hrt.sizeDelta = new Vector2(200f, 74f);
+
+        var groupGO = new GameObject("AvatarRankGroup");
+        groupGO.transform.SetParent(holder.transform, false);
+        var groupRT = groupGO.AddComponent<RectTransform>();
+        groupRT.anchorMin = groupRT.anchorMax = new Vector2(0.5f, 1f);
+        groupRT.pivot = new Vector2(0.5f, 1f);
+        groupRT.anchoredPosition = new Vector2(0f, -1f);
+        groupRT.sizeDelta = new Vector2(178f, 56f);
+        var groupBg = groupGO.AddComponent<Image>();
+        groupBg.color = new Color(0.01f, 0.018f, 0.022f, 0.62f);
+        groupBg.raycastTarget = false;
+        var groupOutline = groupGO.AddComponent<Outline>();
+        groupOutline.effectColor = new Color(0.78f, 0.62f, 0.18f, 0.76f);
+        groupOutline.effectDistance = new Vector2(1.2f, -1.2f);
+
+        var frameGO = new GameObject("AvatarFrame");
+        frameGO.transform.SetParent(groupGO.transform, false);
+        var frameRT = frameGO.AddComponent<RectTransform>();
+        frameRT.anchorMin = frameRT.anchorMax = new Vector2(0f, 1f);
+        frameRT.pivot = new Vector2(0.5f, 1f);
+        frameRT.anchoredPosition = new Vector2(30f, -2f);
+        frameRT.sizeDelta = new Vector2(52f, 52f);
+        var frame = frameGO.AddComponent<Image>();
+        frame.sprite = LoadHudSprite("LobbyGen/gen_portrait_ring");
+        frame.preserveAspect = true;
+        frame.color = frame.sprite != null ? Color.white : new Color(0.88f, 0.72f, 0.32f, 0.95f);
+        frame.raycastTarget = false;
+
+        var avatarGO = new GameObject("Avatar");
+        avatarGO.transform.SetParent(groupGO.transform, false);
+        var art = avatarGO.AddComponent<RectTransform>();
+        art.anchorMin = art.anchorMax = new Vector2(0f, 1f);
+        art.pivot = new Vector2(0.5f, 1f);
+        art.anchoredPosition = new Vector2(30f, -6f);
+        art.sizeDelta = new Vector2(44f, 44f);
+        var avatar = avatarGO.AddComponent<Image>();
+        string avatarRes = PlayerPrefs.GetString("player_avatar_resource", "gen_avatar_player");
+        string avatarPath = avatarRes.Contains("/") ? avatarRes : "LobbyGen/" + avatarRes;
+        avatar.sprite = LoadHudSprite("BattleHud/battle_avatar_placeholder")
+            ?? LoadHudSprite(avatarPath)
+            ?? LoadHudSprite("LobbyGen/gen_avatar_player");
+        avatar.preserveAspect = true;
+        avatar.color = Color.white;
+        avatar.raycastTarget = false;
 
         // 名字（顶行，居中）
         var nameGO = new GameObject("Name");
@@ -2505,52 +5002,56 @@ public class RTSHUD : MonoBehaviour
         _commanderNameText.raycastTarget = false;
         nameGO.SetActive(false);
 
-        // 军衔行容器（居中放置：[★ 图标] + [军衔文字]）
+        // 军衔行容器（放在头像右侧：[军衔章] + [军衔文字]）
         var rankRowGO = new GameObject("RankRow");
-        rankRowGO.transform.SetParent(holder.transform, false);
+        rankRowGO.transform.SetParent(groupGO.transform, false);
         var rrowRT = rankRowGO.AddComponent<RectTransform>();
-        rrowRT.anchorMin = new Vector2(0.5f, 1f);
-        rrowRT.anchorMax = new Vector2(0.5f, 1f);
-        rrowRT.pivot = new Vector2(0.5f, 1f);
-        rrowRT.anchoredPosition = new Vector2(0f, -38f);
-        rrowRT.sizeDelta = new Vector2(220f, 20f);
+        rrowRT.anchorMin = rrowRT.anchorMax = new Vector2(0f, 1f);
+        rrowRT.pivot = new Vector2(0f, 1f);
+        rrowRT.anchoredPosition = new Vector2(62f, -8f);
+        rrowRT.sizeDelta = new Vector2(108f, 40f);
 
-        // 军衔星形图标（在军衔文字左边）
-        var iconGO = new GameObject("RankIcon");
+        var iconGO = new GameObject("RankBadge");
         iconGO.transform.SetParent(rankRowGO.transform, false);
         var irt = iconGO.AddComponent<RectTransform>();
-        irt.anchorMin = new Vector2(0.5f, 0.5f);
-        irt.anchorMax = new Vector2(0.5f, 0.5f);
-        irt.pivot = new Vector2(1f, 0.5f);
-        // 文字宽度估算 ~28 (两个汉字)，图标紧贴在文字左侧 4px 间距
-        irt.anchoredPosition = new Vector2(-16f, 0f);
-        irt.sizeDelta = new Vector2(18f, 18f);
-        var iconText = iconGO.AddComponent<Text>();
-        iconText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (iconText.font == null) iconText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-        iconText.text = "★";
-        iconText.fontSize = 16;
-        iconText.fontStyle = FontStyle.Bold;
-        iconText.alignment = TextAnchor.MiddleCenter;
-        iconText.color = new Color(1f, 0.92f, 0.55f);
-        iconText.raycastTarget = false;
+        irt.anchorMin = irt.anchorMax = new Vector2(0f, 0.5f);
+        irt.pivot = new Vector2(0f, 0.5f);
+        irt.anchoredPosition = new Vector2(0f, 0f);
+        irt.sizeDelta = new Vector2(34f, 34f);
+        var badge = iconGO.AddComponent<Image>();
+        badge.sprite = LoadHudSprite("BattleHud/battle_rank_badge_placeholder")
+            ?? LoadHudSprite("icons_final/medal")
+            ?? LoadHudSprite("LobbyGen/gen_icon_star");
+        badge.preserveAspect = true;
+        badge.color = badge.sprite != null ? Color.white : new Color(1f, 0.92f, 0.55f);
+        badge.raycastTarget = false;
 
         // 军衔文字（居中显示在 RankRow 内）
         var rankGO = new GameObject("RankText");
         rankGO.transform.SetParent(rankRowGO.transform, false);
         var rrt = rankGO.AddComponent<RectTransform>();
-        rrt.anchorMin = new Vector2(0.5f, 0.5f);
-        rrt.anchorMax = new Vector2(0.5f, 0.5f);
-        rrt.pivot = new Vector2(0.5f, 0.5f);
-        rrt.anchoredPosition = new Vector2(8f, 0f);
-        rrt.sizeDelta = new Vector2(120f, 18f);
+        rrt.anchorMin = rrt.anchorMax = new Vector2(0f, 0.5f);
+        rrt.pivot = new Vector2(0f, 0.5f);
+        rrt.anchoredPosition = new Vector2(38f, 0f);
+        rrt.sizeDelta = new Vector2(68f, 28f);
         _commanderRankText = rankGO.AddComponent<Text>();
         _commanderRankText.font = _commanderNameText.font;
-        _commanderRankText.text = "上尉";
-        _commanderRankText.fontSize = 13;
+        _commanderRankText.text = GetBattleRankTitle();
+        _commanderRankText.fontSize = 14;
+        _commanderRankText.fontStyle = FontStyle.Bold;
         _commanderRankText.alignment = TextAnchor.MiddleLeft;
-        _commanderRankText.color = new Color(0.85f, 0.82f, 0.60f);
+        _commanderRankText.horizontalOverflow = HorizontalWrapMode.Overflow;
+        _commanderRankText.verticalOverflow = VerticalWrapMode.Overflow;
+        _commanderRankText.resizeTextForBestFit = true;
+        _commanderRankText.resizeTextMinSize = 10;
+        _commanderRankText.resizeTextMaxSize = 14;
+        _commanderRankText.color = new Color(1f, 0.90f, 0.55f);
         _commanderRankText.raycastTarget = false;
+        var rankShadow = rankGO.AddComponent<Shadow>();
+        rankShadow.effectColor = new Color(0f, 0f, 0f, 0.9f);
+        rankShadow.effectDistance = new Vector2(1.2f, -1.2f);
+        _prevRank = _commanderRankText.text;
+        rankRowGO.SetActive(true);
 
         // 主基地血量条（在头像正下方，超出 TopBar 显示）
         var bhBg = new GameObject("BaseHpBg");
@@ -2570,9 +5071,9 @@ public class RTSHUD : MonoBehaviour
         // 填充
         var fill = new GameObject("Fill");
         fill.transform.SetParent(bhBg.transform, false);
-        var frt = fill.AddComponent<RectTransform>();
-        frt.anchorMin = Vector2.zero; frt.anchorMax = Vector2.one;
-        frt.offsetMin = new Vector2(2f, 2f); frt.offsetMax = new Vector2(-2f, -2f);
+        var fillRT = fill.AddComponent<RectTransform>();
+        fillRT.anchorMin = Vector2.zero; fillRT.anchorMax = Vector2.one;
+        fillRT.offsetMin = new Vector2(2f, 2f); fillRT.offsetMax = new Vector2(-2f, -2f);
         _baseHpFill = fill.AddComponent<Image>();
         _baseHpFill.color = new Color(0.20f, 0.85f, 0.30f);
         _baseHpFill.type = Image.Type.Filled;
@@ -2596,84 +5097,38 @@ public class RTSHUD : MonoBehaviour
         var sh = bnTxt.AddComponent<Shadow>();
         sh.effectColor = new Color(0f, 0f, 0f, 0.9f);
         sh.effectDistance = new Vector2(1f, -1f);
+        bhBg.SetActive(false);
     }
 
-    /// <summary>晋升新官职时屏幕中央弹出"晋升 少校!"金字。</summary>
-    System.Collections.IEnumerator SpawnRankUpText(string newRank)
+    string GetBattleRankTitle()
     {
-        AppendChatMessage("司令部", $"恭喜晋升【{newRank}】！", new Color(1f, 0.92f, 0.45f));
-        var canvas = GetComponentInParent<Canvas>();
-        if (canvas == null) canvas = FindObjectOfType<Canvas>();
-        if (canvas == null) yield break;
-        var go = new GameObject("RankUp");
-        go.transform.SetParent(canvas.transform, false);
-        var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = new Vector2(0f, 30f);
-        rt.sizeDelta = new Vector2(700f, 100f);
-        var t = go.AddComponent<Text>();
-        t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (t.font == null) t.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-        t.text = $"⭐ 晋升 {newRank}! ⭐";
-        t.fontSize = 56;
-        t.fontStyle = FontStyle.Bold;
-        t.alignment = TextAnchor.MiddleCenter;
-        t.color = new Color(1f, 0.92f, 0.45f);
-        t.raycastTarget = false;
-        var ol = go.AddComponent<Outline>();
-        ol.effectColor = new Color(0f, 0f, 0f, 0.85f);
-        ol.effectDistance = new Vector2(3f, -3f);
-        // 阶段 1：弹性放大 0.3 → 1.3
-        float t1 = 0f;
-        while (t1 < 0.25f)
-        {
-            t1 += Time.deltaTime;
-            float r = Mathf.Clamp01(t1 / 0.25f);
-            rt.localScale = Vector3.one * Mathf.Lerp(0.3f, 1.30f, r);
-            yield return null;
-        }
-        // 回弹
-        float t2 = 0f;
-        while (t2 < 0.12f)
-        {
-            t2 += Time.deltaTime;
-            float r = Mathf.Clamp01(t2 / 0.12f);
-            rt.localScale = Vector3.one * Mathf.Lerp(1.30f, 1.0f, r);
-            yield return null;
-        }
-        // 停留 + 微脉动
-        float t3 = 0f;
-        while (t3 < 1.6f)
-        {
-            t3 += Time.deltaTime;
-            float k = 1f + 0.04f * Mathf.Sin(Time.time * 5.5f);
-            rt.localScale = Vector3.one * k;
-            yield return null;
-        }
-        // 渐隐
-        float t4 = 0f;
-        Color sc = t.color;
-        while (t4 < 0.35f)
-        {
-            t4 += Time.deltaTime;
-            float r = Mathf.Clamp01(t4 / 0.35f);
-            t.color = new Color(sc.r, sc.g, sc.b, 1f - r);
-            yield return null;
-        }
-        Destroy(go);
+        string rank = "";
+        var net = NetworkClient.Instance;
+        if (net != null && !string.IsNullOrEmpty(net.RankTitle))
+            rank = net.RankTitle;
+        if (string.IsNullOrEmpty(rank))
+            rank = PlayerPrefs.GetString("net_rank_title", "");
+        if (string.IsNullOrEmpty(rank))
+            rank = PlayerPrefs.GetString("player_rank_title", "");
+        if (string.IsNullOrEmpty(rank))
+            rank = "列兵";
+        return rank.Trim();
     }
 
-    /// <summary>按击杀数计算官职。</summary>
-    string GetRankByKills(int kills)
+    void SyncBattleRankTitle()
     {
-        if (kills >= 100) return "元帅";
-        if (kills >= 60)  return "上将";
-        if (kills >= 40)  return "中将";
-        if (kills >= 25)  return "少将";
-        if (kills >= 15)  return "上校";
-        if (kills >= 8)   return "中校";
-        if (kills >= 3)   return "少校";
-        return "上尉";
+        if (_commanderRankText == null) return;
+
+        string rank = GetBattleRankTitle();
+        if (rank != _prevRank || _commanderRankText.text != rank)
+        {
+            _commanderRankText.text = rank;
+            _prevRank = rank;
+        }
+
+        var rankRow = _commanderRankText.transform.parent;
+        if (rankRow != null && !rankRow.gameObject.activeSelf)
+            rankRow.gameObject.SetActive(true);
     }
 
     /// <summary>计算玩家所有产金建筑的总收入速率（金币/秒）。</summary>
@@ -2684,7 +5139,7 @@ public class RTSHUD : MonoBehaviour
         float rate = 0f;
         foreach (var b in bldgs)
         {
-            if (b == null || !b.bPlayerOwned || b.GoldIncomeAmount <= 0) continue;
+            if (b == null || !b.bPlayerOwned || b.bUnderConstruction || b.GoldIncomeAmount <= 0) continue;
             float interval = Mathf.Max(0.1f, b.GoldIncomeInterval);
             rate += b.GoldIncomeAmount / interval;
         }
@@ -2694,16 +5149,7 @@ public class RTSHUD : MonoBehaviour
     void UpdateTopBar()
     {
         if (playerState == null) return;
-        // 同步官职（按击杀数）
-        if (_commanderRankText != null)
-        {
-            string rank = GetRankByKills(playerState.EnemyKillCount);
-            _commanderRankText.text = rank;
-            // 官职变化时弹出晋升提示
-            if (!string.IsNullOrEmpty(_prevRank) && rank != _prevRank)
-                StartCoroutine(SpawnRankUpText(rank));
-            _prevRank = rank;
-        }
+        SyncBattleRankTitle();
         // 同步主基地血量
         var mb = GameManager.Instance?.PlayerMainBase;
         if (mb != null)
@@ -2829,6 +5275,126 @@ public class RTSHUD : MonoBehaviour
         t.color = c;
     }
 
+    private struct SelectedForceGroup
+    {
+        public string Name;
+        public int Count;
+        public int HP;
+        public int MaxHP;
+    }
+
+    static List<SelectedForceGroup> BuildSelectedForceGroups(
+        List<RTSUnit> units,
+        out int totalCount,
+        out int totalHP,
+        out int totalMaxHP,
+        out int airCount,
+        out float airFuelSum,
+        out int parkedAirCount,
+        out int returningAirCount)
+    {
+        var groups = new List<SelectedForceGroup>();
+        totalCount = 0;
+        totalHP = 0;
+        totalMaxHP = 0;
+        airCount = 0;
+        airFuelSum = 0f;
+        parkedAirCount = 0;
+        returningAirCount = 0;
+
+        if (units == null) return groups;
+
+        for (int i = 0; i < units.Count; i++)
+        {
+            RTSUnit unit = units[i];
+            if (unit == null || unit.IsDead()) continue;
+
+            int hp = Mathf.Max(0, unit.GetHP());
+            int maxHP = Mathf.Max(1, unit.GetMaxHP());
+            string name = GetUnitDisplayNameStatic(unit);
+            int groupIndex = FindSelectedForceGroup(groups, name);
+            SelectedForceGroup group;
+            if (groupIndex >= 0)
+            {
+                group = groups[groupIndex];
+                group.Count++;
+                group.HP += hp;
+                group.MaxHP += maxHP;
+                groups[groupIndex] = group;
+            }
+            else
+            {
+                group = new SelectedForceGroup
+                {
+                    Name = name,
+                    Count = 1,
+                    HP = hp,
+                    MaxHP = maxHP
+                };
+                groups.Add(group);
+            }
+
+            totalCount++;
+            totalHP += hp;
+            totalMaxHP += maxHP;
+
+            AirUnit air = unit as AirUnit;
+            if (air != null)
+            {
+                airCount++;
+                airFuelSum += Mathf.Clamp01(air.FuelRatio);
+                if (air.IsParked) parkedAirCount++;
+                else if (air.IsReturningToRefuel) returningAirCount++;
+            }
+        }
+
+        return groups;
+    }
+
+    static int FindSelectedForceGroup(List<SelectedForceGroup> groups, string name)
+    {
+        for (int i = 0; i < groups.Count; i++)
+            if (groups[i].Name == name)
+                return i;
+        return -1;
+    }
+
+    static string BuildSelectedForceSummary(List<SelectedForceGroup> groups, int maxGroups = 0)
+    {
+        if (groups == null || groups.Count == 0) return "";
+
+        int shown = maxGroups > 0 ? Mathf.Min(maxGroups, groups.Count) : groups.Count;
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < shown; i++)
+        {
+            if (i > 0) sb.Append(" · ");
+            sb.Append(groups[i].Name);
+            sb.Append(" x");
+            sb.Append(groups[i].Count);
+        }
+
+        int hidden = groups.Count - shown;
+        if (hidden > 0)
+        {
+            if (sb.Length > 0) sb.Append(" · ");
+            sb.Append("+");
+            sb.Append(hidden);
+            sb.Append("类");
+        }
+
+        return sb.ToString();
+    }
+
+    static string BuildAirSelectionState(int airCount, int parkedAirCount, int returningAirCount)
+    {
+        if (airCount <= 0) return "";
+        if (parkedAirCount == airCount) return "停机加油";
+        if (returningAirCount == airCount) return "返场加油";
+        if (parkedAirCount + returningAirCount == airCount) return "加油中";
+        if (parkedAirCount > 0 || returningAirCount > 0) return "飞行/加油";
+        return "飞行";
+    }
+
     void UpdateSelectionUI()
     {
         // 清除已死亡或已销毁的引用，防止 MissingReferenceException
@@ -2840,11 +5406,28 @@ public class RTSHUD : MonoBehaviour
         if (currentSelectedUnits.Count > 0)
         {
             RTSUnit u = currentSelectedUnits[0];
+            int selectedCount;
+            int selectedHP;
+            int selectedMaxHP;
+            int airCount;
+            float airFuelSum;
+            int parkedAirCount;
+            int returningAirCount;
+            List<SelectedForceGroup> forceGroups = BuildSelectedForceGroups(
+                currentSelectedUnits,
+                out selectedCount,
+                out selectedHP,
+                out selectedMaxHP,
+                out airCount,
+                out airFuelSum,
+                out parkedAirCount,
+                out returningAirCount);
+            string forceSummary = BuildSelectedForceSummary(forceGroups);
             if (UnitInfoPanel) UnitInfoPanel.SetActive(true);
             if (BuildingPanel) BuildingPanel.SetActive(false);
             if (UnitNameText)
             {
-                // 老兵星级（金色 ★/★★/★★★）+ 名字 + 多选 +N
+                // 老兵星级（金色 ★/★★/★★★）+ 选中兵种统计
                 int sumKills = 0;
                 int maxKillsThisGroup = 0;
                 for (int k = 0; k < currentSelectedUnits.Count; k++)
@@ -2859,13 +5442,55 @@ public class RTSHUD : MonoBehaviour
                 else if (maxKillsThisGroup >= 1) starPrefix = "<color=#D8E0F2>★</color> ";
                 string suffix = sumKills > 0 ? $"  <color=#FFB266>击杀{sumKills}</color>" : "";
                 UnitNameText.supportRichText = true;
-                UnitNameText.text = currentSelectedUnits.Count > 1
-                    ? $"{starPrefix}{u.DisplayName} +{currentSelectedUnits.Count - 1}{suffix}"
-                    : $"{starPrefix}{u.DisplayName}{suffix}";
+                UnitNameText.resizeTextForBestFit = currentSelectedUnits.Count > 1;
+                UnitNameText.resizeTextMinSize = 12;
+                UnitNameText.resizeTextMaxSize = 18;
+                if (currentSelectedUnits.Count > 1)
+                {
+                    string titleSummary = forceSummary.Length <= 24 ? forceSummary : $"选中 {selectedCount} 兵力";
+                    UnitNameText.text = $"{starPrefix}{titleSummary}{suffix}";
+                }
+                else
+                {
+                    UnitNameText.text = $"{starPrefix}{GetUnitDisplayNameStatic(u)}{suffix}";
+                }
             }
-            float uhpRatio = (float)u.GetHP() / Mathf.Max(1, u.GetMaxHP());
+            float uhpRatio = currentSelectedUnits.Count > 1
+                ? (float)selectedHP / Mathf.Max(1, selectedMaxHP)
+                : (float)u.GetHP() / Mathf.Max(1, u.GetMaxHP());
             if (UnitHPBar) { UnitHPBar.value = uhpRatio; SetHPBarColor(UnitHPBar, uhpRatio); }
-            if (UnitHPText) UnitHPText.text = $"{u.GetHP()}/{u.GetMaxHP()}";
+            if (UnitHPText)
+            {
+                UnitHPText.resizeTextForBestFit = currentSelectedUnits.Count > 1;
+                UnitHPText.resizeTextMinSize = 9;
+                UnitHPText.resizeTextMaxSize = 12;
+                if (currentSelectedUnits.Count > 1)
+                {
+                    string hpText = $"总生命 {selectedHP}/{selectedMaxHP}";
+                    if (airCount > 0)
+                    {
+                        int avgFuel = Mathf.RoundToInt((airFuelSum / Mathf.Max(1, airCount)) * 100f);
+                        string airState = BuildAirSelectionState(airCount, parkedAirCount, returningAirCount);
+                        hpText += $"\n{forceSummary} · 燃油均 {avgFuel}% · {airState}";
+                    }
+                    else
+                    {
+                        hpText += $"\n{forceSummary}";
+                    }
+                    UnitHPText.text = hpText;
+                }
+                else
+                {
+                    string hpText = $"{u.GetHP()}/{u.GetMaxHP()}";
+                    var air = u as AirUnit;
+                    if (air != null)
+                    {
+                        string airState = air.IsParked ? "停机加油" : (air.IsReturningToRefuel ? "返场加油" : "飞行");
+                        hpText += $"\n燃油 {Mathf.RoundToInt(air.FuelRatio * 100f)}% · {airState}";
+                    }
+                    UnitHPText.text = hpText;
+                }
+            }
             // 二战风 RTS 没有主动技能：技能按钮始终隐藏
             if (SkillButton && SkillButton.gameObject.activeSelf)
                 SkillButton.gameObject.SetActive(false);
@@ -2875,9 +5500,29 @@ public class RTSHUD : MonoBehaviour
             RTSBuilding b = currentSelectedBuilding;
             if (UnitInfoPanel) UnitInfoPanel.SetActive(false);
             if (BuildingPanel) BuildingPanel.SetActive(true);
+            LayoutBuildingPanelControls();
             if (BuildingNameText) BuildingNameText.text = b.DisplayName;
             float bhpRatio = (float)b.GetHP() / Mathf.Max(1, b.GetMaxHP());
             if (BuildingHPBar) { BuildingHPBar.value = bhpRatio; SetHPBarColor(BuildingHPBar, bhpRatio); }
+            if (BuildingHPText) BuildingHPText.text = $"{b.GetHP()}/{b.GetMaxHP()}";
+            if (b.bUnderConstruction)
+            {
+                float buildRatio = Mathf.Clamp01(b.ConstructionProgress);
+                if (ProductionBar) ProductionBar.value = buildRatio;
+                EnsureCancelProductionButton(b);
+                if (ProductionText)
+                {
+                    ProductionText.supportRichText = true;
+                    ProductionText.text = $"<color=#FFD56B>建造中</color> ({Mathf.RoundToInt(buildRatio * 100f)}%)";
+                }
+                if (ProductionButtons != null)
+                {
+                    for (int i = 0; i < ProductionButtons.Length; i++)
+                        if (ProductionButtons[i] != null)
+                            ProductionButtons[i].gameObject.SetActive(false);
+                }
+                return;
+            }
             if (ProductionBar) ProductionBar.value = GetSmoothedProductionBarValue(b);
             EnsureCancelProductionButton(b);
             if (ProductionText)
@@ -2888,29 +5533,28 @@ public class RTSHUD : MonoBehaviour
                     ProductionText.text = b.bIsMainBase ? "修复/升级" : "";
                 else if (b.ProductionQueue.Count > 0)
                 {
-                    // 第 1 个 = 正在生产；后续 = 队列
+                    // 第 1 个 = 正在生产；后续压成一行短队列，避免小面板文字挤在一起。
                     string current = "";
                     int firstIdx = b.ProductionQueue[0];
                     if (firstIdx >= 0 && firstIdx < b.ProductionUnits.Length && b.ProductionUnits[firstIdx] != null)
                     {
                         var p0 = b.ProductionUnits[firstIdx].GetComponent<RTSUnit>();
                         string n0 = p0 != null ? GetUnitDisplayNameStatic(p0) : $"单位{firstIdx+1}";
-                        current = $"<color=#FFD56B>生产中: {n0}</color> ({Mathf.RoundToInt(Mathf.Clamp01(b.ProductionProgress) * 100f)}%)";
+                        current = $"<color=#FFD56B>生产 {n0}</color>  <color=#EAF2FF>{Mathf.RoundToInt(Mathf.Clamp01(b.ProductionProgress) * 100f)}%</color>";
                     }
-                    // 队列后续
                     string queue = "";
                     if (b.ProductionQueue.Count > 1)
                     {
                         var sb = new System.Text.StringBuilder();
-                        sb.Append("\n<color=#A8B0BD>队列: ");
-                        int maxShow = Mathf.Min(5, b.ProductionQueue.Count - 1);
+                        sb.Append("\n<color=#9EADBC>队列 </color><color=#CED7E2>");
+                        int maxShow = Mathf.Min(3, b.ProductionQueue.Count - 1);
                         for (int qi = 1; qi <= maxShow; qi++)
                         {
                             int qIdx = b.ProductionQueue[qi];
                             if (qIdx < 0 || qIdx >= b.ProductionUnits.Length || b.ProductionUnits[qIdx] == null) continue;
                             var pq = b.ProductionUnits[qIdx].GetComponent<RTSUnit>();
                             string nq = pq != null ? GetUnitDisplayNameStatic(pq) : $"#{qIdx}";
-                            if (qi > 1) sb.Append(" → ");
+                            if (qi > 1) sb.Append(" / ");
                             sb.Append(nq);
                         }
                         int remain = b.ProductionQueue.Count - 1 - maxShow;
@@ -2924,18 +5568,21 @@ public class RTSHUD : MonoBehaviour
                     ProductionText.text = "<color=#7E867F>空闲</color>";
             }
             // 更新生产按鈕显示（onClick 已在 OnSelectionChanged 里绑定，这里只更新文字和可见性）
-            if (ProductionButtons != null && b.ProductionUnits != null)
+            if (ProductionButtons != null)
             {
+                bool hasProd = b.ProductionUnits != null && b.ProductionUnits.Length > 0;
                 for (int i = 0; i < ProductionButtons.Length; i++)
                 {
                     if (ProductionButtons[i] == null) continue;
-                    bool active = i < b.ProductionUnits.Length && b.ProductionUnits[i] != null;
+                    bool active = hasProd && i < b.ProductionUnits.Length && b.ProductionUnits[i] != null;
                     ProductionButtons[i].gameObject.SetActive(active);
                     if (active)
                     {
                         RTSUnit proto = b.ProductionUnits[i].GetComponent<RTSUnit>();
                         int cost = (b.ProductionCosts != null && i < b.ProductionCosts.Length) ? b.ProductionCosts[i] : 0;
                         int popCost = proto != null ? Mathf.Max(1, proto.PopCost) : 1;
+                        var airfield = b as AirFactory;
+                        bool hasAircraftSlot = airfield == null || airfield.HasAircraftSlotForProductionIndex(i);
                         var txt = ProductionButtons[i].GetComponentInChildren<Text>();
                         if (txt)
                         {
@@ -2947,8 +5594,10 @@ public class RTSHUD : MonoBehaviour
                         }
                         // 金币或人口不足时变灰，但保持 interactable=true 以便点击触发 deny 反馈（在 BindProductionButtons 内 check）
                         bool canAfford = playerState == null || playerState.Gold >= cost;
+                        if (txt != null && !hasAircraftSlot)
+                            txt.text += "\n机位满";
                         bool hasRoom   = playerState == null || playerState.PopUsed + popCost <= playerState.PopCap;
-                        bool ok = canAfford && hasRoom;
+                        bool ok = canAfford && hasRoom && hasAircraftSlot;
                         ProductionButtons[i].interactable = true;
                         var btnImg = ProductionButtons[i].GetComponent<Image>();
                         if (btnImg != null)
@@ -2962,6 +5611,7 @@ public class RTSHUD : MonoBehaviour
                         {
                             txt.color = !canAfford ? new Color(1f, 0.4f, 0.34f)
                                        : !hasRoom ? new Color(1f, 0.78f, 0.30f)
+                                       : !hasAircraftSlot ? new Color(0.55f, 0.78f, 1f)
                                        : new Color(1f, 0.92f, 0.55f);
                         }
                     }
@@ -3042,8 +5692,21 @@ public class RTSHUD : MonoBehaviour
                         return;
                     }
                 }
-                _UiClickAudio.PlayConfirm();
-                b.EnqueueUnit(idx);
+                var airfield = b as AirFactory;
+                if (airfield != null && !airfield.HasAircraftSlotForProductionIndex(idx))
+                {
+                    _UiClickAudio.PlayDeny();
+                    ShowAlert("停机场机位已满：每座只能停放4架飞机");
+                    StartCoroutine(ShakeButton(ProductionButtons[idx].GetComponent<RectTransform>()));
+                    return;
+                }
+                if (b.EnqueueUnit(idx))
+                    _UiClickAudio.PlayConfirm();
+                else
+                {
+                    _UiClickAudio.PlayDeny();
+                    StartCoroutine(ShakeButton(ProductionButtons[idx].GetComponent<RectTransform>()));
+                }
             });
         }
     }
@@ -3101,6 +5764,7 @@ public class RTSHUD : MonoBehaviour
         if (UnitInfoPanel != null) UnitInfoPanel.SetActive(false);
         if (BuildingPanel != null) BuildingPanel.SetActive(false);
         if (BuildMenuPanel != null) BuildMenuPanel.SetActive(false);
+        if (TechPanel != null) TechPanel.SetActive(false);
         if (PausePanel != null) PausePanel.SetActive(false);
         if (AlertText != null) AlertText.gameObject.SetActive(false);
         if (MinimapImage != null) MinimapImage.gameObject.SetActive(false);
@@ -3122,14 +5786,15 @@ public class RTSHUD : MonoBehaviour
 
         var sync = GameNetworkSync.Instance;
         string teamLine = sync != null && sync.IsNetworkGame
-            ? $"队伍：{(sync.IsHost ? "HOST" : "GUEST")} / 联机对战"
-            : "队伍：我方部队";
+            ? $"{(sync.IsHost ? "我方HOST" : "我方GUEST")}  VS  对手"
+            : "我方部队  VS  敌方";
 
-        return $"{teamLine}\n" +
-               $"战果：击杀 {kills}    用时 {m:00}:{s:00}    人口 {popUsed}/{popCap}\n" +
-               $"经济：金币 {gold:N0}\n" +
-               $"电力：{powerUsed}/{powerCap}\n" +
-               "兵力：战场对象统计暂不可用";
+        return $"{teamLine}    用时 {m:00}:{s:00}\n" +
+               $"战果：我方 击杀{kills} | 敌方 --\n" +
+               $"人口：我方 {popUsed}/{popCap} | 敌方 --\n" +
+               $"经济：我方 金{gold:N0} | 敌方 --\n" +
+               $"电力：我方 {powerUsed}/{powerCap} | 敌方 --\n" +
+               "兵力：我方 -- | 敌方 --";
     }
 
     void UpdateGameOverSummaryCards(int kills, int seconds)
@@ -3345,11 +6010,11 @@ public class RTSHUD : MonoBehaviour
             rt.anchorMin = Vector2.zero;
             rt.anchorMax = Vector2.one;
             rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.offsetMin = new Vector2(24f, 16f);
-            rt.offsetMax = new Vector2(-22f, -50f);
-            GameOverStatsText.fontSize = 15;
+            rt.offsetMin = new Vector2(20f, 14f);
+            rt.offsetMax = new Vector2(-18f, -48f);
+            GameOverStatsText.fontSize = 13;
             GameOverStatsText.alignment = TextAnchor.UpperLeft;
-            GameOverStatsText.lineSpacing = 1.10f;
+            GameOverStatsText.lineSpacing = 1.04f;
             GameOverStatsText.horizontalOverflow = HorizontalWrapMode.Wrap;
             GameOverStatsText.verticalOverflow = VerticalWrapMode.Overflow;
             GameOverStatsText.color = new Color(0.84f, 0.93f, 1f);
@@ -3530,7 +6195,7 @@ public class RTSHUD : MonoBehaviour
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.410f);
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = Vector2.zero;
-            rt.sizeDelta = new Vector2(640f, 205f);
+            rt.sizeDelta = new Vector2(640f, 225f);
         }
         var image = report.GetComponent<Image>();
         if (image != null) image.color = new Color(0.018f, 0.027f, 0.030f, 0.88f);
@@ -4055,12 +6720,17 @@ public class RTSHUD : MonoBehaviour
         }
         bPaused = !bPaused;
         if (PausePanel) PausePanel.SetActive(bPaused);
-        Time.timeScale = bPaused ? 0f : 1f;
+        EnsureBattleTimeRunning();
     }
 
     bool IsOnlineMatch()
     {
         return GameNetworkSync.Instance != null && GameNetworkSync.Instance.IsNetworkGame;
+    }
+
+    void EnsureBattleTimeRunning()
+    {
+        if (!Mathf.Approximately(Time.timeScale, 1f)) Time.timeScale = 1f;
     }
 
     void HidePauseMenu()
@@ -4079,8 +6749,9 @@ public class RTSHUD : MonoBehaviour
         if (GameSettingsPanel) GameSettingsPanel.SetActive(false);
         if (AlertText)      AlertText.gameObject.SetActive(false);
         if (BuildMenuPanel) BuildMenuPanel.SetActive(false);
+        if (TechPanel)      TechPanel.SetActive(false);
         _settingsOpen = false;
-        _settingsPausedTime = false;
+        _techPanelOpen = false;
     }
 
     // 判断结算面板是否展示中
@@ -4118,5 +6789,31 @@ public class RTSHUD : MonoBehaviour
         if (unit is ScoutPlane)   return "侦察机";
         // 兜底：Awake 里设置的值（运行时实例有效）
         return string.IsNullOrEmpty(unit.DisplayName) ? unit.GetType().Name : unit.DisplayName;
+    }
+}
+
+public class BattleChatVoicePressHandler : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
+{
+    public RTSHUD Owner;
+    private bool _pressed;
+
+    public void OnPointerDown(PointerEventData eventData)
+    {
+        _pressed = true;
+        Owner?.BeginVoiceRecording();
+    }
+
+    public void OnPointerUp(PointerEventData eventData)
+    {
+        if (!_pressed) return;
+        _pressed = false;
+        Owner?.EndVoiceRecording();
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        if (!_pressed) return;
+        _pressed = false;
+        Owner?.EndVoiceRecording();
     }
 }

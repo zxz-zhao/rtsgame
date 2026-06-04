@@ -486,7 +486,7 @@ public class EffectsManager : MonoBehaviour
         {
             var shader = Shader.Find("Particles/Standard Unlit") ?? Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Color");
             renderer.material = new Material(shader);
-            renderer.material.color = startColor;
+            RendererColorUtil.TrySetColor(renderer.material, startColor);
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
         }
@@ -535,7 +535,8 @@ internal class _FxShockwaveAnimator : MonoBehaviour
         this.maxScale = maxScale;
         this.life = Mathf.Max(0.05f, life);
         rd = GetComponent<Renderer>();
-        if (rd != null && rd.material != null) startColor = rd.material.color;
+        if (!RendererColorUtil.TryGetColor(rd, out startColor))
+            startColor = Color.white;
     }
 
     void Update()
@@ -543,11 +544,11 @@ internal class _FxShockwaveAnimator : MonoBehaviour
         t += Time.deltaTime;
         float r = Mathf.Clamp01(t / life);
         transform.localScale = Vector3.one * Mathf.Lerp(0.1f, maxScale, r);
-        if (rd != null && rd.material != null && rd.material.HasProperty("_Color"))
+        if (rd != null)
         {
             var c = startColor;
             c.a = startColor.a * (1f - r);
-            rd.material.color = c;
+            RendererColorUtil.TrySetColor(rd, c);
         }
         if (r >= 1f) Destroy(gameObject);
     }

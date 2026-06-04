@@ -104,7 +104,7 @@ public static class RuntimeBattleMapBuilder
     static Material MakeMat(Color color, float metallic = 0f, float glossiness = 0.2f)
     {
         var mat = new Material(Shader.Find("Standard"));
-        mat.color = color;
+        RendererColorUtil.TrySetColor(mat, color);
         mat.SetFloat("_Metallic", metallic);
         mat.SetFloat("_Glossiness", glossiness);
         return mat;
@@ -119,8 +119,7 @@ public static class RuntimeBattleMapBuilder
         var mat = new Material(shader != null ? shader : Shader.Find("Standard"));
         if (mat.HasProperty("_MainTex"))
             mat.mainTexture = GetReadableSurfaceTexture(color);
-        if (mat.HasProperty("_Color"))
-            mat.color = mat.HasProperty("_MainTex") ? Color.white : color;
+        RendererColorUtil.TrySetColor(mat, mat.HasProperty("_MainTex") ? Color.white : color);
         if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
         if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", 0.08f);
         return mat;
@@ -535,10 +534,8 @@ public static class RuntimeBattleMapBuilder
                 if (source == null) continue;
 
                 Material copy = new Material(source);
-                if (copy.HasProperty("_Color"))
-                    copy.color = Color.Lerp(copy.color, tint, 0.45f);
-                else if (copy.HasProperty("_BaseColor"))
-                    copy.SetColor("_BaseColor", Color.Lerp(copy.GetColor("_BaseColor"), tint, 0.45f));
+                if (RendererColorUtil.TryGetColor(copy, out Color baseColor))
+                    RendererColorUtil.TrySetColor(copy, Color.Lerp(baseColor, tint, 0.45f));
 
                 if (copy.HasProperty("_Metallic")) copy.SetFloat("_Metallic", 0f);
                 if (copy.HasProperty("_Glossiness")) copy.SetFloat("_Glossiness", 0.35f);

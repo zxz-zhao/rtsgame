@@ -12,7 +12,8 @@ internal class _DebrisFader : MonoBehaviour
     {
         life = Mathf.Max(0.5f, lifeSeconds);
         rd = GetComponent<Renderer>();
-        if (rd != null && rd.material != null) startColor = rd.material.color;
+        if (!RendererColorUtil.TryGetColor(rd, out startColor))
+            startColor = Color.white;
     }
 
     void Update()
@@ -21,11 +22,11 @@ internal class _DebrisFader : MonoBehaviour
         if (t > life * 0.7f)
         {
             float fadeR = Mathf.Clamp01((t - life * 0.7f) / (life * 0.3f));
-            if (rd != null && rd.material != null && rd.material.HasProperty("_Color"))
+            if (rd != null)
             {
                 var c = startColor;
                 c.a = startColor.a * (1f - fadeR);
-                rd.material.color = c;
+                RendererColorUtil.TrySetColor(rd, c);
             }
         }
         if (t >= life) Destroy(gameObject);

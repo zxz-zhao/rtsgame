@@ -6,7 +6,8 @@ public class MainBase : RTSBuilding
     private const int HealAmount = 8;      // 单位治疗量（HP/s）
     private const int RepairAmount = 10;   // 建筑修复量（HP/s）
     private const float HealRadius = 50f;
-    private const float RepairRadius = 60f;
+    public const float BuildRangeRadius = 60f;
+    private const float RepairRadius = BuildRangeRadius;
 
     private GameObject _healAura;
     private Material _healAuraMat;
@@ -16,12 +17,18 @@ public class MainBase : RTSBuilding
     protected override float DesiredVisualHeight => 10f;
     protected override float DesiredVisualFootprint => 12f;
 
-    protected override void Start()
+    public override void ApplyDefinitionDefaults()
     {
         DisplayName = "主基地";
-        MaxHP = 3000; GoldCost = 0;
+        MaxHP = 3000; GoldCost = 0; PowerCost = 0; PowerProvide = 0;
         PopCapBonus = 10; bIsMainBase = true;
+        bIsPowerPlant = false; bIsGoldMine = false;
         GoldIncomeAmount = 30; GoldIncomeInterval = 5f;
+        bAutoAttack = false;
+    }
+
+    protected override void Start()
+    {
         base.Start();
         // 仅己方基地显示治疗光环（避免敌方基地下方也有绿光）
         if (bPlayerOwned) CreateHealAura();

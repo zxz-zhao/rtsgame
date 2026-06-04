@@ -1,12 +1,19 @@
 ﻿using UnityEngine;
 public class TankFactory : RTSBuilding
 {
-    void Awake() { GoldCost = 400; }
     protected override float DesiredVisualHeight => 5.5f;
     protected override float DesiredVisualFootprint => 10f;
-    protected override void Start()
+
+    public override void ApplyDefinitionDefaults()
     {
         DisplayName = "特需厂"; MaxHP = 850; GoldCost = 400; PowerCost = 35;
+        PopCapBonus = 0; PowerProvide = 0;
+        bIsMainBase = false; bIsPowerPlant = false; bIsGoldMine = false;
+        GoldIncomeAmount = 0; bAutoAttack = false;
+    }
+
+    protected override void Start()
+    {
         if (ProductionUnits == null || ProductionUnits.Length == 0)
         {
             var t  = Resources.Load<GameObject>("Prefabs/Tank_P");

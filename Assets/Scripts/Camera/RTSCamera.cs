@@ -8,6 +8,8 @@ public class RTSCamera : MonoBehaviour
     [Header("移动")]
     public float MoveSpeed = 35f;
     public float EdgeScrollWidth = 30f;  // 像素
+    public bool EnableMiddleMouseDrag = true;
+    public float MiddleMouseDragSpeed = 1f;
     // 相机本身坐标的可移动范围。考虑到俯视相机往 +z 方向看，
     // 当相机自身在 z=-200 时（地图南端），由于俯视角，画面中心实际看到的是更靠 +z 的区域。
     // 因此 MinZ 需比地图边界 -200 再往下扩 ~60，否则看不到地图最南端。
@@ -25,6 +27,8 @@ public class RTSCamera : MonoBehaviour
     private Vector2 lastTouchPos;
     private Vector2 touchStartPos;
     private bool bTouchDrag = false;
+    private bool bMiddleMouseDragging = false;
+    private Vector3 middleMouseDragWorldPoint;
     private const float DragThreshold = 22f;  // 像素，超过才算拖拽移动相机
 
     // ── 镜头震动 ──────────────────────────────────────────────
@@ -88,6 +92,9 @@ public class RTSCamera : MonoBehaviour
 
     void HandleMouseInput()
     {
+        if (HandleMiddleMouseDrag())
+            return;
+
         Vector3 move = Vector3.zero;
         Vector2 mp = Input.mousePosition;
 
@@ -117,6 +124,59 @@ public class RTSCamera : MonoBehaviour
         transform.Translate(move * MoveSpeed * Time.deltaTime, Space.World);
 
         // 鼠标滚轮不参与平移；缩放统一交给 HandleWheelZoom 处理。
+    }
+
+    bool HandleMiddleMouseDrag()
+    {
+        if (!EnableMiddleMouseDrag)
+        {
+            bMiddleMouseDragging = false;
+            return false;
+        }
+
+        if (Input.GetMouseButtonDown(2))
+        {
+            if (IsPointerOverUI())
+                return false;
+
+            if (TryGetGroundPoint(Input.mousePosition, out middleMouseDragWorldPoint))
+                bMiddleMouseDragging = true;
+        }
+
+        if (Input.GetMouseButtonUp(2))
+            bMiddleMouseDragging = false;
+
+        if (!bMiddleMouseDragging || !Input.GetMouseButton(2))
+            return false;
+
+        if (TryGetGroundPoint(Input.mousePosition, out Vector3 currentWorldPoint))
+        {
+            Vector3 delta = (middleMouseDragWorldPoint - currentWorldPoint) * MiddleMouseDragSpeed;
+            transform.position += new Vector3(delta.x, 0f, delta.z);
+        }
+
+        return true;
+    }
+
+    bool TryGetGroundPoint(Vector2 screenPosition, out Vector3 point)
+    {
+        Camera cam = GetComponent<Camera>();
+        if (cam == null)
+        {
+            point = Vector3.zero;
+            return false;
+        }
+
+        Ray ray = cam.ScreenPointToRay(screenPosition);
+        Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
+        if (!groundPlane.Raycast(ray, out float distance))
+        {
+            point = Vector3.zero;
+            return false;
+        }
+
+        point = ray.GetPoint(distance);
+        return true;
     }
 
     void HandleKeyboardMove()

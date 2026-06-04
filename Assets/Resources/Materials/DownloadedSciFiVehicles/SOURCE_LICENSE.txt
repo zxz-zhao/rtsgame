@@ -1,0 +1,15 @@
+Downloaded sci-fi vehicle material sources
+
+Provider: ambientCG
+License: CC0 / public domain dedication, see https://ambientcg.com/license
+Downloads used: 1K-JPG zip packages
+Original zip files kept under Tools/Downloads/ambientCG/SciFiVehicleMaterials
+
+Asset pages:
+- https://ambientcg.com/view?id=MetalPlates017A
+- https://ambientcg.com/view?id=MetalPlates017B
+- https://ambientcg.com/view?id=MetalPlates015A
+- https://ambientcg.com/view?id=MetalPlates015B
+- https://ambientcg.com/view?id=MetalPlates016A
+- https://ambientcg.com/view?id=DiamondPlate009
+- https://ambientcg.com/view?id=DiamondPlate008C

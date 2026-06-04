@@ -25,6 +25,9 @@ public class UnitVisualAnimator : MonoBehaviour
     Quaternion baseRootLocalRotation;
     float clock;
     float fireKickTimer;
+    float hitKickTimer;
+    float hitKickDuration = 0.16f;
+    bool hitKickHeavy;
     float deathTimer;
     int speedHash;
     int fireHash;
@@ -39,15 +42,23 @@ public class UnitVisualAnimator : MonoBehaviour
     Transform[] arms = new Transform[0];
     Transform[] legs = new Transform[0];
     Transform weaponRoot;
+    BasicShooterRifleHandBinder rifleHandBinder;
     Quaternion[] armBaseRotations = new Quaternion[0];
     Quaternion[] legBaseRotations = new Quaternion[0];
     Quaternion weaponBaseLocalRotation;
     Vector3 weaponBaseLocalPosition;
 
+    void Awake()
+    {
+        UseGeneratedInfantryFallbackIfNeeded();
+    }
+
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
         animator = GetComponentInChildren<Animator>(true);
+        if (animator != null && !animator.enabled)
+            animator = null;
         if (VisualRoot == null)
             VisualRoot = transform.Find("Model");
 
@@ -66,6 +77,7 @@ public class UnitVisualAnimator : MonoBehaviour
         propellers = FindParts("Propeller", "Rotor");
         arms = FindParts("Arm");
         legs = FindParts("Leg");
+        rifleHandBinder = GetComponent<BasicShooterRifleHandBinder>();
         weaponRoot = FindFirstPart("KenneyWeapon", "Rifle", "Barrel", "Nozzle", "Muzzle");
         armBaseRotations = GetRotations(arms);
         legBaseRotations = GetRotations(legs);
@@ -77,12 +89,222 @@ public class UnitVisualAnimator : MonoBehaviour
         lastPosition = transform.position;
     }
 
+    void UseGeneratedInfantryFallbackIfNeeded()
+    {
+        if (!HasMismatchedInfantryAnimator(gameObject, Style))
+            return;
+
+        Animator importedAnimator = GetComponentInChildren<Animator>(true);
+        Transform modelRoot = VisualRoot != null ? VisualRoot : transform.Find("Model");
+        if (modelRoot == null)
+        {
+            GameObject model = new GameObject("Model");
+            model.transform.SetParent(transform, false);
+            modelRoot = model.transform;
+        }
+
+        if (importedAnimator != null)
+            importedAnimator.enabled = false;
+
+        Transform generated = FindChildRecursive(modelRoot, "GeneratedInfantryUpright");
+        if (generated == null)
+            generated = BuildGeneratedInfantry(modelRoot);
+        if (generated == null)
+            return;
+
+        VisualRoot = modelRoot;
+        HideOtherVisualChildren(modelRoot, generated);
+        ShowAttachmentChildren(modelRoot);
+        AttachExternalWeaponToGeneratedInfantry(modelRoot, generated);
+        HideGeneratedRifleIfExternalWeaponExists(modelRoot, generated);
+
+        generated.gameObject.SetActive(true);
+        generated.localPosition = Vector3.zero;
+        generated.localRotation = Quaternion.identity;
+        generated.localScale = Vector3.one;
+
+        Transform staticInfantry = FindChildRecursive(modelRoot, "Infantry_Model_Instance");
+        if (staticInfantry != null)
+            staticInfantry.gameObject.SetActive(false);
+    }
+
+    static Transform FindChildNameContaining(Transform root, string token)
+    {
+        if (root == null || string.IsNullOrEmpty(token))
+            return null;
+
+        if (root.name.IndexOf(token, System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return root;
+
+        foreach (Transform child in root)
+        {
+            Transform found = FindChildNameContaining(child, token);
+            if (found != null)
+                return found;
+        }
+
+        return null;
+    }
+
+    static void HideOtherVisualChildren(Transform visualRoot, Transform keep)
+    {
+        if (visualRoot == null || keep == null)
+            return;
+
+        for (int i = 0; i < visualRoot.childCount; i++)
+        {
+            Transform child = visualRoot.GetChild(i);
+            if (child != null && child != keep)
+                child.gameObject.SetActive(false);
+        }
+    }
+
+    static void ShowAttachmentChildren(Transform visualRoot)
+    {
+        if (visualRoot == null)
+            return;
+
+        for (int i = 0; i < visualRoot.childCount; i++)
+        {
+            Transform child = visualRoot.GetChild(i);
+            if (child == null)
+                continue;
+
+            string name = child.name;
+            if (name == "KenneyWeapon" || name == "FactionPlate" || name.IndexOf("Weapon", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                child.gameObject.SetActive(true);
+        }
+    }
+
+    static void HideGeneratedRifleIfExternalWeaponExists(Transform visualRoot, Transform generated)
+    {
+        if (visualRoot == null || generated == null)
+            return;
+
+        Transform externalWeapon = FindChildRecursive(visualRoot, "KenneyWeapon");
+        if (externalWeapon == null || !externalWeapon.gameObject.activeSelf)
+            return;
+
+        Transform generatedRifle = FindChildRecursive(generated, "Rifle");
+        if (generatedRifle != null)
+            generatedRifle.gameObject.SetActive(false);
+    }
+
+    static void AttachExternalWeaponToGeneratedInfantry(Transform visualRoot, Transform generated)
+    {
+        if (visualRoot == null || generated == null)
+            return;
+
+        Transform externalWeapon = FindChildRecursive(visualRoot, "KenneyWeapon");
+        if (externalWeapon == null)
+            return;
+
+        bool shoulderCannon = FindChildNameContaining(externalWeapon, "WW2Shoulder") != null;
+        externalWeapon.SetParent(generated, false);
+        externalWeapon.localPosition = shoulderCannon
+            ? new Vector3(0.22f, 0.82f, 0.34f)
+            : new Vector3(0.32f, 0.72f, 0.24f);
+        externalWeapon.localRotation = shoulderCannon
+            ? Quaternion.Euler(1f, 88f, -6f)
+            : Quaternion.Euler(8f, 0f, 0f);
+        externalWeapon.localScale = Vector3.one * 0.72f;
+        externalWeapon.gameObject.SetActive(true);
+    }
+
+    static Transform BuildGeneratedInfantry(Transform parent)
+    {
+        if (parent == null) return null;
+
+        GameObject root = new GameObject("GeneratedInfantryUpright");
+        root.transform.SetParent(parent, false);
+
+        Material uniform = MakeGeneratedMaterial(new Color(0.28f, 0.38f, 0.18f));
+        Material skin = MakeGeneratedMaterial(new Color(0.86f, 0.62f, 0.42f));
+        Material dark = MakeGeneratedMaterial(new Color(0.08f, 0.09f, 0.10f));
+        Material wood = MakeGeneratedMaterial(new Color(0.42f, 0.24f, 0.12f));
+
+        CreatePart(root.transform, "Body", PrimitiveType.Cube, new Vector3(0f, 0.68f, 0f), new Vector3(0.32f, 0.56f, 0.20f), uniform);
+        CreatePart(root.transform, "Head", PrimitiveType.Sphere, new Vector3(0f, 1.08f, 0.01f), new Vector3(0.24f, 0.24f, 0.24f), skin);
+        CreatePart(root.transform, "Helmet", PrimitiveType.Sphere, new Vector3(0f, 1.18f, 0.01f), new Vector3(0.28f, 0.12f, 0.28f), dark);
+        CreatePart(root.transform, "ArmLeft", PrimitiveType.Cube, new Vector3(-0.26f, 0.74f, 0f), new Vector3(0.10f, 0.42f, 0.10f), uniform);
+        CreatePart(root.transform, "ArmRight", PrimitiveType.Cube, new Vector3(0.26f, 0.74f, 0f), new Vector3(0.10f, 0.42f, 0.10f), uniform);
+        CreatePart(root.transform, "LegLeft", PrimitiveType.Cube, new Vector3(-0.10f, 0.25f, 0f), new Vector3(0.11f, 0.46f, 0.11f), dark);
+        CreatePart(root.transform, "LegRight", PrimitiveType.Cube, new Vector3(0.10f, 0.25f, 0f), new Vector3(0.11f, 0.46f, 0.11f), dark);
+
+        Transform rifle = CreatePart(root.transform, "Rifle", PrimitiveType.Cube, new Vector3(0.33f, 0.72f, 0.24f), new Vector3(0.07f, 0.07f, 0.55f), wood);
+        rifle.localRotation = Quaternion.Euler(8f, 0f, 0f);
+
+        return root.transform;
+    }
+
+    static Material MakeGeneratedMaterial(Color color)
+    {
+        Shader shader = Shader.Find("Standard") ?? Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Sprites/Default");
+        Material mat = new Material(shader);
+        RendererColorUtil.TrySetColor(mat, color);
+        return mat;
+    }
+
+    static Transform CreatePart(Transform parent, string name, PrimitiveType type, Vector3 localPosition, Vector3 localScale, Material material)
+    {
+        GameObject go = GameObject.CreatePrimitive(type);
+        go.name = name;
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = localPosition;
+        go.transform.localRotation = Quaternion.identity;
+        go.transform.localScale = localScale;
+        Collider collider = go.GetComponent<Collider>();
+        if (collider != null)
+            UnityEngine.Object.Destroy(collider);
+        Renderer renderer = go.GetComponent<Renderer>();
+        if (renderer != null && material != null)
+            renderer.sharedMaterial = material;
+        return go.transform;
+    }
+
+    public static bool HasMismatchedInfantryAnimator(GameObject root, VisualStyle style)
+    {
+        if (style != VisualStyle.Infantry || root == null)
+            return false;
+
+        if (FindChildRecursive(root.transform, "Infantry_Model_Instance") != null)
+            return true;
+
+        Animator importedAnimator = root.GetComponentInChildren<Animator>(true);
+        if (importedAnimator == null || importedAnimator.avatar != null)
+            return false;
+
+        string controllerName = importedAnimator.runtimeAnimatorController != null
+            ? importedAnimator.runtimeAnimatorController.name
+            : string.Empty;
+
+        return controllerName.Contains("SurvivorLocomotion");
+    }
+
+    static Transform FindChildRecursive(Transform root, string targetName)
+    {
+        if (root == null || string.IsNullOrEmpty(targetName))
+            return null;
+
+        if (root.name == targetName)
+            return root;
+
+        foreach (Transform child in root)
+        {
+            Transform found = FindChildRecursive(child, targetName);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
     void Update()
     {
         float dt = Mathf.Max(Time.deltaTime, 0.0001f);
         float speed = agent != null ? agent.velocity.magnitude : Vector3.Distance(transform.position, lastPosition) / dt;
         bool moving = speed > 0.06f;
         UpdateFireKick(dt);
+        float hitKick = UpdateHitKick(dt);
 
         if (isDying)
         {
@@ -102,7 +324,20 @@ public class UnitVisualAnimator : MonoBehaviour
                 bob = Mathf.Abs(Mathf.Sin(clock * 2f)) * BobAmplitude;
             else if (Style == VisualStyle.Aircraft)
                 bob = Mathf.Sin(clock * 1.4f) * BobAmplitude * 1.6f;
-            VisualRoot.localPosition = baseRootLocalPosition + Vector3.up * bob;
+
+            Vector3 hitOffset = hitKick > 0f
+                ? Vector3.back * (hitKick * (hitKickHeavy ? 0.085f : 0.045f))
+                : Vector3.zero;
+            Quaternion hitRotation = Quaternion.identity;
+            if (hitKick > 0f)
+            {
+                hitRotation = Style == VisualStyle.Aircraft
+                    ? Quaternion.Euler(0f, 0f, hitKick * (hitKickHeavy ? 7f : 4f))
+                    : Quaternion.Euler(-hitKick * (hitKickHeavy ? 7f : 4f), 0f, 0f);
+            }
+
+            VisualRoot.localPosition = baseRootLocalPosition + Vector3.up * bob + hitOffset;
+            VisualRoot.localRotation = baseRootLocalRotation * hitRotation;
         }
 
         if (moving)
@@ -149,8 +384,17 @@ public class UnitVisualAnimator : MonoBehaviour
     public void TriggerFireAnimation()
     {
         fireKickTimer = 0.16f;
+        if (rifleHandBinder != null)
+            rifleHandBinder.TriggerRecoil();
         if (animator != null && hasFireParam)
             animator.SetTrigger(fireHash);
+    }
+
+    public void TriggerHitReaction(bool heavy)
+    {
+        hitKickHeavy = heavy;
+        hitKickDuration = heavy ? 0.24f : 0.16f;
+        hitKickTimer = hitKickDuration;
     }
 
     public void TriggerDeathAnimation()
@@ -190,6 +434,18 @@ public class UnitVisualAnimator : MonoBehaviour
         float kick = normalized > 0f ? Mathf.Sin(normalized * Mathf.PI) : 0f;
         weaponRoot.localRotation = weaponBaseLocalRotation * Quaternion.Euler(-18f * kick, 0f, 0f);
         weaponRoot.localPosition = weaponBaseLocalPosition + Vector3.back * (0.035f * kick);
+    }
+
+    float UpdateHitKick(float dt)
+    {
+        if (hitKickTimer <= 0f)
+            return 0f;
+
+        float duration = Mathf.Max(0.05f, hitKickDuration);
+        float normalized = Mathf.Clamp01(hitKickTimer / duration);
+        float kick = Mathf.Sin(normalized * Mathf.PI);
+        hitKickTimer = Mathf.Max(0f, hitKickTimer - dt);
+        return kick;
     }
 
     void UpdateDeathPose(float dt)

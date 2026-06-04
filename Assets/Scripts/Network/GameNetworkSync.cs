@@ -1,13 +1,14 @@
 using UnityEngine;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 // 游戏内 WebSocket 同步中心（联机模式核心）
-// 指令协议：{ "action":"move|attack|stop|place|produce|spawn|damage|death", ... }
+// 指令协议：{ "action":"move|attack|stop|park|place|produce|spawn|damage|death|chat|voice", ... }
 public class GameNetworkSync : MonoBehaviour
 {
     public static GameNetworkSync Instance { get; private set; }
@@ -75,10 +76,21 @@ public class GameNetworkSync : MonoBehaviour
         {
             try
             {
-                var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buf), _cts.Token);
-                if (result.MessageType == WebSocketMessageType.Close) break;
-                string msg = Encoding.UTF8.GetString(buf, 0, result.Count);
-                lock (_inLock) _incoming.Enqueue(msg);
+                using (var ms = new MemoryStream())
+                {
+                    WebSocketReceiveResult result;
+                    do
+                    {
+                        result = await _ws.ReceiveAsync(new ArraySegment<byte>(buf), _cts.Token);
+                        if (result.MessageType == WebSocketMessageType.Close) break;
+                        ms.Write(buf, 0, result.Count);
+                    }
+                    while (!result.EndOfMessage);
+
+                    if (result.MessageType == WebSocketMessageType.Close) break;
+                    string msg = Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+                    lock (_inLock) _incoming.Enqueue(msg);
+                }
             }
             catch { break; }
         }
@@ -195,6 +207,9 @@ public class GameNetworkSync : MonoBehaviour
     public void SendStop(int netId)
         => SendCmd($"{{\"action\":\"stop\",\"id\":{netId}}}");
 
+    public void SendPark(int netId)
+        => SendCmd($"{{\"action\":\"park\",\"id\":{netId}}}");
+
     public void SendAttackMove(int netId, Vector3 dest)
         => SendCmd($"{{\"action\":\"amove\",\"id\":{netId},\"x\":{dest.x:F2},\"z\":{dest.z:F2}}}");
 
@@ -215,6 +230,22 @@ public class GameNetworkSync : MonoBehaviour
 
     public void SendSkill(int casterId, int targetId, int stype)
         => SendCmd($"{{\"action\":\"skill\",\"id\":{casterId},\"tid\":{targetId},\"stype\":{stype}}}");
+
+    public void SendChatText(string speaker, string message)
+    {
+        speaker = SanitizeChatText(speaker, 20);
+        message = SanitizeChatText(message, 80);
+        if (string.IsNullOrEmpty(message)) return;
+        SendCmd($"{{\"action\":\"chat\",\"speaker\":\"{speaker}\",\"msg\":\"{message}\"}}");
+    }
+
+    public void SendVoiceStreamChunk(string speaker, int sampleRate, string pcmBase64)
+    {
+        speaker = SanitizeChatText(speaker, 20);
+        pcmBase64 = SanitizeBase64(pcmBase64);
+        if (string.IsNullOrEmpty(pcmBase64)) return;
+        SendCmd($"{{\"action\":\"voice\",\"speaker\":\"{speaker}\",\"sr\":{Mathf.Max(1, sampleRate)},\"pcm\":\"{pcmBase64}\"}}");
+    }
 
     // ── 接收远程指令并应用 ────────────────────────────────────
     void ApplyRemoteCommand(string data)
@@ -246,6 +277,13 @@ public class GameNetworkSync : MonoBehaviour
             {
                 int id = ParseInt(data, "id");
                 NetIdTracker.FindUnit(id)?.ApplyStopCommand();
+                break;
+            }
+            case "park":
+            {
+                int id = ParseInt(data, "id");
+                var air = NetIdTracker.FindUnit(id) as AirUnit;
+                air?.RequestParkAtAirfield();
                 break;
             }
             case "amove":
@@ -370,6 +408,22 @@ public class GameNetworkSync : MonoBehaviour
                 RemoteSpawnUnit(netId, utype, new Vector3(sx, 0, sz), !ownedBySender);
                 break;
             }
+            case "chat":
+            {
+                string speaker = ExtractStr(data, "speaker");
+                string msg = ExtractStr(data, "msg");
+                if (!string.IsNullOrWhiteSpace(msg))
+                    RTSHUD.Instance?.AppendChatMessage(string.IsNullOrWhiteSpace(speaker) ? "队友" : speaker, msg, new Color(0.86f, 0.96f, 1f));
+                break;
+            }
+            case "voice":
+            {
+                string speaker = ExtractStr(data, "speaker");
+                int sampleRate = ParseInt(data, "sr");
+                string pcm = ExtractStr(data, "pcm");
+                RTSHUD.Instance?.ReceiveVoiceChatStream(string.IsNullOrWhiteSpace(speaker) ? "队友" : speaker, sampleRate, pcm);
+                break;
+            }
         }
     }
 
@@ -398,8 +452,11 @@ public class GameNetworkSync : MonoBehaviour
         if (prefab == null) { Debug.LogWarning($"[NetGame] 找不到远程建筑Prefab: {prefabPath}"); return; }
         var go = UnityEngine.Object.Instantiate(prefab, pos, Quaternion.identity);
         var b  = go.GetComponent<RTSBuilding>();
-        if (b != null) b.bPlayerOwned = false;
-        GameManager.Instance?.RecordBuildingConstructed(false);
+        if (b != null)
+        {
+            b.bPlayerOwned = false;
+            b.BeginConstruction();
+        }
         // 使用发送方的 netId 保持双端一致
         int useId = netId > 0 ? netId : NetIdTracker.NextRemoteId();
         NetIdTracker.RegisterBuilding(useId, b);
@@ -466,6 +523,29 @@ public class GameNetworkSync : MonoBehaviour
     static int   ParseInt  (string j, string k) => int.TryParse(ExtractStr(j, k), out int r) ? r : 0;
     static float ParseFloat(string j, string k) => float.TryParse(ExtractStr(j, k), System.Globalization.NumberStyles.Float,
                                                        System.Globalization.CultureInfo.InvariantCulture, out float r) ? r : 0f;
+
+    static string SanitizeChatText(string text, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        string safe = text.Trim()
+            .Replace("\\", "/")
+            .Replace("\"", "'")
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Replace("\t", " ");
+        while (safe.Contains("  ")) safe = safe.Replace("  ", " ");
+        if (safe.Length > maxLength) safe = safe.Substring(0, maxLength);
+        return safe;
+    }
+
+    static string SanitizeBase64(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        return text.Trim()
+            .Replace("\r", "")
+            .Replace("\n", "")
+            .Replace("\"", "");
+    }
 
     // 游戏结束/返回大厅时主动断开，供 GameManager 调用
     public void Disconnect()

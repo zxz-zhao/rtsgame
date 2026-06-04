@@ -178,6 +178,7 @@ public class LobbySceneBuilder
 
         // ── 顶栏点击区 ───────────────────────────────────
         var settingsBtn = CreateLobbyHitButton(hall.transform, "SettingsIconBtn", new Vector2(0.043f, 0.896f), new Vector2(72f, 72f));
+        AddSettingsGearIcon(settingsBtn.transform, new Vector2(58f, 58f));
         var bellBtn = CreateLobbyHitButton(hall.transform, "NotifyBellBtn", new Vector2(0.111f, 0.896f), new Vector2(72f, 72f));
         var goldPlusBtn = CreateLobbyHitButton(hall.transform, "GoldPlusBtn", new Vector2(0.265f, 0.896f), new Vector2(246f, 56f));
         var gemPlusBtn = CreateLobbyHitButton(hall.transform, "GemPlusBtn", new Vector2(0.847f, 0.896f), new Vector2(192f, 56f));
@@ -446,6 +447,50 @@ public class LobbySceneBuilder
         colors.disabledColor = new Color(0.6f, 0.6f, 0.6f, 0.05f);
         btn.colors = colors;
         return btn;
+    }
+
+    static void AddSettingsGearIcon(Transform parent, Vector2 size)
+    {
+        if (parent == null) return;
+        var sprite = LoadSettingsGearSprite();
+        if (sprite == null) return;
+
+        var go = new GameObject("GearIcon");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = size;
+        rt.anchoredPosition = Vector2.zero;
+
+        var img = go.AddComponent<Image>();
+        img.sprite = sprite;
+        img.color = Color.white;
+        img.preserveAspect = true;
+        img.raycastTarget = false;
+    }
+
+    static Sprite LoadSettingsGearSprite()
+    {
+        const string assetPath = "Assets/Resources/icons3/gear.png";
+        var ti = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+        if (ti != null && (ti.textureType != TextureImporterType.Sprite || ti.spriteImportMode != SpriteImportMode.Single || ti.mipmapEnabled || !ti.alphaIsTransparency))
+        {
+            ti.textureType = TextureImporterType.Sprite;
+            ti.spriteImportMode = SpriteImportMode.Single;
+            ti.mipmapEnabled = false;
+            ti.alphaIsTransparency = true;
+            ti.wrapMode = TextureWrapMode.Clamp;
+            ti.filterMode = FilterMode.Bilinear;
+            ti.SaveAndReimport();
+        }
+
+        var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+        if (sprite == null)
+        {
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+            sprite = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+        }
+        return sprite;
     }
 
     /// <summary>纯文字 Label。</summary>

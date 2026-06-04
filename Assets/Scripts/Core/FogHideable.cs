@@ -14,6 +14,8 @@ public class FogHideable : MonoBehaviour
     private bool _wasVisible = true;
     private bool _initialized = false;
 
+    public bool IsVisibleForCommands => !_initialized || _wasVisible;
+
     void OnEnable()
     {
         FogOfWar.RegisterEnemy(this);

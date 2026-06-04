@@ -53,6 +53,7 @@ public static class UnitVisualPolish
         {
             var t = transforms[i];
             if (t == null || t == visualRoot) continue;
+            if (IsProtectedVisual(t)) continue;
             if (ShouldHide(t.name))
             {
                 t.gameObject.SetActive(false);
@@ -66,6 +67,7 @@ public static class UnitVisualPolish
         {
             var r = rends[i];
             if (r == null || !r.gameObject.activeSelf) continue;
+            if (IsProtectedVisual(r.transform)) continue;
             string meshName = TryGetMeshName(r);
             if (string.IsNullOrEmpty(meshName)) continue;
             if (ShouldHide(meshName))
@@ -81,6 +83,19 @@ public static class UnitVisualPolish
         {
             if (name.StartsWith(_hidePrefixes[i], System.StringComparison.OrdinalIgnoreCase))
                 return true;
+        }
+        return false;
+    }
+
+    static bool IsProtectedVisual(Transform node)
+    {
+        Transform cur = node;
+        while (cur != null)
+        {
+            string n = cur.name;
+            if (n.StartsWith("WW2", System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            cur = cur.parent;
         }
         return false;
     }

@@ -19,6 +19,9 @@ public class RTSBuilding : MonoBehaviour
     public bool bIsGoldMine = false;
     public bool bPlayerOwned = false;
 
+    [Header("建造")]
+    public float ConstructionTime = 12f;
+
     [Header("生产")]
     public GameObject[] ProductionUnits;      // 可生产的单位Prefab
     public float[] ProductionTimes;           // 对应生产时间
@@ -54,6 +57,11 @@ public class RTSBuilding : MonoBehaviour
     private float productionDisplayElapsed = 0f;
     private float productionDisplayTotal = 0f;
     private float productionDisplayFloor = 0f;
+    private bool _ownerBonusesApplied = false;
+    private bool _constructionRecorded = false;
+    private ParticleSystem _constructionDustPS;
+    private readonly Dictionary<Transform, Vector3> _constructionOriginalScales = new Dictionary<Transform, Vector3>();
+    private readonly Dictionary<Transform, Vector3> _constructionOriginalPositions = new Dictionary<Transform, Vector3>();
     private const float TurretScanInterval = 0.5f;
     private RTSUnit turretTarget = null;
     private LineRenderer _turretLine;
@@ -71,35 +79,67 @@ public class RTSBuilding : MonoBehaviour
     /// <summary>建筑期望可视占地直径（X/Z 最大边，米）。</summary>
     protected virtual float DesiredVisualFootprint => 0f;
 
+    protected virtual void Awake()
+    {
+        ApplyDefinitionDefaults();
+        PrepareVisualScaleForRuntime();
+    }
+
+    /// <summary>应用建筑的静态建造数据。HUD 读取 prefab 元数据时也会调用，避免依赖 prefab 序列化旧值。</summary>
+    public virtual void ApplyDefinitionDefaults() { }
+
     // 头顶血条
     private WorldHealthBar healthBar;
     // 头顶生产进度条（仅己方有生产能力的建筑）
     private WorldProductionBar productionBar;
+    // 施工进度条（新放置建筑）
+    private WorldProductionBar constructionBar;
     // 选中光环
     private GameObject selectionRing;
     // 生产中烟囱蒸汽粒子（仅己方生产建筑）
     private ParticleSystem _steamPS;
     // 受损黑烟（HP < 50% 时持续）
     private ParticleSystem _damageSmokePS;
+    private const string BuildingLabelPrefix = "Label_";
+    private const string BuildingLabelOutlinePrefix = "LabelOutline_";
+    private const float BuildingLabelBaseWorldHeight = 2.75f;
+    private const float BuildingLabelMinWorldHeight = 2.55f;
+    private const float BuildingLabelMaxWorldHeight = 7.25f;
+    private const float BuildingLabelFontSize = 60f;
+    private const float BuildingLabelCharacterSize = 0.95f;
+    private const float BuildingLabelMaxZoomMultiplier = 1.75f;
+    private const float BuildingLabelZoomEasePower = 0.75f;
+    private const float BuildingLabelScaleRefreshThreshold = 0.015f;
+    private float _lastBuildingLabelZoomMultiplier = -1f;
+    private static readonly Vector3[] BuildingLabelOutlineOffsets = new Vector3[]
+    {
+        new Vector3(-1.35f, 0f, 0f),
+        new Vector3(1.35f, 0f, 0f),
+        new Vector3(0f, -1.35f, 0f),
+        new Vector3(0f, 1.35f, 0f),
+        new Vector3(-0.95f, -0.95f, 0f),
+        new Vector3(-0.95f, 0.95f, 0f),
+        new Vector3(0.95f, -0.95f, 0f),
+        new Vector3(0.95f, 0.95f, 0f)
+    };
+    private bool _started = false;
 
     protected virtual void Start()
     {
-        CurrentHP = MaxHP;
-        NormalizeBuildingVisualScale();
-        // 先清理违和的小装饰（旗子、瞄准镜、子弹、油桶、散件箱），避免它们影响后续缩放包围盒计算
-        UnitVisualPolish.Polish(gameObject);
-        // 子类显式指定目标尺寸时，强制把可视模型标定到统一比例（解决各 Kenney prefab 尺寸杂乱）
-        if (DesiredVisualHeight > 0f && DesiredVisualFootprint > 0f)
-            UnitScaleNormalizer.Normalize(transform, DesiredVisualHeight, DesiredVisualFootprint);
+        ApplyDefinitionDefaults();
+        _started = true;
+        ConstructionTime = Mathf.Max(0.1f, ConstructionTime);
+        ConstructionProgress = bUnderConstruction ? Mathf.Clamp01(ConstructionProgress) : 1f;
+        CurrentHP = bUnderConstruction ? GetConstructionHPForProgress() : MaxHP;
+        PrepareVisualScaleForRuntime();
         if (bPlayerOwned)
         {
             OwnerPC    = RTSPlayerController.Instance;
             OwnerState = RTSPlayerState.Instance;
             if (OwnerState != null)
             {
-                OwnerState.PopCap   += PopCapBonus;
-                if (bIsPowerPlant)   OwnerState.PowerCap  += PowerProvide;
-                else if (PowerCost > 0) OwnerState.PowerUsed += PowerCost;
+                if (!bUnderConstruction)
+                    ApplyOwnerBonusesIfNeeded();
             }
         }
         GameManager.Instance?.RegisterBuilding(this);
@@ -107,10 +147,11 @@ public class RTSBuilding : MonoBehaviour
         RefreshBuildingLabels(topOffset + 0.8f);
         // 创建头顶血条（建筑血条偏移更大）
         healthBar = WorldHealthBar.Create(transform, topOffset);
+        healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
         // 己方有生产能力的建筑：头顶生产进度条
         if (bPlayerOwned && ProductionUnits != null && ProductionUnits.Length > 0)
         {
-            productionBar = WorldProductionBar.Create(transform, topOffset + 0.6f);
+            productionBar = WorldProductionBar.Create(transform, 0.15f);  // 贴地平铺
             CreateSteamParticles(Mathf.Max(3.6f, topOffset - 0.7f));
         }
         // 所有建筑都创建受损烟雾粒子（玩家和敌方都需要"快毁了"的视觉提示）
@@ -134,6 +175,52 @@ public class RTSBuilding : MonoBehaviour
         Color bodyColor;
         if (_rend != null && RendererColorUtil.TryGetColor(_rend, out bodyColor))
             _bodyColor = bodyColor;
+        // 军事配色：己方军绿，敌方沙漠黄
+        ApplyMilitaryTint();
+        if (bUnderConstruction)
+            PrepareConstructionVisuals(Mathf.Max(2.4f, topOffset - 1.1f));
+    }
+
+    protected virtual void ApplyMilitaryTint()
+    {
+        Color tint = bPlayerOwned
+            ? new Color(0.32f, 0.40f, 0.22f)   // 己方：军绿灰
+            : new Color(0.58f, 0.44f, 0.26f);   // 敌方：沙漠棕
+        var block = new MaterialPropertyBlock();
+        block.SetColor("_Color", tint);
+        foreach (var r in GetComponentsInChildren<Renderer>(true))
+        {
+            if (r is ParticleSystemRenderer) continue;
+            string n = r.gameObject.name;
+            // 排除所有地面效果圆盘、UI 元素、伤害贴花
+            if (IsBuildingLabelRenderer(r)) continue;
+            if (n == "SelectionRing" || n == "HPLabel" || n == "DamageStain") continue;
+            if (n == "HealAura" || n == "GroundDisc" || n == "RangeDisc"
+                || n == "AoEDisc" || n == "FogDisc" || n == "ScanDisc") continue;
+            // 排除父节点名称为 HealAura 的所有子渲染器
+            Transform cur = r.transform;
+            bool skip = false;
+            while (cur != null && cur != transform)
+            {
+                if (cur.name == "HealAura" || cur.name.EndsWith("Disc")
+                    || cur.name.EndsWith("Aura") || cur.name.EndsWith("Ring"))
+                { skip = true; break; }
+                cur = cur.parent;
+            }
+            if (skip) continue;
+            r.SetPropertyBlock(block);
+        }
+    }
+
+    public void PrepareVisualScaleForRuntime()
+    {
+        // 先清理违和的小装饰（旗子、瞄准镜、子弹、油桶、散件箱），避免它们影响后续缩放包围盒计算
+        UnitVisualPolish.Polish(gameObject);
+        HideLegacyGeneratedVisualsIfExternalModelPresent();
+        NormalizeBuildingVisualScale();
+        // 子类显式指定目标尺寸时，强制把可视模型标定到统一比例（解决各 Kenney prefab 尺寸杂乱）
+        if (DesiredVisualHeight > 0f && DesiredVisualFootprint > 0f)
+            UnitScaleNormalizer.Normalize(transform, DesiredVisualHeight, DesiredVisualFootprint);
     }
 
     void NormalizeBuildingVisualScale()
@@ -187,11 +274,73 @@ public class RTSBuilding : MonoBehaviour
     {
         if (child == null) return true;
         string n = child.name;
-        return n.StartsWith("Label_")
+        return IsBuildingLabelTransform(child)
             || n == "HealthBar"
             || n == "ProductionBar"
             || n == "SelectionRing"
             || n == "MinimapDot";
+    }
+
+    void HideLegacyGeneratedVisualsIfExternalModelPresent()
+    {
+        Transform visualRoot = UnitScaleNormalizer.ResolveVisualRoot(transform);
+        if (visualRoot == null || !HasExternalBuildingVisual(visualRoot)) return;
+
+        foreach (Transform child in visualRoot)
+        {
+            if (child == null || !IsLegacyGeneratedBuildingPart(child.name)) continue;
+            child.gameObject.SetActive(false);
+        }
+    }
+
+    bool HasExternalBuildingVisual(Transform visualRoot)
+    {
+        var children = visualRoot.GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < children.Length; i++)
+        {
+            var child = children[i];
+            if (child == null || child == visualRoot) continue;
+            if (child.name.StartsWith("WW2", System.StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    bool IsLegacyGeneratedBuildingPart(string name)
+    {
+        switch (name)
+        {
+            case "Platform":
+            case "Body":
+            case "Roof":
+            case "Tower":
+            case "Dome":
+            case "Hangar":
+            case "Antenna":
+            case "Stripe":
+            case "Bay":
+            case "Door":
+            case "Pole":
+            case "Flag":
+            case "Chimney":
+            case "Chimney1":
+            case "Chimney2":
+            case "CoolerL":
+            case "CoolerR":
+            case "SteamL":
+            case "SteamR":
+            case "Drill":
+            case "OreA":
+            case "OreB":
+            case "OreC":
+            case "Base":
+            case "BarrelL":
+            case "BarrelR":
+            case "Radar":
+                return true;
+            default:
+                return name.StartsWith("Win", System.StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     float GetReadableTopOffset(float fallback)
@@ -214,15 +363,180 @@ public class RTSBuilding : MonoBehaviour
     {
         foreach (Transform child in transform)
         {
-            if (child == null || !child.name.StartsWith("Label_")) continue;
+            if (child == null || !child.name.StartsWith(BuildingLabelPrefix)) continue;
             child.localPosition = new Vector3(0f, yOffset, 0f);
             var text = child.GetComponent<TextMesh>();
             if (text != null)
-            {
-                text.fontStyle = FontStyle.Bold;
-                text.characterSize = 0.85f;
-            }
+                StyleBuildingLabel(child, text);
         }
+    }
+
+    void StyleBuildingLabel(Transform labelRoot, TextMesh text)
+    {
+        text.fontStyle = FontStyle.Bold;
+        text.fontSize = Mathf.Max(text.fontSize, Mathf.RoundToInt(BuildingLabelFontSize));
+        text.characterSize = BuildingLabelCharacterSize;
+        text.anchor = TextAnchor.MiddleCenter;
+        text.alignment = TextAlignment.Center;
+        text.color = GetReadableBuildingLabelColor(text.color);
+        ApplyBuildingLabelScale(labelRoot);
+        ConfigureBuildingLabelRenderer(text, 31);
+        EnsureBuildingLabelOutline(labelRoot, text);
+    }
+
+    void ApplyBuildingLabelScale(Transform labelRoot)
+    {
+        if (labelRoot == null) return;
+
+        float worldHeight = BuildingLabelBaseWorldHeight
+            * GetBuildingLabelScaleMultiplier()
+            * GetBuildingLabelCameraZoomMultiplier();
+        worldHeight = Mathf.Clamp(worldHeight, BuildingLabelMinWorldHeight, BuildingLabelMaxWorldHeight);
+
+        Vector3 parentScale = transform.lossyScale;
+        labelRoot.localScale = new Vector3(
+            SafeDivide(worldHeight, BuildingLabelFontSize * BuildingLabelCharacterSize * Mathf.Max(0.001f, parentScale.x)),
+            SafeDivide(worldHeight, BuildingLabelFontSize * BuildingLabelCharacterSize * Mathf.Max(0.001f, parentScale.y)),
+            SafeDivide(worldHeight, BuildingLabelFontSize * BuildingLabelCharacterSize * Mathf.Max(0.001f, parentScale.z)));
+    }
+
+    float GetBuildingLabelScaleMultiplier()
+    {
+        Bounds visualBounds;
+        if (!TryGetVisualBounds(out visualBounds))
+            return bIsMainBase ? 1.35f : 1f;
+
+        float footprint = Mathf.Max(visualBounds.size.x, visualBounds.size.z);
+        float height = visualBounds.size.y;
+        float sizeScore = Mathf.Max(footprint / 7.5f, height / 5.2f);
+        return Mathf.Clamp(Mathf.Lerp(0.95f, 1.55f, sizeScore), 0.95f, bIsMainBase ? 1.62f : 1.45f);
+    }
+
+    float GetBuildingLabelCameraZoomMultiplier()
+    {
+        Camera cam = Camera.main;
+        if (cam == null)
+            return 1f;
+
+        float zoomT;
+        var rtsCamera = RTSCamera.Instance;
+        if (cam.orthographic)
+        {
+            float minSize = rtsCamera != null ? Mathf.Max(2f, rtsCamera.MinY) : 2f;
+            float maxSize = rtsCamera != null ? Mathf.Max(minSize, rtsCamera.MaxY) : Mathf.Max(minSize, cam.orthographicSize);
+            zoomT = Mathf.InverseLerp(minSize, maxSize, cam.orthographicSize);
+        }
+        else
+        {
+            float minY = rtsCamera != null ? rtsCamera.MinY : 10f;
+            float maxY = rtsCamera != null ? Mathf.Max(minY, rtsCamera.MaxY) : 200f;
+            zoomT = Mathf.InverseLerp(minY, maxY, cam.transform.position.y);
+        }
+
+        zoomT = Mathf.Pow(Mathf.Clamp01(zoomT), BuildingLabelZoomEasePower);
+        return Mathf.Lerp(1f, BuildingLabelMaxZoomMultiplier, zoomT);
+    }
+
+    void UpdateBuildingLabelScalesForCamera()
+    {
+        float zoomMultiplier = GetBuildingLabelCameraZoomMultiplier();
+        if (_lastBuildingLabelZoomMultiplier > 0f
+            && Mathf.Abs(zoomMultiplier - _lastBuildingLabelZoomMultiplier) < BuildingLabelScaleRefreshThreshold)
+            return;
+
+        _lastBuildingLabelZoomMultiplier = zoomMultiplier;
+        foreach (Transform child in transform)
+        {
+            if (child == null || !child.name.StartsWith(BuildingLabelPrefix)) continue;
+            ApplyBuildingLabelScale(child);
+        }
+    }
+
+    static float SafeDivide(float numerator, float denominator)
+    {
+        return denominator > 0.0001f ? numerator / denominator : numerator;
+    }
+
+    void EnsureBuildingLabelOutline(Transform labelRoot, TextMesh source)
+    {
+        for (int i = 0; i < BuildingLabelOutlineOffsets.Length; i++)
+        {
+            string outlineName = BuildingLabelOutlinePrefix + i;
+            Transform outline = labelRoot.Find(outlineName);
+            if (outline == null)
+            {
+                var outlineGO = new GameObject(outlineName);
+                outlineGO.transform.SetParent(labelRoot, false);
+                outline = outlineGO.transform;
+            }
+
+            outline.localPosition = BuildingLabelOutlineOffsets[i];
+            outline.localRotation = Quaternion.identity;
+            outline.localScale = Vector3.one;
+
+            var outlineText = outline.GetComponent<TextMesh>();
+            if (outlineText == null)
+                outlineText = outline.gameObject.AddComponent<TextMesh>();
+
+            outlineText.text = source.text;
+            outlineText.font = source.font;
+            outlineText.fontSize = source.fontSize;
+            outlineText.characterSize = source.characterSize;
+            outlineText.anchor = source.anchor;
+            outlineText.alignment = source.alignment;
+            outlineText.fontStyle = source.fontStyle;
+            outlineText.lineSpacing = source.lineSpacing;
+            outlineText.tabSize = source.tabSize;
+            outlineText.richText = source.richText;
+            outlineText.color = new Color(0.015f, 0.012f, 0.01f, 0.95f);
+            ConfigureBuildingLabelRenderer(outlineText, 30);
+        }
+    }
+
+    Color GetReadableBuildingLabelColor(Color color)
+    {
+        float max = Mathf.Max(color.r, Mathf.Max(color.g, color.b));
+        if (max > 0.001f && max < 0.9f)
+        {
+            float boost = 0.9f / max;
+            color.r = Mathf.Clamp01(color.r * boost);
+            color.g = Mathf.Clamp01(color.g * boost);
+            color.b = Mathf.Clamp01(color.b * boost);
+        }
+        color.a = 1f;
+        return color;
+    }
+
+    void ConfigureBuildingLabelRenderer(TextMesh text, int sortingOrder)
+    {
+        var renderer = text.GetComponent<MeshRenderer>();
+        if (renderer == null) return;
+        renderer.sortingOrder = sortingOrder;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+
+        var material = renderer.material;
+        if (material == null) return;
+        material.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+        material.renderQueue = 4000;
+    }
+
+    bool IsBuildingLabelRenderer(Renderer renderer)
+    {
+        return renderer != null && IsBuildingLabelTransform(renderer.transform);
+    }
+
+    bool IsBuildingLabelTransform(Transform node)
+    {
+        Transform cur = node;
+        while (cur != null && cur != transform)
+        {
+            string n = cur.name;
+            if (n.StartsWith(BuildingLabelPrefix) || n.StartsWith(BuildingLabelOutlinePrefix))
+                return true;
+            cur = cur.parent;
+        }
+        return false;
     }
 
     // Guest 翻转归属后补注电力/人口/Owner 引用
@@ -231,20 +545,66 @@ public class RTSBuilding : MonoBehaviour
         if (!bPlayerOwned) return;
         OwnerPC    = RTSPlayerController.Instance;
         OwnerState = RTSPlayerState.Instance;
-        if (OwnerState != null)
-        {
-            OwnerState.PopCap += PopCapBonus;
-            if (bIsPowerPlant)       OwnerState.PowerCap  += PowerProvide;
-            else if (PowerCost > 0)  OwnerState.PowerUsed += PowerCost;
-        }
+        if (OwnerState != null && !bUnderConstruction)
+            ApplyOwnerBonusesIfNeeded();
         // 小地图标记颜色也同步更新
         var marker = GetComponent<MinimapMarker>();
         if (marker != null) marker.MarkerColor = new Color(0.3f, 0.6f, 1f);
         // 血条颜色刷新
-        healthBar?.SetHP((float)CurrentHP / MaxHP, false);
+        healthBar?.SetHP(CurrentHP, MaxHP, false);
         // 已变成己方，移除战雾隐藏（如有）
         var fh = GetComponent<FogHideable>();
         if (fh != null) { fh.SetVisible(true); Destroy(fh); }
+    }
+
+    public void BeginConstruction(float duration = -1f)
+    {
+        ApplyDefinitionDefaults();
+        ConstructionTime = duration > 0f ? duration : GetDefaultConstructionTime();
+        ConstructionProgress = 0f;
+        bUnderConstruction = true;
+        _constructionRecorded = false;
+        if (ProductionQueue == null) ProductionQueue = new List<int>();
+        ProductionQueue.Clear();
+        ProductionProgress = 0f;
+        ResetProductionDisplayProgress();
+
+        if (_started)
+        {
+            CurrentHP = GetConstructionHPForProgress();
+            healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
+            PrepareConstructionVisuals(GetReadableTopOffset(bIsMainBase ? 6f : 4f));
+        }
+    }
+
+    float GetDefaultConstructionTime()
+    {
+        if (ConstructionTime > 0f) return ConstructionTime;
+        return Mathf.Clamp(GoldCost / 30f, 8f, 18f);
+    }
+
+    int GetConstructionHPForProgress()
+    {
+        float ratio = Mathf.Lerp(0.18f, 1f, Mathf.Clamp01(ConstructionProgress));
+        return Mathf.Clamp(Mathf.RoundToInt(MaxHP * ratio), 1, MaxHP);
+    }
+
+    void ApplyOwnerBonusesIfNeeded()
+    {
+        if (_ownerBonusesApplied || !bPlayerOwned || OwnerState == null) return;
+        OwnerState.PopCap += PopCapBonus;
+        if (bIsPowerPlant) OwnerState.PowerCap += PowerProvide;
+        else if (PowerCost > 0) OwnerState.PowerUsed += PowerCost;
+        _ownerBonusesApplied = true;
+    }
+
+    void RemoveOwnerBonusesIfNeeded()
+    {
+        if (!_ownerBonusesApplied || !bPlayerOwned || OwnerState == null) return;
+        OwnerState.PopCap -= PopCapBonus;
+        if (bIsPowerPlant) OwnerState.PowerCap -= PowerProvide;
+        else if (PowerCost > 0) OwnerState.PowerUsed -= PowerCost;
+        _ownerBonusesApplied = false;
     }
 
     LineRenderer CreateTurretLine()
@@ -252,7 +612,7 @@ public class RTSBuilding : MonoBehaviour
         var lr = gameObject.AddComponent<LineRenderer>();
         var sh = Shader.Find("Unlit/Color");
         lr.material = sh != null ? new Material(sh) : new Material(Shader.Find("Standard"));
-        lr.material.color = bPlayerOwned ? new Color(0.4f, 1f, 0.55f) : new Color(1f, 0.35f, 0.1f);
+        RendererColorUtil.TrySetColor(lr.material, bPlayerOwned ? new Color(0.4f, 1f, 0.55f) : new Color(1f, 0.35f, 0.1f));
         lr.startWidth = 0.18f; lr.endWidth = 0.06f;
         lr.positionCount = 2;
         lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -362,7 +722,11 @@ public class RTSBuilding : MonoBehaviour
 
     protected virtual void Update()
     {
-        if (bUnderConstruction) return;
+        if (bUnderConstruction)
+        {
+            UpdateConstruction();
+            return;
+        }
 
         UpdateProduction();
         UpdateIncome();
@@ -406,6 +770,227 @@ public class RTSBuilding : MonoBehaviour
                 _damageSmokePS.Stop(false, ParticleSystemStopBehavior.StopEmitting);
         }
         UpdateLowHpPulse();
+    }
+
+    protected virtual void LateUpdate()
+    {
+        UpdateBuildingLabelScalesForCamera();
+    }
+
+    void UpdateConstruction()
+    {
+        if (_isDying) return;
+
+        ConstructionTime = Mathf.Max(0.1f, ConstructionTime);
+        float prev = Mathf.Clamp01(ConstructionProgress);
+        ConstructionProgress = Mathf.Clamp01(ConstructionProgress + Time.deltaTime / ConstructionTime);
+
+        int constructionHp = GetConstructionHPForProgress();
+        if (CurrentHP < constructionHp || Mathf.Approximately(prev, 0f))
+        {
+            CurrentHP = Mathf.Clamp(constructionHp, 1, MaxHP);
+            healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
+        }
+
+        UpdateConstructionVisuals();
+        constructionBar?.SetProgress(ConstructionProgress, 1, DisplayName);
+
+        if (ConstructionProgress >= 1f)
+            CompleteConstruction();
+    }
+
+    void CompleteConstruction()
+    {
+        if (!bUnderConstruction) return;
+
+        bUnderConstruction = false;
+        ConstructionProgress = 1f;
+        CurrentHP = MaxHP;
+        RestoreConstructionVisuals();
+        healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
+        constructionBar?.SetProgress(0f, 0, null);
+        if (constructionBar != null)
+        {
+            Destroy(constructionBar.gameObject);
+            constructionBar = null;
+        }
+        if (_constructionDustPS != null)
+        {
+            _constructionDustPS.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+            Destroy(_constructionDustPS.gameObject, 1.5f);
+            _constructionDustPS = null;
+        }
+
+        if (bPlayerOwned)
+        {
+            OwnerPC = RTSPlayerController.Instance;
+            OwnerState = RTSPlayerState.Instance;
+            ApplyOwnerBonusesIfNeeded();
+        }
+
+        if (!_constructionRecorded)
+        {
+            GameManager.Instance?.RecordBuildingConstructed(bPlayerOwned);
+            _constructionRecorded = true;
+        }
+
+        ApplyMilitaryTint();
+        EffectsManager.PlayBuildComplete(transform.position + Vector3.up * 0.7f);
+        var marker = GetComponent<MinimapMarker>();
+        if (marker != null) marker.Pulse(1.0f, 2.0f);
+    }
+
+    void PrepareConstructionVisuals(float heightHint)
+    {
+        if (constructionBar == null)
+            constructionBar = WorldProductionBar.Create(transform, 0.20f);
+        constructionBar.SetProgress(ConstructionProgress, 1, DisplayName);
+
+        if (_constructionDustPS == null)
+            CreateConstructionDustParticles(Mathf.Max(0.8f, heightHint * 0.18f));
+        if (_constructionDustPS != null && !_constructionDustPS.isPlaying)
+            _constructionDustPS.Play();
+
+        CacheConstructionTransforms();
+        UpdateConstructionVisuals();
+    }
+
+    void CacheConstructionTransforms()
+    {
+        _constructionOriginalScales.Clear();
+        _constructionOriginalPositions.Clear();
+        foreach (Transform child in transform)
+        {
+            if (ShouldIgnoreConstructionChild(child)) continue;
+            _constructionOriginalScales[child] = child.localScale;
+            _constructionOriginalPositions[child] = child.localPosition;
+        }
+    }
+
+    bool ShouldIgnoreConstructionChild(Transform child)
+    {
+        if (child == null) return true;
+        if (ShouldIgnoreVisualChild(child)) return true;
+        string n = child.name;
+        return n == "DamageSmoke"
+            || n == "ProductionSteam"
+            || n == "ConstructionDust"
+            || n == "PlacementFootprint";
+    }
+
+    void UpdateConstructionVisuals()
+    {
+        float r = Mathf.Clamp01(ConstructionProgress);
+        if (_constructionOriginalScales.Count == 0)
+            CacheConstructionTransforms();
+
+        foreach (var kv in _constructionOriginalScales)
+        {
+            Transform child = kv.Key;
+            if (child == null) continue;
+            Vector3 scale = kv.Value;
+            Vector3 pos = _constructionOriginalPositions.TryGetValue(child, out var p) ? p : child.localPosition;
+            float vertical = Mathf.Lerp(0.38f, 1f, r);
+            float footprint = Mathf.Lerp(0.86f, 1f, r);
+            child.localScale = new Vector3(scale.x * footprint, scale.y * vertical, scale.z * footprint);
+            child.localPosition = new Vector3(pos.x, Mathf.Lerp(pos.y - 0.35f, pos.y, r), pos.z);
+        }
+
+        Color finishedTint = bPlayerOwned
+            ? new Color(0.32f, 0.40f, 0.22f)
+            : new Color(0.58f, 0.44f, 0.26f);
+        Color tint = Color.Lerp(new Color(0.24f, 0.24f, 0.22f), finishedTint, Mathf.Lerp(0.25f, 1f, r));
+        foreach (var renderer in GetComponentsInChildren<Renderer>(true))
+        {
+            if (renderer == null || renderer is ParticleSystemRenderer) continue;
+            if (IsBuildingLabelRenderer(renderer)) continue;
+            if (renderer.gameObject.name == "SelectionRing" || renderer.gameObject.name == "MinimapDot") continue;
+            RendererColorUtil.TrySetColor(renderer, tint);
+        }
+
+        if (_constructionDustPS != null)
+        {
+            var emission = _constructionDustPS.emission;
+            emission.enabled = bUnderConstruction;
+            emission.rateOverTime = Mathf.Lerp(10f, 3f, r);
+        }
+    }
+
+    void RestoreConstructionVisuals()
+    {
+        foreach (var kv in _constructionOriginalScales)
+        {
+            if (kv.Key == null) continue;
+            kv.Key.localScale = kv.Value;
+            if (_constructionOriginalPositions.TryGetValue(kv.Key, out var pos))
+                kv.Key.localPosition = pos;
+        }
+        _constructionOriginalScales.Clear();
+        _constructionOriginalPositions.Clear();
+    }
+
+    void CreateConstructionDustParticles(float height)
+    {
+        var go = new GameObject("ConstructionDust");
+        go.transform.SetParent(transform, false);
+        go.transform.localPosition = new Vector3(0f, height, 0f);
+        var ps = go.AddComponent<ParticleSystem>();
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+
+        var main = ps.main;
+        main.duration = 4f;
+        main.loop = true;
+        main.startLifetime = 1.0f;
+        main.startSpeed = 0.9f;
+        main.startSize = new ParticleSystem.MinMaxCurve(0.28f, 0.65f);
+        main.startColor = new Color(0.52f, 0.48f, 0.38f, 0.45f);
+        main.gravityModifier = -0.05f;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.maxParticles = 45;
+
+        var emission = ps.emission;
+        emission.enabled = true;
+        emission.rateOverTime = 8f;
+
+        var shape = ps.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Hemisphere;
+        shape.radius = Mathf.Max(0.7f, GetFootprintRingRadius() * 0.35f);
+
+        var colorOverLife = ps.colorOverLifetime;
+        colorOverLife.enabled = true;
+        var grad = new Gradient();
+        grad.SetKeys(
+            new[] {
+                new GradientColorKey(new Color(0.68f, 0.61f, 0.45f), 0f),
+                new GradientColorKey(new Color(0.36f, 0.34f, 0.30f), 1f)
+            },
+            new[] {
+                new GradientAlphaKey(0f, 0f),
+                new GradientAlphaKey(0.38f, 0.2f),
+                new GradientAlphaKey(0f, 1f)
+            }
+        );
+        colorOverLife.color = grad;
+
+        var vel = ps.velocityOverLifetime;
+        vel.enabled = true;
+        vel.x = new ParticleSystem.MinMaxCurve(-0.35f, 0.35f);
+        vel.y = new ParticleSystem.MinMaxCurve(0.3f, 0.85f);
+        vel.z = new ParticleSystem.MinMaxCurve(-0.35f, 0.35f);
+
+        var renderer = ps.GetComponent<ParticleSystemRenderer>();
+        if (renderer != null)
+        {
+            var sh = Shader.Find("Particles/Standard Unlit") ?? Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Color");
+            renderer.material = new Material(sh);
+            RendererColorUtil.TrySetColor(renderer.material, new Color(0.52f, 0.48f, 0.38f, 0.45f));
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.sortingOrder = 3;
+        }
+
+        _constructionDustPS = ps;
     }
 
     /// <summary>受损时屋顶冒持续黑烟。HP 越低越浓。</summary>
@@ -474,7 +1059,7 @@ public class RTSBuilding : MonoBehaviour
         {
             var sh = Shader.Find("Particles/Standard Unlit") ?? Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Color");
             renderer.material = new Material(sh);
-            renderer.material.color = new Color(0.18f, 0.18f, 0.18f, 0.9f);
+            RendererColorUtil.TrySetColor(renderer.material, new Color(0.18f, 0.18f, 0.18f, 0.9f));
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
             renderer.sortingOrder = 5;
@@ -507,9 +1092,10 @@ public class RTSBuilding : MonoBehaviour
         Color warning = new Color(1f, 0.20f, 0.15f);
         for (int i = 0; i < _allRenderers.Length; i++)
         {
-            if (_allRenderers[i] == null || _allRenderers[i].material == null) continue;
+            if (_allRenderers[i] == null || _allRenderers[i].sharedMaterial == null) continue;
             string n = _allRenderers[i].gameObject.name;
             if (n == "SelectionRing") continue;
+            if (IsBuildingLabelRenderer(_allRenderers[i])) continue;
             RendererColorUtil.TrySetColor(_allRenderers[i], Color.Lerp(_origRenderColors[i], warning, 0.55f * pulse));
         }
     }
@@ -530,7 +1116,10 @@ public class RTSBuilding : MonoBehaviour
     {
         if (_allRenderers == null || _origRenderColors == null) return;
         for (int i = 0; i < _allRenderers.Length; i++)
+        {
+            if (_allRenderers[i] == null || IsBuildingLabelRenderer(_allRenderers[i])) continue;
             RendererColorUtil.TrySetColor(_allRenderers[i], _origRenderColors[i]);
+        }
     }
 
     /// <summary>建筑顶部生产中冒蒸汽。世界空间发射，柔和灰白烟雾。</summary>
@@ -598,7 +1187,7 @@ public class RTSBuilding : MonoBehaviour
         {
             var sh = Shader.Find("Particles/Standard Unlit") ?? Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Color");
             renderer.material = new Material(sh);
-            renderer.material.color = new Color(0.85f, 0.85f, 0.85f, 0.55f);
+            RendererColorUtil.TrySetColor(renderer.material, new Color(0.85f, 0.85f, 0.85f, 0.55f));
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
             renderer.sortingOrder = 4;
@@ -632,6 +1221,7 @@ public class RTSBuilding : MonoBehaviour
                 int pop = proto != null ? proto.PopCost : 1;
                 if (!OwnerState.HasPopRoom(pop)) return;
             }
+            if (!CanCompleteProductionUnit(idx)) return;
             SpawnUnit(idx);
             ProductionQueue.RemoveAt(0);
             ProductionProgress = 0f;
@@ -728,13 +1318,15 @@ public class RTSBuilding : MonoBehaviour
     // 集结点（仅己方建筑使用）：新生产的单位 spawn 后自动 Move 到此处
     [System.NonSerialized] public Vector3 RallyPoint;
     [System.NonSerialized] public bool HasRallyPoint = false;
+    private int _rallySpawnSlot = 0;
 
     public void SetRallyPoint(Vector3 worldPos)
     {
         RallyPoint = new Vector3(worldPos.x, 0f, worldPos.z);
         HasRallyPoint = true;
+        _rallySpawnSlot = 0;
     }
-    public void ClearRallyPoint() { HasRallyPoint = false; }
+    public void ClearRallyPoint() { HasRallyPoint = false; _rallySpawnSlot = 0; }
 
     void SpawnUnit(int idx)
     {
@@ -765,7 +1357,8 @@ public class RTSBuilding : MonoBehaviour
             }
             // 集结点：让新单位自动行进
             if (HasRallyPoint && bPlayerOwned)
-                StartCoroutine(IssueRallyMoveNextFrame(unit, RallyPoint));
+                StartCoroutine(IssueRallyMoveNextFrame(unit, GetNextRallyMoveDestination()));
+            OnUnitSpawnedFromProduction(unit, idx);
         }
         // 下一帧将 agent warp 到最近 NavMesh 点，消除 "not close enough" 警告
         var agent = go.GetComponent<NavMeshAgent>();
@@ -799,6 +1392,30 @@ public class RTSBuilding : MonoBehaviour
             sync.SendMove(unit.NetId, dest);
     }
 
+    Vector3 GetNextRallyMoveDestination()
+    {
+        Vector3 basePoint = RallyPoint;
+        int slot = _rallySpawnSlot++ % 33;
+        if (slot == 0)
+            return SampleRallyNavMeshPoint(basePoint, basePoint);
+
+        int ring = 1 + (slot - 1) / 8;
+        int indexInRing = (slot - 1) % 8;
+        float angle = (indexInRing / 8f) * Mathf.PI * 2f + ring * 0.35f;
+        float radius = 1.6f * ring;
+        Vector3 candidate = basePoint + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
+        return SampleRallyNavMeshPoint(candidate, basePoint);
+    }
+
+    Vector3 SampleRallyNavMeshPoint(Vector3 candidate, Vector3 fallback)
+    {
+        if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+            return hit.position;
+        if (NavMesh.SamplePosition(fallback, out hit, 5f, NavMesh.AllAreas))
+            return hit.position;
+        return fallback;
+    }
+
     IEnumerator WarpToNavMesh(NavMeshAgent agent, Vector3 pos)
     {
         yield return null; // 等一帧
@@ -818,7 +1435,7 @@ public class RTSBuilding : MonoBehaviour
             {
                 OwnerState.Gold += GoldIncomeAmount;
                 GameManager.Instance?.RecordGoldIncome(bPlayerOwned, GoldIncomeAmount);
-                // 玩家金矿弹出金色收入数字 + 金币飞向主基地动画
+                // 玩家金矿弹出金色收入数字
                 if (bPlayerOwned)
                 {
                     DamageNumber.Spawn(
@@ -827,9 +1444,6 @@ public class RTSBuilding : MonoBehaviour
                         false,
                         null,
                         0.70f);  // 负值 → DamageNumber.Spawn 显示绿色 "+"
-                    var mb = GameManager.Instance?.PlayerMainBase;
-                    if (mb != null && mb != this)
-                        GoldFlyCoin.Spawn(transform.position + Vector3.up * (transform.localScale.y + 0.5f), mb.transform);
                 }
             }
         }
@@ -890,6 +1504,7 @@ public class RTSBuilding : MonoBehaviour
     // 添加到生产队列
     public bool EnqueueUnit(int idx)
     {
+        if (bUnderConstruction) return false;
         if (ProductionUnits == null || idx < 0 || idx >= ProductionUnits.Length) return false;
         if (OwnerState == null) return false;
         if (ProductionQueue == null) ProductionQueue = new List<int>();
@@ -912,11 +1527,26 @@ public class RTSBuilding : MonoBehaviour
             }
             if (OwnerState.PopUsed + queuedPop + pop > OwnerState.PopCap) return false;
         }
+        if (!CanEnqueueProductionUnit(idx)) return false;
         OwnerState.Gold -= cost;
         GameManager.Instance?.RecordGoldSpent(bPlayerOwned, cost);
         ProductionQueue.Add(idx);
         AddProductionDisplayWork(idx, wasIdle);
         return true;
+    }
+
+    protected virtual bool CanEnqueueProductionUnit(int idx)
+    {
+        return true;
+    }
+
+    protected virtual bool CanCompleteProductionUnit(int idx)
+    {
+        return true;
+    }
+
+    protected virtual void OnUnitSpawnedFromProduction(RTSUnit unit, int idx)
+    {
     }
 
     public void CancelLast()
@@ -949,7 +1579,7 @@ public class RTSBuilding : MonoBehaviour
         if (CurrentHP == prev) return; // HP 无实际变化，跳过
         if (dmg > 0)
             GameManager.Instance?.RecordDamage(!bPlayerOwned, bPlayerOwned, prev - CurrentHP);
-        healthBar?.SetHP((float)CurrentHP / MaxHP, !bPlayerOwned);
+        healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
         if (dmg > 0)
         {
             StartCoroutine(HitFlash());
@@ -982,6 +1612,7 @@ public class RTSBuilding : MonoBehaviour
         {
             if (r == null || r.material == null) continue;
             if (r.gameObject.name == "SelectionRing") continue;
+            if (IsBuildingLabelRenderer(r)) continue;
             Color c;
             if (RendererColorUtil.TryGetColor(r, out c))
                 RendererColorUtil.TrySetColor(r, new Color(c.r * dark, c.g * dark, c.b * dark, c.a));
@@ -998,6 +1629,7 @@ public class RTSBuilding : MonoBehaviour
         {
             if (renderers[i] == null || renderers[i].material == null) continue;
             if (renderers[i].gameObject.name == "SelectionRing") continue;
+            if (IsBuildingLabelRenderer(renderers[i])) continue;
             Color color;
             if (!RendererColorUtil.TryGetColor(renderers[i], out color)) continue;
             origColors[i] = color;
@@ -1007,7 +1639,11 @@ public class RTSBuilding : MonoBehaviour
         _flashCount--;
         if (!_isDying && _flashCount == 0)
             for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] == null || renderers[i].material == null) continue;
+                if (IsBuildingLabelRenderer(renderers[i])) continue;
                 RendererColorUtil.TrySetColor(renderers[i], origColors[i]);
+            }
     }
 
     protected virtual void OnDestroyed()
@@ -1023,12 +1659,7 @@ public class RTSBuilding : MonoBehaviour
                 _s.SendCmd($"{{\"action\":\"death\",\"id\":{NetId},\"bldg\":1}}");
         }
         RTSCamera.Shake(bIsMainBase ? 1.8f : 0.9f, bIsMainBase ? 0.45f : 0.28f);
-        if (bPlayerOwned && OwnerState != null)
-        {
-            OwnerState.PopCap   -= PopCapBonus;
-            if (bIsPowerPlant)   OwnerState.PowerCap  -= PowerProvide;
-            else if (PowerCost > 0) OwnerState.PowerUsed -= PowerCost;
-        }
+        RemoveOwnerBonusesIfNeeded();
         // \u9000\u8fd8\u6392\u961f\u4e2d\u7684\u751f\u4ea7\u91d1\u5e01
         if (bPlayerOwned && OwnerState != null)
         {
@@ -1047,6 +1678,7 @@ public class RTSBuilding : MonoBehaviour
         GameManager.Instance?.UnregisterBuilding(this);
         if (healthBar != null) Destroy(healthBar.gameObject);
         if (productionBar != null) Destroy(productionBar.gameObject);
+        if (constructionBar != null) Destroy(constructionBar.gameObject);
         SetSelected(false);
         var col = GetComponent<Collider>();
         if (col != null) col.enabled = false;

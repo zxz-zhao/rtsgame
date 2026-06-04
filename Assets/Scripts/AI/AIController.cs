@@ -35,12 +35,16 @@ public class AIController : MonoBehaviour
     private bool builtBarracks    = false;
     private bool builtPowerPlant  = false;
     private bool builtTankFactory = false;
+    private bool builtAirFactory  = false;
+    private bool builtAirfield    = false;
     // 撤退检查间隔
     private float retreatCheckTimer = 0f;
     private const float RetreatCheckInterval = 3f;
     // 建筑检查间隔
     private float buildCheckTimer = 0f;
     private const float BuildCheckInterval = 15f;
+
+    public int CurrentGold => aiGold;
 
     // 波次单位池（按游斗时长选择）
     static readonly string[] EarlyUnits  = { "Infantry", "Infantry", "Infantry" };
@@ -64,6 +68,7 @@ public class AIController : MonoBehaviour
             yield break;
         }
         aiGold = InitialGold;
+        GameManager.Instance?.RecordEnemyGoldSnapshot(aiGold);
         // 查找双方基地
         foreach (var b in GameManager.Instance?.GetAllBuildings() ?? new List<RTSBuilding>())
         {
@@ -78,11 +83,17 @@ public class AIController : MonoBehaviour
 
     void LoadPrefabs()
     {
-        if (AIPrefabs != null && AIPrefabs.Length > 0) return;
+        if (AIPrefabs != null && AIPrefabs.Length > 0)
+        {
+            AIPrefabs = NormalizeEnemyPrefabs(AIPrefabs);
+            return;
+        }
+
         var list = new List<GameObject>();
         foreach (var n in new[] { "Infantry", "Artillery", "Tank", "Flamethrower", "Fighter", "Bomber", "ScoutPlane" })
         {
-            var p = Resources.Load<GameObject>($"Prefabs/{n}");
+            var p = Resources.Load<GameObject>($"Prefabs/{n}_E");
+            if (p == null) p = Resources.Load<GameObject>($"Prefabs/{n}");
             if (p != null) list.Add(p);
         }
         AIPrefabs = list.ToArray();
@@ -157,7 +168,10 @@ public class AIController : MonoBehaviour
             goldTimer = 0f;
             // 随游斗时长增加收益
             float timeBonus = Mathf.Min(GameManager.Instance.GameTime / 180f, 2f);
-            aiGold += Mathf.RoundToInt(GoldPerInterval * (1f + timeBonus));
+            int income = Mathf.RoundToInt(GoldPerInterval * (1f + timeBonus));
+            aiGold += income;
+            GameManager.Instance?.RecordGoldIncome(false, income);
+            GameManager.Instance?.RecordEnemyGoldSnapshot(aiGold);
         }
     }
 
@@ -169,17 +183,21 @@ public class AIController : MonoBehaviour
         if (buildCheckTimer < BuildCheckInterval) return;
         buildCheckTimer = 0f;
         // builtXxx = 30s 冷却标记，避免同一建筑连续下单重建
-        bool hasBarracks = false, hasPowerPlant = false, hasTankFactory = false;
+        bool hasBarracks = false, hasPowerPlant = false, hasTankFactory = false, hasAirFactory = false, hasAirfield = false;
         foreach (var b in GameManager.Instance.GetAllBuildings())
         {
             if (b == null || b.bPlayerOwned) continue;
             if (b is Barracks)    hasBarracks    = true;
             if (b is PowerPlant)  hasPowerPlant  = true;
             if (b is TankFactory) hasTankFactory = true;
+            if (b is AirFactory)  hasAirFactory  = true;
+            if (b is Airfield)    hasAirfield    = true;
         }
         if (!hasBarracks    && !builtBarracks    && aiGold >= 300) { PlaceAIBuilding("Barracks",    300); builtBarracks    = true; StartCoroutine(ResetBuildFlag(()=>builtBarracks    = false, 30f)); }
         if (!hasPowerPlant  && !builtPowerPlant  && aiGold >= 200) { PlaceAIBuilding("PowerPlant",  200); builtPowerPlant  = true; StartCoroutine(ResetBuildFlag(()=>builtPowerPlant  = false, 30f)); }
         if (!hasTankFactory && !builtTankFactory && aiGold >= 400) { PlaceAIBuilding("TankFactory", 400); builtTankFactory = true; StartCoroutine(ResetBuildFlag(()=>builtTankFactory = false, 30f)); }
+        if (!hasAirfield    && !builtAirfield    && aiGold >= 260) { PlaceAIBuilding("Airfield",    260); builtAirfield    = true; StartCoroutine(ResetBuildFlag(()=>builtAirfield    = false, 30f)); }
+        if (!hasAirFactory  && !builtAirFactory  && aiGold >= 400) { PlaceAIBuilding("AirFactory",  400); builtAirFactory  = true; StartCoroutine(ResetBuildFlag(()=>builtAirFactory  = false, 30f)); }
     }
 
     System.Collections.IEnumerator ResetBuildFlag(System.Action reset, float delay)
@@ -192,14 +210,22 @@ public class AIController : MonoBehaviour
     {
         var prefab = Resources.Load<GameObject>($"Prefabs/{prefabBase}_E");
         if (prefab == null) prefab = Resources.Load<GameObject>($"Prefabs/{prefabBase}");
-        if (prefab == null) { Debug.LogWarning($"AIController: 找不到 {prefabBase}_E Prefab"); return; }
+        if (prefab == null && prefabBase != "Airfield") { Debug.LogWarning($"AIController: 找不到 {prefabBase}_E Prefab"); return; }
         // 在基地附近随机选一个偏移位置放置
         Vector3 basePos = aiMainBase.transform.position;
         Vector3 offset  = new Vector3(Random.Range(-20f, 20f), 0f, Random.Range(-20f, 20f));
-        GameObject go = Object.Instantiate(prefab, basePos + offset, Quaternion.identity);
+        GameObject go = prefab != null
+            ? Object.Instantiate(prefab, basePos + offset, Quaternion.identity)
+            : CreateFallbackAirfield("Airfield_E", basePos + offset, false);
         var b = go.GetComponent<RTSBuilding>();
-        if (b != null) b.bPlayerOwned = false;
+        if (b != null)
+        {
+            b.bPlayerOwned = false;
+            b.BeginConstruction();
+        }
         aiGold -= cost;
+        GameManager.Instance?.RecordGoldSpent(false, cost);
+        GameManager.Instance?.RecordEnemyGoldSnapshot(aiGold);
     }
 
     // ── AI 单位撤退（低血量回基地）────────────────────────
@@ -290,7 +316,16 @@ public class AIController : MonoBehaviour
         GameObject prefab = PickPrefab();
         if (prefab == null) return;
         // 空中单位需要高度偏移，地面单位 y 固定为 0
-        bool isAir = prefab.GetComponent<AirUnit>() != null;
+        AirUnit airPrefab = prefab.GetComponent<AirUnit>();
+        bool isAir = airPrefab != null;
+        bool requiresAirfieldSlot = airPrefab != null && airPrefab.RequiresAirfieldSlot;
+        Airfield launchAirfield = null;
+        if (requiresAirfieldSlot)
+        {
+            launchAirfield = FindAvailableAirfield(false);
+            if (launchAirfield == null) return;
+            pos = launchAirfield.GetAirApproachPoint(null, 12f);
+        }
         Vector3 safePos = isAir
             ? new Vector3(pos.x, 12f, pos.z)
             : new Vector3(pos.x, 0f, pos.z);
@@ -301,7 +336,15 @@ public class AIController : MonoBehaviour
             // 金币不足则取消生成
             if (aiGold < unit.GoldCost) { Destroy(go); return; }
             aiGold -= unit.GoldCost;
+            GameManager.Instance?.RecordGoldSpent(false, unit.GoldCost);
+            GameManager.Instance?.RecordUnitProduced(false);
+            GameManager.Instance?.RecordEnemyGoldSnapshot(aiGold);
             unit.bPlayerOwned = false;
+            if (requiresAirfieldSlot && launchAirfield != null)
+            {
+                var air = unit as AirUnit;
+                if (air != null) launchAirfield.TryAcceptAircraft(air);
+            }
             aliveAIUnits.Add(unit);
             var agent = isAir ? null : go.GetComponent<UnityEngine.AI.NavMeshAgent>();
             StartCoroutine(DelayCommand(unit, agent, safePos, attackTarget));
@@ -328,11 +371,12 @@ public class AIController : MonoBehaviour
         string[] pool = t < 60f  ? EarlyUnits :
                         t < 180f ? MidUnits   :
                         t < 360f ? LateUnits  : EliteUnits;
+        bool hasAirfieldSlot = FindAvailableAirfield(false) != null;
         // 金币感知：金币不足 200 时优先选步兵（最便宜）
         if (aiGold < 200)
         {
             foreach (var p in AIPrefabs)
-                if (p != null && p.name == "Infantry") return p;
+                if (IsUnitPrefab(p, "Infantry")) return p;
         }
         // 尝试从池中选，金币足够才允许贵单位
         for (int attempt = 0; attempt < 5; attempt++)
@@ -340,8 +384,9 @@ public class AIController : MonoBehaviour
             string name = pool[Random.Range(0, pool.Length)];
             foreach (var p in AIPrefabs)
             {
-                if (p == null || p.name != name) continue;
+                if (!IsUnitPrefab(p, name)) continue;
                 var proto = p.GetComponent<RTSUnit>();
+                if (!hasAirfieldSlot && RequiresAirfieldSlot(p)) continue;
                 if (proto == null || aiGold >= proto.GoldCost) return p;
             }
         }
@@ -352,9 +397,138 @@ public class AIController : MonoBehaviour
             if (p == null) continue;
             var proto = p.GetComponent<RTSUnit>();
             if (proto == null) continue;
+            if (!hasAirfieldSlot && RequiresAirfieldSlot(p)) continue;
             if (proto.GoldCost <= aiGold && proto.GoldCost < cheapestCost)
             { cheapestCost = proto.GoldCost; cheapest = p; }
         }
         return cheapest;
+    }
+
+    Airfield FindAvailableAirfield(bool playerOwned)
+    {
+        var buildings = GameManager.Instance?.GetAllBuildings();
+        if (buildings == null) return null;
+
+        Airfield best = null;
+        float bestDist = float.MaxValue;
+        Vector3 anchor = aiMainBase != null ? aiMainBase.transform.position : transform.position;
+        foreach (var b in buildings)
+        {
+            var airfield = b as Airfield;
+            if (airfield == null || airfield.bPlayerOwned != playerOwned) continue;
+            if (airfield.GetHP() <= 0 || airfield.bUnderConstruction || airfield.FreeAircraftSlots <= 0) continue;
+            float d = Vector3.Distance(anchor, airfield.transform.position);
+            if (d < bestDist)
+            {
+                best = airfield;
+                bestDist = d;
+            }
+        }
+        return best;
+    }
+
+    static GameObject CreateFallbackAirfield(string name, Vector3 pos, bool playerOwned)
+    {
+        var go = new GameObject(name);
+        go.transform.position = new Vector3(pos.x, 0f, pos.z);
+        var collider = go.AddComponent<BoxCollider>();
+        collider.center = new Vector3(0f, 0.35f, 0f);
+        collider.size = new Vector3(10f, 1.0f, 8f);
+        BuildFallbackAirfieldVisual(go.transform, playerOwned);
+        var airfield = go.AddComponent<Airfield>();
+        airfield.bPlayerOwned = playerOwned;
+        return go;
+    }
+
+    static void BuildFallbackAirfieldVisual(Transform parent, bool playerOwned)
+    {
+        Color baseColor = playerOwned ? new Color(0.18f, 0.42f, 0.58f) : new Color(0.55f, 0.30f, 0.18f);
+        Color stripeColor = playerOwned ? new Color(0.60f, 0.88f, 1f) : new Color(1f, 0.55f, 0.35f);
+        AddFallbackPart(parent, "AirfieldPad", new Vector3(0f, 0.04f, 0f), new Vector3(10.2f, 0.08f, 7.8f), baseColor);
+        AddFallbackPart(parent, "RunwayStripe", new Vector3(0f, 0.11f, 0f), new Vector3(0.22f, 0.04f, 6.8f), stripeColor);
+        AddFallbackPart(parent, "ParkingMarkL", new Vector3(-2.7f, 0.12f, -1.4f), new Vector3(1.8f, 0.04f, 0.16f), stripeColor);
+        AddFallbackPart(parent, "ParkingMarkR", new Vector3(2.7f, 0.12f, -1.4f), new Vector3(1.8f, 0.04f, 0.16f), stripeColor);
+        AddFallbackPart(parent, "FuelCrate", new Vector3(3.8f, 0.35f, 2.7f), new Vector3(0.9f, 0.7f, 0.9f), new Color(0.34f, 0.32f, 0.28f));
+    }
+
+    static void AddFallbackPart(Transform parent, string name, Vector3 localPos, Vector3 localScale, Color color)
+    {
+        var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        part.name = name;
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPos;
+        part.transform.localScale = localScale;
+        var col = part.GetComponent<Collider>();
+        if (col != null) Object.Destroy(col);
+        var renderer = part.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            var shader = Shader.Find("Standard") ?? Shader.Find("Diffuse");
+            var mat = new Material(shader);
+            mat.color = color;
+            renderer.sharedMaterial = mat;
+        }
+    }
+
+    static bool RequiresAirfieldSlot(GameObject prefab)
+    {
+        var air = prefab != null ? prefab.GetComponent<AirUnit>() : null;
+        return air != null && air.RequiresAirfieldSlot;
+    }
+
+    static bool IsUnitPrefab(GameObject prefab, string baseName)
+    {
+        if (prefab == null || string.IsNullOrEmpty(baseName))
+            return false;
+
+        string name = prefab.name;
+        if (name == baseName)
+            return true;
+
+        return name == baseName + "_E"
+            || name == baseName + "_Enemy"
+            || name == baseName + "_P"
+            || name == baseName + "_Player";
+    }
+
+    static GameObject[] NormalizeEnemyPrefabs(GameObject[] prefabs)
+    {
+        if (prefabs == null)
+            return prefabs;
+
+        for (int i = 0; i < prefabs.Length; i++)
+        {
+            GameObject enemyPrefab = ResolveEnemyPrefab(prefabs[i]);
+            if (enemyPrefab != null)
+                prefabs[i] = enemyPrefab;
+        }
+
+        return prefabs;
+    }
+
+    static GameObject ResolveEnemyPrefab(GameObject prefab)
+    {
+        if (prefab == null)
+            return null;
+
+        string baseName = GetUnitBaseName(prefab.name);
+        GameObject enemyPrefab = Resources.Load<GameObject>($"Prefabs/{baseName}_E");
+        return enemyPrefab != null ? enemyPrefab : prefab;
+    }
+
+    static string GetUnitBaseName(string prefabName)
+    {
+        if (string.IsNullOrEmpty(prefabName))
+            return prefabName;
+
+        string[] suffixes = { "_Enemy", "_Player", "_E", "_P" };
+        for (int i = 0; i < suffixes.Length; i++)
+        {
+            string suffix = suffixes[i];
+            if (prefabName.EndsWith(suffix, System.StringComparison.Ordinal))
+                return prefabName.Substring(0, prefabName.Length - suffix.Length);
+        }
+
+        return prefabName;
     }
 }

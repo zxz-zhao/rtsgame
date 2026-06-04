@@ -13,7 +13,6 @@ public class WorldProductionBar : MonoBehaviour
     public Text IconText;
 
     private Transform target;
-    private Camera mainCam;
     private float barOffset;
     private float targetFillAmount;
     private float displayedFillAmount;
@@ -31,24 +30,24 @@ public class WorldProductionBar : MonoBehaviour
         go.AddComponent<CanvasScaler>().dynamicPixelsPerUnit = 10f;
 
         var rt = go.GetComponent<RectTransform>();
-        rt.sizeDelta = new Vector2(2.4f, 0.22f);
+        rt.sizeDelta = new Vector2(3.2f, 0.7f);  // 更大，俯视清晰可读
 
-        // 黑色外边框（描边底色）
+        // 黑色外边框
         var border = new GameObject("Border");
         border.transform.SetParent(go.transform, false);
         var bdrRT = border.AddComponent<RectTransform>();
         bdrRT.anchorMin = Vector2.zero; bdrRT.anchorMax = Vector2.one;
-        bdrRT.offsetMin = new Vector2(-1.6f, -1.6f);
-        bdrRT.offsetMax = new Vector2(1.6f, 1.6f);
-        border.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.85f);
-        // 金色装饰内边框（军用风格）
+        bdrRT.offsetMin = new Vector2(-2.5f, -2.5f);
+        bdrRT.offsetMax = new Vector2(2.5f,  2.5f);
+        border.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.90f);
+        // 金色内边框
         var goldBorder = new GameObject("GoldBorder");
         goldBorder.transform.SetParent(go.transform, false);
         var gbRT = goldBorder.AddComponent<RectTransform>();
         gbRT.anchorMin = Vector2.zero; gbRT.anchorMax = Vector2.one;
-        gbRT.offsetMin = new Vector2(-0.6f, -0.6f);
-        gbRT.offsetMax = new Vector2(0.6f, 0.6f);
-        goldBorder.AddComponent<Image>().color = new Color(0.78f, 0.62f, 0.18f, 0.85f);
+        gbRT.offsetMin = new Vector2(-1.0f, -1.0f);
+        gbRT.offsetMax = new Vector2(1.0f,  1.0f);
+        goldBorder.AddComponent<Image>().color = new Color(0.78f, 0.62f, 0.18f, 0.90f);
 
         // 背景
         var bg = new GameObject("BG");
@@ -56,16 +55,16 @@ public class WorldProductionBar : MonoBehaviour
         var bgRT = bg.AddComponent<RectTransform>();
         bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
         bgRT.offsetMin = bgRT.offsetMax = Vector2.zero;
-        bg.AddComponent<Image>().color = new Color(0.10f, 0.13f, 0.18f, 0.92f);
+        bg.AddComponent<Image>().color = new Color(0.08f, 0.11f, 0.16f, 0.95f);
 
-        // 填充（蓝色，区别血条）
+        // 填充（蓝色，区别血条），更高占比
         var fill = new GameObject("Fill");
         fill.transform.SetParent(go.transform, false);
         var fillRT = fill.AddComponent<RectTransform>();
-        fillRT.anchorMin = new Vector2(0, 0.18f);
-        fillRT.anchorMax = new Vector2(1, 0.82f);
-        fillRT.offsetMin = new Vector2(1.0f, 0);
-        fillRT.offsetMax = new Vector2(-1.0f, 0);
+        fillRT.anchorMin = new Vector2(0, 0.12f);
+        fillRT.anchorMax = new Vector2(1, 0.88f);
+        fillRT.offsetMin = new Vector2(1.5f, 0);
+        fillRT.offsetMax = new Vector2(-1.5f, 0);
         var fillImg = fill.AddComponent<Image>();
         fillImg.color = new Color(0.30f, 0.78f, 1f);
         fillImg.type = Image.Type.Filled;
@@ -132,7 +131,6 @@ public class WorldProductionBar : MonoBehaviour
         pb.IconText = iconText;
         pb.target = owner;
         pb.barOffset = heightOffset;
-        pb.mainCam = Camera.main;
         go.SetActive(false);
         return pb;
     }
@@ -140,10 +138,11 @@ public class WorldProductionBar : MonoBehaviour
     void LateUpdate()
     {
         if (target == null) { Destroy(gameObject); return; }
-        if (mainCam == null) mainCam = Camera.main;
         transform.position = target.position + Vector3.up * barOffset;
-        if (mainCam != null)
-            transform.rotation = Quaternion.LookRotation(transform.position - mainCam.transform.position);
+        // 平铺在地面（X轴90°朝天），Y轴跟随摄像机，从任意俯视角都能正读文字
+        Camera cam = Camera.main;
+        float camY = cam != null ? cam.transform.eulerAngles.y : 0f;
+        transform.rotation = Quaternion.Euler(90f, camY, 0f);
         UpdateFillVisual();
     }
 

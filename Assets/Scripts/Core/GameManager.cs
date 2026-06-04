@@ -23,9 +23,15 @@ public class GameManager : MonoBehaviour
     public int  PlayerKills = 0;
     public int  PlayerDamageDealt = 0;
     public int  PlayerDamageTaken = 0;
+    public int  EnemyDamageDealt = 0;
+    public int  EnemyDamageTaken = 0;
     public int  PlayerGoldIncome = 0;
     public int  PlayerGoldSpent = 0;
     public int  PlayerGoldRefunded = 0;
+    public int  EnemyGold = 0;
+    public int  EnemyGoldIncome = 0;
+    public int  EnemyGoldSpent = 0;
+    public int  EnemyGoldRefunded = 0;
     public int  PlayerUnitKills = 0;
     public int  PlayerBuildingKills = 0;
     public int  PlayerUnitsLost = 0;
@@ -36,6 +42,8 @@ public class GameManager : MonoBehaviour
     public int  EnemyBuildingsConstructed = 0;
     public int  PlayerPeakPopUsed = 0;
     public int  PlayerPeakGold = 0;
+    public int  EnemyPeakPopUsed = 0;
+    public int  EnemyPeakGold = 0;
 
     [Header("联机")]
     public bool IsNetworkGame = false;
@@ -52,9 +60,14 @@ public class GameManager : MonoBehaviour
     private float gameOverDelay = 0f;       // 结算面板延迟展示
     private RTSPlayerState cachedPlayerState;
     private RTSBuilding cachedPlayerBase;
+    private RTSBuilding cachedEnemyBase;
+    private AIController cachedAIController;
     private int lastPlayerBaseLevel = 1;
     private int lastPlayerBaseHp = 0;
     private int lastPlayerBaseMaxHp = 0;
+    private int lastEnemyBaseLevel = 1;
+    private int lastEnemyBaseHp = 0;
+    private int lastEnemyBaseMaxHp = 0;
     /// <summary>玩家主基地引用（可能为 null，建筑被摧毁后会刷新）。</summary>
     public RTSBuilding PlayerMainBase => cachedPlayerBase;
 
@@ -129,7 +142,14 @@ public class GameManager : MonoBehaviour
             foreach (var b in allBuildings)
                 if (b != null && b.bIsMainBase && b.bPlayerOwned) { cachedPlayerBase = b; break; }
         }
+        if (cachedEnemyBase == null || cachedEnemyBase.GetHP() <= 0)
+        {
+            cachedEnemyBase = null;
+            foreach (var b in allBuildings)
+                if (b != null && b.bIsMainBase && !b.bPlayerOwned) { cachedEnemyBase = b; break; }
+        }
         CachePlayerBaseSnapshot(cachedPlayerBase);
+        CacheEnemyBaseSnapshot(cachedEnemyBase);
     }
 
     void CachePlayerBaseSnapshot(RTSBuilding baseBuilding)
@@ -140,11 +160,23 @@ public class GameManager : MonoBehaviour
         lastPlayerBaseMaxHp = baseBuilding.GetMaxHP();
     }
 
+    void CacheEnemyBaseSnapshot(RTSBuilding baseBuilding)
+    {
+        if (baseBuilding == null || baseBuilding.GetMaxHP() <= 0) return;
+        lastEnemyBaseLevel = Mathf.Max(1, baseBuilding.BuildingLevel);
+        lastEnemyBaseHp = Mathf.Max(0, baseBuilding.GetHP());
+        lastEnemyBaseMaxHp = baseBuilding.GetMaxHP();
+    }
+
     void Update()
     {
+        if (IsNetworkGame && !Mathf.Approximately(Time.timeScale, 1f))
+            Time.timeScale = 1f;
+
+        float frameDeltaTime = IsNetworkGame ? Time.unscaledDeltaTime : Time.deltaTime;
         if (!bGameOver)
         {
-            GameTime += Time.deltaTime;
+            GameTime += frameDeltaTime;
             UpdatePeakBattleStats();
         }
         UpdateCombo();
@@ -152,7 +184,7 @@ public class GameManager : MonoBehaviour
         // 结算面板延迟（让玩家先看到战场结汀）
         if (bGameOver)
         {
-            gameOverDelay -= Time.deltaTime;
+            gameOverDelay -= frameDeltaTime;
             if (gameOverDelay <= 0f && RTSHUD.Instance != null &&
                 !RTSHUD.Instance.IsGameOverVisible())
             {
@@ -168,9 +200,17 @@ public class GameManager : MonoBehaviour
     void UpdatePeakBattleStats()
     {
         var ps = cachedPlayerState != null ? cachedPlayerState : RTSPlayerState.Instance;
-        if (ps == null) return;
-        PlayerPeakPopUsed = Mathf.Max(PlayerPeakPopUsed, ps.PopUsed);
-        PlayerPeakGold = Mathf.Max(PlayerPeakGold, ps.Gold);
+        if (ps != null)
+        {
+            PlayerPeakPopUsed = Mathf.Max(PlayerPeakPopUsed, ps.PopUsed);
+            PlayerPeakGold = Mathf.Max(PlayerPeakGold, ps.Gold);
+        }
+
+        EnemyPeakPopUsed = Mathf.Max(EnemyPeakPopUsed, ComputeSidePopUsed(false));
+        if (cachedAIController == null)
+            cachedAIController = FindObjectOfType<AIController>();
+        if (cachedAIController != null && cachedAIController.enabled && !IsNetworkGame)
+            RecordEnemyGoldSnapshot(cachedAIController.CurrentGold);
     }
 
     void CheckWinLoseCondition()
@@ -278,59 +318,122 @@ public class GameManager : MonoBehaviour
         if (amount <= 0) return;
         if (attackerPlayerOwned) PlayerDamageDealt += amount;
         if (targetPlayerOwned) PlayerDamageTaken += amount;
+        if (!attackerPlayerOwned) EnemyDamageDealt += amount;
+        if (!targetPlayerOwned) EnemyDamageTaken += amount;
     }
 
     public void RecordGoldIncome(bool playerOwned, int amount)
     {
-        if (playerOwned && amount > 0) PlayerGoldIncome += amount;
+        if (amount <= 0) return;
+        if (playerOwned) PlayerGoldIncome += amount;
+        else EnemyGoldIncome += amount;
     }
 
     public void RecordGoldSpent(bool playerOwned, int amount)
     {
-        if (playerOwned && amount > 0) PlayerGoldSpent += amount;
+        if (amount <= 0) return;
+        if (playerOwned) PlayerGoldSpent += amount;
+        else EnemyGoldSpent += amount;
     }
 
     public void RecordGoldRefund(bool playerOwned, int amount)
     {
-        if (playerOwned && amount > 0) PlayerGoldRefunded += amount;
+        if (amount <= 0) return;
+        if (playerOwned) PlayerGoldRefunded += amount;
+        else EnemyGoldRefunded += amount;
+    }
+
+    public void RecordEnemyGoldSnapshot(int currentGold)
+    {
+        EnemyGold = Mathf.Max(0, currentGold);
+        EnemyPeakGold = Mathf.Max(EnemyPeakGold, EnemyGold);
     }
 
     public string BuildBattleReport(int kills, int seconds)
     {
         var ps = RTSPlayerState.Instance;
-        int gold = ps != null ? ps.Gold : 0;
-        int popUsed = ps != null ? ps.PopUsed : 0;
-        int popCap = ps != null ? ps.PopCap : 0;
-        int powerUsed = ps != null ? ps.PowerUsed : 0;
-        int powerCap = ps != null ? ps.PowerCap : 0;
         int m = seconds / 60, s = seconds % 60;
 
         if (cachedPlayerBase != null)
             CachePlayerBaseSnapshot(cachedPlayerBase);
+        if (cachedEnemyBase != null)
+            CacheEnemyBaseSnapshot(cachedEnemyBase);
+        if (cachedAIController == null)
+            cachedAIController = FindObjectOfType<AIController>();
+        if (cachedAIController != null && cachedAIController.enabled && !IsNetworkGame)
+            RecordEnemyGoldSnapshot(cachedAIController.CurrentGold);
 
-        int alliedUnits = 0, enemyUnits = 0, alliedBuildings = 0, enemyBuildings = 0;
+        var player = BuildSideSnapshot(true, ps);
+        var enemy = BuildSideSnapshot(false, ps);
+
+        string teamLine = IsNetworkGame
+            ? $"{(IsHost ? "我方HOST" : "我方GUEST")}  VS  对手"
+            : "我方部队  VS  AI敌军";
+        return $"{teamLine}    用时 {m:00}:{s:00}\n" +
+               $"战果：我方 摧毁{kills}({PlayerUnitKills}兵/{PlayerBuildingKills}建) | 敌方 摧毁{PlayerUnitsLost + PlayerBuildingsLost}({PlayerUnitsLost}兵/{PlayerBuildingsLost}建)\n" +
+               $"兵力：我方 {player.Units}兵/{player.Buildings}建 | 敌方 {enemy.Units}兵/{enemy.Buildings}建\n" +
+               $"生产：我方 出兵{PlayerUnitsProduced} 建造{PlayerBuildingsConstructed} | 敌方 出兵{EnemyUnitsProduced} 建造{EnemyBuildingsConstructed}\n" +
+               $"人口：我方 {player.PopUsed}/{player.PopCap} 峰{PlayerPeakPopUsed} | 敌方 {enemy.PopUsed}/{enemy.PopCap} 峰{EnemyPeakPopUsed}\n" +
+               $"伤害：我方 出{PlayerDamageDealt:N0} 承{PlayerDamageTaken:N0} | 敌方 出{EnemyDamageDealt:N0} 承{EnemyDamageTaken:N0}\n" +
+               $"经济：我方 金{player.Gold:N0} 收{PlayerGoldIncome:N0} 耗{PlayerGoldSpent:N0} | 敌方 金{enemy.Gold:N0} 收{EnemyGoldIncome:N0} 耗{EnemyGoldSpent:N0}\n" +
+               $"电力：我方 {player.PowerUsed}/{player.PowerCap} | 敌方 {enemy.PowerUsed}/{enemy.PowerCap}\n" +
+               $"主基：我方 {GetPlayerBaseSummaryText()} | 敌方 {GetEnemyBaseSummaryText()}";
+    }
+
+    struct BattleSideSnapshot
+    {
+        public int Units;
+        public int Buildings;
+        public int PopUsed;
+        public int PopCap;
+        public int PowerUsed;
+        public int PowerCap;
+        public int Gold;
+    }
+
+    BattleSideSnapshot BuildSideSnapshot(bool playerOwned, RTSPlayerState ps)
+    {
+        var snap = new BattleSideSnapshot();
+        snap.PopCap = 20;
         foreach (var u in allUnits)
         {
-            if (u == null || u.IsDead()) continue;
-            if (u.bPlayerOwned) alliedUnits++; else enemyUnits++;
+            if (u == null || u.IsDead() || u.bPlayerOwned != playerOwned) continue;
+            snap.Units++;
+            snap.PopUsed += Mathf.Max(1, u.PopCost);
         }
         foreach (var b in allBuildings)
         {
-            if (b == null || b.GetHP() <= 0) continue;
-            if (b.bPlayerOwned) alliedBuildings++; else enemyBuildings++;
+            if (b == null || b.GetHP() <= 0 || b.bUnderConstruction || b.bPlayerOwned != playerOwned) continue;
+            snap.Buildings++;
+            snap.PopCap += b.PopCapBonus;
+            if (b.bIsPowerPlant) snap.PowerCap += b.PowerProvide;
+            else if (b.PowerCost > 0) snap.PowerUsed += b.PowerCost;
         }
 
-        string teamLine = IsNetworkGame
-            ? $"队伍：{(IsHost ? "HOST" : "GUEST")} / 盟友在线"
-            : "队伍：我方部队 / AI 敌军";
-        return $"{teamLine}\n" +
-               $"战果：摧毁 {kills}（单位 {PlayerUnitKills}/建筑 {PlayerBuildingKills}）  用时 {m:00}:{s:00}\n" +
-               $"兵力：我方 {alliedUnits}兵/{alliedBuildings}建  敌方 {enemyUnits}兵/{enemyBuildings}建  损失 {PlayerUnitsLost}兵/{PlayerBuildingsLost}建\n" +
-               $"生产：我方 出兵 {PlayerUnitsProduced}  建造 {PlayerBuildingsConstructed}    敌方 出兵 {EnemyUnitsProduced}  建造 {EnemyBuildingsConstructed}\n" +
-               $"人口：{popUsed}/{popCap}  峰值 {PlayerPeakPopUsed}\n" +
-               $"伤害：输出 {PlayerDamageDealt:N0}  承伤 {PlayerDamageTaken:N0}\n" +
-               $"经济：金币 {gold:N0}  峰值 {PlayerPeakGold:N0}  收入 {PlayerGoldIncome:N0}  消耗 {PlayerGoldSpent:N0}  返还 {PlayerGoldRefunded:N0}\n" +
-               $"电力：{powerUsed}/{powerCap}    主基地：{GetPlayerBaseSummaryText()}";
+        if (playerOwned && ps != null)
+        {
+            snap.PopUsed = ps.PopUsed;
+            snap.PopCap = ps.PopCap;
+            snap.PowerUsed = ps.PowerUsed;
+            snap.PowerCap = ps.PowerCap;
+            snap.Gold = ps.Gold;
+        }
+        else if (!playerOwned)
+        {
+            snap.Gold = EnemyGold;
+        }
+        return snap;
+    }
+
+    int ComputeSidePopUsed(bool playerOwned)
+    {
+        int total = 0;
+        foreach (var u in allUnits)
+        {
+            if (u == null || u.IsDead() || u.bPlayerOwned != playerOwned) continue;
+            total += Mathf.Max(1, u.PopCost);
+        }
+        return total;
     }
 
     public string GetPlayerBaseSummaryText()
@@ -347,6 +450,24 @@ public class GameManager : MonoBehaviour
         }
 
         return cachedPlayerBase != null && baseHp > 0
+            ? $"Lv.{baseLevel} {baseHp}/{baseMax}"
+            : $"Lv.{baseLevel} 已摧毁";
+    }
+
+    public string GetEnemyBaseSummaryText()
+    {
+        int baseLevel = lastEnemyBaseLevel;
+        int baseHp = lastEnemyBaseHp;
+        int baseMax = lastEnemyBaseMaxHp;
+        if (cachedEnemyBase != null)
+        {
+            CacheEnemyBaseSnapshot(cachedEnemyBase);
+            baseLevel = Mathf.Max(1, cachedEnemyBase.BuildingLevel);
+            baseHp = cachedEnemyBase.GetHP();
+            baseMax = cachedEnemyBase.GetMaxHP();
+        }
+
+        return cachedEnemyBase != null && baseHp > 0
             ? $"Lv.{baseLevel} {baseHp}/{baseMax}"
             : $"Lv.{baseLevel} 已摧毁";
     }
@@ -391,12 +512,19 @@ public class GameManager : MonoBehaviour
             cachedPlayerBase = b;
             CachePlayerBaseSnapshot(b);
         }
+        if (b != null && b.bIsMainBase && !b.bPlayerOwned)
+        {
+            cachedEnemyBase = b;
+            CacheEnemyBaseSnapshot(b);
+        }
     }
 
     public void UnregisterBuilding(RTSBuilding b)
     {
         if (b != null && b.bIsMainBase && b.bPlayerOwned)
             CachePlayerBaseSnapshot(b);
+        if (b != null && b.bIsMainBase && !b.bPlayerOwned)
+            CacheEnemyBaseSnapshot(b);
         if (b != null && b.bPlayerOwned)
             PlayerBuildingsLost++;
         allBuildings.Remove(b);

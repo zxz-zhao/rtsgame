@@ -12,6 +12,8 @@ public class Bomber : AirUnit
         GoldCost = 500; PopCost = 3; MoveSpeed = 11f;
         SplashRadius = 7f; SplashFalloff = 0.3f;
         FlyHeight = 11f;
+        MaxFuelSeconds = DefaultBattleFuelSeconds;
+        RefuelSeconds = 16f;
         ProjectilePrefabPath = "Prefabs/Projectiles/BattleProjectile_Bomb";
         ProjectileSpeed = 30f; ProjectileArcHeight = 4f; ProjectileImpactRadius = 2.1f;
         ProjectileTint = new Color(1f, 0.36f, 0.08f, 1f);

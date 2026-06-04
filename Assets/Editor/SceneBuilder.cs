@@ -467,8 +467,10 @@ public class SceneBuilder
         {
             var rt2 = topBar.AddComponent<RectTransform>();
             rt2.anchorMin = new Vector2(0, 1); rt2.anchorMax = Vector2.one;
-            rt2.offsetMin = new Vector2(0, -68); rt2.offsetMax = Vector2.zero;
-            topBar.AddComponent<Image>().color = new Color(0.04f, 0.06f, 0.14f, 0.97f);
+            rt2.offsetMin = new Vector2(0, -76); rt2.offsetMax = Vector2.zero;
+            var topBarImage = topBar.AddComponent<Image>();
+            topBarImage.color = new Color(0f, 0f, 0f, 0f);
+            topBarImage.raycastTarget = false;
         }
         // 底部金色强调线
         {
@@ -477,7 +479,7 @@ public class SceneBuilder
             var art = accent.AddComponent<RectTransform>();
             art.anchorMin = Vector2.zero; art.anchorMax = new Vector2(1, 0);
             art.offsetMin = Vector2.zero; art.offsetMax = new Vector2(0, 2);
-            accent.AddComponent<Image>().color = new Color(0.08f, 0.12f, 0.16f, 0.95f);
+            accent.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
         }
         // 竖向分割线辅助方法
         System.Action<float> addDiv = (float x) => {
@@ -485,24 +487,25 @@ public class SceneBuilder
             var drt = d.AddComponent<RectTransform>();
             drt.anchorMin = new Vector2(x, 0.15f); drt.anchorMax = new Vector2(x, 0.85f);
             drt.sizeDelta = new Vector2(1, 0);
-            d.AddComponent<Image>().color = new Color(1f, 1f, 1f, 0.06f);
+            d.AddComponent<Image>().color = new Color(1f, 1f, 1f, 0f);
         };
         addDiv(0.20f); addDiv(0.40f); addDiv(0.60f); addDiv(0.80f);
         // 各项数据文本
         var goldTxt = CreateText(topBar.transform, "GoldText",  "$ 800",
-            new Vector2(0.10f, 0.52f), new Vector2(180, 42), 22, new Color(1f, 0.88f, 0.2f));
+            new Vector2(0.17f, 0.56f), new Vector2(230, 42), 22, new Color(1f, 0.88f, 0.2f));
         goldTxt.GetComponent<Text>().fontStyle = FontStyle.Bold;
         var popTxt = CreateText(topBar.transform, "PopText",  "人口 0/20",
-            new Vector2(0.30f, 0.52f), new Vector2(180, 42), 21, new Color(0.65f, 0.9f, 1f));
+            new Vector2(0.32f, 0.56f), new Vector2(150, 42), 21, new Color(0.65f, 0.9f, 1f));
         popTxt.GetComponent<Text>().fontStyle = FontStyle.Bold;
         var killTxt = CreateText(topBar.transform, "KillText", "击杀 0",
             new Vector2(0.50f, 0.52f), new Vector2(160, 42), 21, new Color(1f, 0.42f, 0.42f));
         killTxt.GetComponent<Text>().fontStyle = FontStyle.Bold;
+        killTxt.SetActive(false);
         var powerTxt = CreateText(topBar.transform, "PowerText", "电力 0/0",
-            new Vector2(0.70f, 0.52f), new Vector2(160, 42), 21, new Color(0.4f, 1f, 0.55f));
+            new Vector2(0.64f, 0.56f), new Vector2(160, 42), 21, new Color(0.4f, 1f, 0.55f));
         powerTxt.GetComponent<Text>().fontStyle = FontStyle.Bold;
         var timerTxt = CreateText(topBar.transform, "GameTimerText", "00:00",
-            new Vector2(0.90f, 0.52f), new Vector2(130, 42), 24, new Color(0.88f, 0.93f, 1f));
+            new Vector2(0.77f, 0.56f), new Vector2(110, 42), 24, new Color(0.88f, 0.93f, 1f));
         timerTxt.GetComponent<Text>().fontStyle = FontStyle.Bold;
 
         // 居中警报文本（屏幕顶部中央）
@@ -549,12 +552,12 @@ public class SceneBuilder
 
         // 建筑面板（右下）
         GameObject bldPanel = CreatePanel(hudCanvas.transform, "BuildingPanel",
-            new Vector2(1, 0), new Vector2(340, 230));
+            new Vector2(1, 0), new Vector2(414, 320));
         {
             var brt = bldPanel.GetComponent<RectTransform>();
             brt.anchorMin = new Vector2(1, 0); brt.anchorMax = new Vector2(1, 0);
             brt.pivot = new Vector2(1, 0);
-            brt.anchoredPosition = new Vector2(-12, 12);
+            brt.anchoredPosition = new Vector2(-12, 34);
             bldPanel.GetComponent<Image>().color = new Color(0.06f, 0.09f, 0.16f, 0.95f);
         }
         // 彩色顶部标题栏（蓝紫色）
@@ -562,20 +565,29 @@ public class SceneBuilder
             new Color(0.06f, 0.11f, 0.19f, 1f), new Vector2(0, 0.86f), Vector2.one);
         {
             var bn = CreateText(bldPanel.transform, "BuildingNameText", "建筑",
-                new Vector2(0.5f, 0.92f), new Vector2(300, 30), 21);
+                new Vector2(0.5f, 0.94f), new Vector2(378, 34), 23);
             bn.GetComponent<Text>().fontStyle = FontStyle.Bold;
         }
         CreateText(bldPanel.transform, "BldHPLabel", "耐久",
-            new Vector2(0.12f, 0.72f), new Vector2(60, 20), 13, new Color(0.7f, 0.9f, 0.7f));
+            new Vector2(0.12f, 0.80f), new Vector2(80, 24), 15, new Color(0.7f, 0.9f, 0.7f));
+        CreateText(bldPanel.transform, "BuildingHPText", "---/---",
+            new Vector2(0.82f, 0.80f), new Vector2(150, 24), 15, new Color(0.82f, 1f, 0.78f));
         CreateSlider(bldPanel.transform, "BuildingHPBar",
-            new Vector2(0.5f, 0.76f), new Vector2(306, 20), new Color(0.15f, 0.85f, 0.35f));
+            new Vector2(0.5f, 0.75f), new Vector2(372, 20), new Color(0.15f, 0.85f, 0.35f));
         // 生产进度
         CreateText(bldPanel.transform, "ProdLabel", "生产",
-            new Vector2(0.12f, 0.64f), new Vector2(60, 20), 13, new Color(0.5f, 0.85f, 1f));
+            new Vector2(0.12f, 0.65f), new Vector2(80, 24), 15, new Color(0.5f, 0.85f, 1f));
         CreateSlider(bldPanel.transform, "ProductionBar",
-            new Vector2(0.5f, 0.62f), new Vector2(306, 14), new Color(0.2f, 0.75f, 1f));
-        CreateText(bldPanel.transform, "ProductionText", "空闲",
-            new Vector2(0.5f, 0.50f), new Vector2(280, 24), 15, new Color(0.75f, 0.9f, 1f));
+            new Vector2(0.5f, 0.60f), new Vector2(372, 16), new Color(0.2f, 0.75f, 1f));
+        var prodStateText = CreateText(bldPanel.transform, "ProductionText", "空闲",
+            new Vector2(0.5f, 0.50f), new Vector2(360, 36), 14, new Color(0.75f, 0.9f, 1f));
+        {
+            var pst = prodStateText.GetComponent<Text>();
+            pst.fontStyle = FontStyle.Bold;
+            pst.lineSpacing = 0.9f;
+            pst.horizontalOverflow = HorizontalWrapMode.Wrap;
+            pst.verticalOverflow = VerticalWrapMode.Truncate;
+        }
         // 生产按钮 × 4（每个按钮独立配色 + 顶部亮边）
         Color[] prodBtnColors = {
             new Color(0.12f,0.42f,0.18f),  // 绿：步兵/地面1
@@ -585,9 +597,11 @@ public class SceneBuilder
         };
         for (int i = 0; i < 4; i++)
         {
+            int col = i % 3;
+            int row = i / 3;
             var pb = CreateButton(bldPanel.transform, $"ProductionButton{i}", $"单位{i + 1}",
-                new Vector2(0.14f + i * 0.24f, 0.21f), new Vector2(70, 60), prodBtnColors[i]);
-            pb.GetComponentInChildren<Text>().fontSize = 13;
+                new Vector2(0.20f + col * 0.30f, 0.29f - row * 0.25f), new Vector2(122, 68), prodBtnColors[i]);
+            pb.GetComponentInChildren<Text>().fontSize = 14;
             // 顶部颜色亮边
             var topAccent = new GameObject("ProdBtnAccent");
             topAccent.transform.SetParent(pb.transform, false);
@@ -660,10 +674,15 @@ public class SceneBuilder
         {
             var report = goCard.transform.Find("GoReportPanel") ?? goCard.transform;
             var gs = CreateText(report, "GameOverStatsText", "",
-                new Vector2(0.5f, 0.5f), new Vector2(590, 142), 16, new Color(0.84f, 0.93f, 1f));
+                new Vector2(0.5f, 0.5f), new Vector2(602, 163), 13, new Color(0.84f, 0.93f, 1f));
+            var gsrt = gs.GetComponent<RectTransform>();
+            gsrt.anchorMin = Vector2.zero;
+            gsrt.anchorMax = Vector2.one;
+            gsrt.offsetMin = new Vector2(20, 14);
+            gsrt.offsetMax = new Vector2(-18, -48);
             var gst = gs.GetComponent<Text>();
             gst.alignment = TextAnchor.UpperLeft;
-            gst.lineSpacing = 1.10f;
+            gst.lineSpacing = 1.04f;
             gst.horizontalOverflow = HorizontalWrapMode.Wrap;
             gst.verticalOverflow = VerticalWrapMode.Overflow;
             var sh = gs.AddComponent<Shadow>();
@@ -692,7 +711,7 @@ public class SceneBuilder
         StyleGameOverButton(lobbyButton, new Color(0.58f, 0.78f, 1f, 0.92f));
         gameoverPanel.SetActive(false);
 
-        // ESC 暂停菜单 — 全屏暗化遮罩 + 居中卡片
+        // ESC 战局菜单 — 全屏暗化遮罩 + 居中卡片
         GameObject pausePanel = new GameObject("PausePanel");
         pausePanel.transform.SetParent(hudCanvas.transform, false);
         {
@@ -719,23 +738,24 @@ public class SceneBuilder
             ps.AddComponent<Image>().color = new Color(0.25f, 0.55f, 1f, 1f);
         }
         {
-            var pt = CreateText(pauseCard.transform, "PauseTitle", "游戏暂停",
+            var pt = CreateText(pauseCard.transform, "PauseTitle", "战局菜单",
                 new Vector2(0.5f, 0.83f), new Vector2(290, 50), 30);
             pt.GetComponent<Text>().fontStyle = FontStyle.Bold;
         }
-        CreateButton(pauseCard.transform, "ResumeButton", "继续游戏",
+        CreateButton(pauseCard.transform, "ResumeButton", "返回战场",
             new Vector2(0.5f, 0.61f), new Vector2(240, 54), new Color(0.15f, 0.52f, 0.2f));
         CreateButton(pauseCard.transform, "SurrenderButton", "投  降",
             new Vector2(0.5f, 0.32f), new Vector2(240, 54), new Color(0.62f, 0.12f, 0.12f));
         pausePanel.SetActive(false);
 
         // 游戏内设置入口：音量与返回大厅
-        GameObject settingsButton = CreateButton(hudCanvas.transform, "GameSettingsButton", "设置",
-            new Vector2(1f, 1f), new Vector2(92, 40), new Color(0.08f, 0.13f, 0.16f, 0.94f));
+        GameObject settingsButton = CreateButton(hudCanvas.transform, "GameSettingsButton", "",
+            new Vector2(0.86f, 1f), new Vector2(38, 38), new Color(0f, 0f, 0f, 0f));
         {
             var srt = settingsButton.GetComponent<RectTransform>();
-            srt.pivot = new Vector2(1f, 1f);
-            srt.anchoredPosition = new Vector2(-12f, -62f);
+            srt.pivot = new Vector2(0.5f, 0.5f);
+            srt.anchoredPosition = new Vector2(0f, -34f);
+            AddSettingsGearIcon(settingsButton.transform, new Vector2(34f, 34f));
         }
 
         GameObject settingsPanel = new GameObject("GameSettingsPanel");
@@ -768,6 +788,13 @@ public class SceneBuilder
             title.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -38f);
             title.GetComponent<Text>().fontStyle = FontStyle.Bold;
         }
+        {
+            var closeButton = CreateButton(settingsCard.transform, "GameSettingsCloseButton", "×",
+                new Vector2(1f, 1f), new Vector2(36, 32), new Color(0.10f, 0.12f, 0.15f, 0.96f));
+            closeButton.GetComponent<RectTransform>().anchoredPosition = new Vector2(-24f, -24f);
+            var closeText = closeButton.GetComponentInChildren<Text>();
+            if (closeText != null) closeText.fontSize = 24;
+        }
         var masterLabel = CreateText(settingsCard.transform, "MasterVolumeLabel", "总音量",
             new Vector2(0f, 1f), new Vector2(110, 30), 18, new Color(0.90f, 0.96f, 1f));
         masterLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(96f, -118f);
@@ -793,12 +820,9 @@ public class SceneBuilder
             new Vector2(0.5f, 1f), new Vector2(330, 24), new Color(0.70f, 0.88f, 0.42f));
         sfxSlider.GetComponent<RectTransform>().anchoredPosition = new Vector2(20f, -241f);
 
-        var closeSettings = CreateButton(settingsCard.transform, "GameSettingsCloseButton", "继续游戏",
-            new Vector2(0.30f, 0f), new Vector2(160, 48), new Color(0.16f, 0.45f, 0.24f));
-        closeSettings.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 54f);
         var returnLobby = CreateButton(settingsCard.transform, "GameSettingsReturnLobbyButton", "返回大厅",
-            new Vector2(0.70f, 0f), new Vector2(160, 48), new Color(0.54f, 0.16f, 0.16f));
-        returnLobby.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 54f);
+            new Vector2(0.5f, 0f), new Vector2(180, 44), new Color(0.54f, 0.16f, 0.16f));
+        returnLobby.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 24f);
         settingsPanel.SetActive(false);
 
         // ── 小地图 HUD 面板（左下角）──────────────────────────
@@ -807,8 +831,8 @@ public class SceneBuilder
         mmPanel.transform.SetParent(hudCanvas.transform, false);
         RectTransform mmPanelRT = mmPanel.AddComponent<RectTransform>();
         mmPanelRT.anchorMin = mmPanelRT.anchorMax = mmPanelRT.pivot = new Vector2(0, 0);
-        mmPanelRT.anchoredPosition = new Vector2(10, 10);
-        mmPanelRT.sizeDelta = new Vector2(212, 228);
+        mmPanelRT.anchoredPosition = new Vector2(10, 68);
+        mmPanelRT.sizeDelta = new Vector2(264, 199);
         Image mmBg = mmPanel.AddComponent<Image>();
         mmBg.color = new Color(0.04f, 0.06f, 0.14f, 0.97f);
         // 金色顶边线
@@ -831,18 +855,13 @@ public class SceneBuilder
           var r=rl.AddComponent<RectTransform>(); r.anchorMin=new Vector2(1,0); r.anchorMax=Vector2.one;
           r.offsetMin=new Vector2(-2,0); r.offsetMax=Vector2.zero;
           rl.AddComponent<Image>().color=new Color(0.85f,0.62f,0.08f,0.75f); }
-        // 标题标签
-        CreateText(mmPanel.transform, "MMTitle", "作战地图",
-            new Vector2(0.5f, 0.94f), new Vector2(200, 22), 13, new Color(0.85f, 0.70f, 0.25f))
-            .GetComponent<Text>().fontStyle = FontStyle.Bold;
-
-        // 小地图 RawImage（向下偏移 10px 给顶部标题留空）
+        // 小地图 RawImage
         GameObject mmImg = new GameObject("MinimapImage");
         mmImg.transform.SetParent(mmPanel.transform, false);
         RectTransform mmRT = mmImg.AddComponent<RectTransform>();
         mmRT.anchorMin = mmRT.anchorMax = mmRT.pivot = new Vector2(0.5f, 0.5f);
-        mmRT.anchoredPosition = new Vector2(0, -10);
-        mmRT.sizeDelta = new Vector2(200, 200);
+        mmRT.anchoredPosition = Vector2.zero;
+        mmRT.sizeDelta = new Vector2(260, 195);
         RawImage rawImg = mmImg.AddComponent<RawImage>();
         RenderTexture minimapTexture = EnsureMinimapRenderTexture();
         rawImg.texture = minimapTexture;
@@ -891,7 +910,7 @@ public class SceneBuilder
             var btr = buildToggleGO.GetComponent<RectTransform>();
             btr.anchorMin = new Vector2(0, 0); btr.anchorMax = new Vector2(0, 0);
             btr.pivot = new Vector2(0, 0);
-            btr.anchoredPosition = new Vector2(10, 190);
+            btr.anchoredPosition = new Vector2(16, 328);
             // 顶部强调线
             var tline = new GameObject("ToggleAccent");
             tline.transform.SetParent(buildToggleGO.transform, false);
@@ -907,23 +926,24 @@ public class SceneBuilder
             var tr = techButtonGO.GetComponent<RectTransform>();
             tr.anchorMin = new Vector2(0, 0); tr.anchorMax = new Vector2(0, 0);
             tr.pivot = new Vector2(0, 0);
-            tr.anchoredPosition = new Vector2(90, 190);
+            tr.anchoredPosition = new Vector2(16, 278);
             var txt = techButtonGO.GetComponentInChildren<Text>();
             if (txt) txt.fontSize = 15;
         }
 
-        // 建造面板（弹出式，6个建筑按钮横排）
-        string[] bldNames = { "兵工厂\nB", "飞机厂\nV", "特需厂\nQ", "炮  塔\nN", "金  矿\nG", "电  厂\nT" };
+        // 建造面板（底部横排）
+        string[] bldNames = { "兵工厂", "飞机厂", "停机场", "特需厂", "炮塔", "金矿", "电厂" };
         Color[] bldColors = {
-            new Color(0.18f,0.42f,0.18f), new Color(0.10f,0.38f,0.58f), new Color(0.42f,0.28f,0.08f),
-            new Color(0.48f,0.12f,0.12f), new Color(0.50f,0.44f,0.04f), new Color(0.38f,0.20f,0.52f)
+            new Color(0.18f,0.42f,0.18f), new Color(0.10f,0.38f,0.58f), new Color(0.18f,0.34f,0.58f),
+            new Color(0.42f,0.28f,0.08f), new Color(0.48f,0.12f,0.12f), new Color(0.50f,0.44f,0.04f),
+            new Color(0.38f,0.20f,0.52f)
         };
         GameObject buildMenuPanel = new GameObject("BuildMenuPanel");
         buildMenuPanel.transform.SetParent(hudCanvas.transform, false);
         RectTransform bmpRT = buildMenuPanel.AddComponent<RectTransform>();
         bmpRT.anchorMin = bmpRT.anchorMax = bmpRT.pivot = new Vector2(1, 0);
         bmpRT.anchoredPosition = new Vector2(-10, 72);
-        bmpRT.sizeDelta = new Vector2(726, 92);
+        bmpRT.sizeDelta = new Vector2(908, 104);
         buildMenuPanel.AddComponent<Image>().color = new Color(0.05f, 0.07f, 0.13f, 0.96f);
         // 面板顶部绿色边线
         {
@@ -935,16 +955,16 @@ public class SceneBuilder
             bml.AddComponent<Image>().color = new Color(0.12f, 0.22f, 0.16f, 0.85f);
         }
 
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < bldNames.Length; i++)
         {
             GameObject btnGO = CreateButton(buildMenuPanel.transform, $"BuildButton{i}", bldNames[i],
-                new Vector2(0, 0.5f), new Vector2(112, 78), bldColors[i]);
+                new Vector2(0, 0.5f), new Vector2(118, 88), bldColors[i]);
             var br = btnGO.GetComponent<RectTransform>();
             br.anchorMin = new Vector2(0, 0.5f); br.anchorMax = new Vector2(0, 0.5f);
             br.pivot = new Vector2(0, 0.5f);
-            br.anchoredPosition = new Vector2(6 + i * 120, 0);
+            br.anchoredPosition = new Vector2(8 + i * 128, 0);
             var txt = btnGO.GetComponentInChildren<Text>();
-            if (txt) { txt.fontSize = 15; txt.lineSpacing = 1.15f; }
+            if (txt) { txt.fontSize = 16; txt.lineSpacing = 0.9f; txt.horizontalOverflow = HorizontalWrapMode.Wrap; }
             // 底部颜色亮边（每种建筑独有色）
             var btmLine = new GameObject("BtnLine");
             btmLine.transform.SetParent(btnGO.transform, false);
@@ -1374,6 +1394,50 @@ public class SceneBuilder
         return go;
     }
 
+    static void AddSettingsGearIcon(Transform parent, Vector2 size)
+    {
+        if (parent == null) return;
+        var sprite = LoadSettingsGearSprite();
+        if (sprite == null) return;
+
+        var go = new GameObject("GearIcon");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = size;
+        rt.anchoredPosition = Vector2.zero;
+
+        var img = go.AddComponent<Image>();
+        img.sprite = sprite;
+        img.color = Color.white;
+        img.preserveAspect = true;
+        img.raycastTarget = false;
+    }
+
+    static Sprite LoadSettingsGearSprite()
+    {
+        const string assetPath = "Assets/Resources/icons3/gear.png";
+        var ti = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+        if (ti != null && (ti.textureType != TextureImporterType.Sprite || ti.spriteImportMode != SpriteImportMode.Single || ti.mipmapEnabled || !ti.alphaIsTransparency))
+        {
+            ti.textureType = TextureImporterType.Sprite;
+            ti.spriteImportMode = SpriteImportMode.Single;
+            ti.mipmapEnabled = false;
+            ti.alphaIsTransparency = true;
+            ti.wrapMode = TextureWrapMode.Clamp;
+            ti.filterMode = FilterMode.Bilinear;
+            ti.SaveAndReimport();
+        }
+
+        var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+        if (sprite == null)
+        {
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+            sprite = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+        }
+        return sprite;
+    }
+
     static void CreateGameOverSummaryCard(Transform parent, int index, string label, string value, Color accentColor)
     {
         GameObject go = new GameObject($"GoSummary{index}");
@@ -1417,7 +1481,7 @@ public class SceneBuilder
         report.transform.SetParent(parent, false);
         RectTransform rt = report.AddComponent<RectTransform>();
         rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.410f);
-        rt.sizeDelta = new Vector2(640, 205);
+        rt.sizeDelta = new Vector2(640, 225);
         report.AddComponent<Image>().color = new Color(0.018f, 0.027f, 0.030f, 0.88f);
         var outline = report.AddComponent<Outline>();
         outline.effectColor = new Color(0.34f, 0.58f, 0.58f, 0.48f);
@@ -1648,6 +1712,7 @@ public class SceneBuilder
         hud.BuildingPanel    = canvas.transform.Find("BuildingPanel")?.gameObject;
         hud.BuildingNameText = FindComp<Text>(canvas, "BuildingNameText");
         hud.BuildingHPBar    = FindComp<Slider>(canvas, "BuildingHPBar");
+        hud.BuildingHPText   = FindComp<Text>(canvas, "BuildingHPText");
         hud.ProductionBar    = FindComp<Slider>(canvas, "ProductionBar");
         hud.ProductionText   = FindComp<Text>(canvas, "ProductionText");
 
@@ -1692,7 +1757,7 @@ public class SceneBuilder
         hud.BuildMenuPanel  = canvas.transform.Find("BuildMenuPanel")?.gameObject;
         hud.BuildMenuToggle = FindComp<Button>(canvas, "BuildMenuToggle");
         var buildBtns = new System.Collections.Generic.List<Button>();
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 7; i++)
         {
             var b = FindComp<Button>(canvas, $"BuildButton{i}");
             if (b) buildBtns.Add(b);

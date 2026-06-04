@@ -1,8 +1,8 @@
 ﻿using UnityEngine;
 public class Flamethrower : RTSUnit
 {
-    protected override float DesiredVisualHeight => 1.55f;
-    protected override float DesiredVisualFootprint => 2.25f;
+    protected override float DesiredVisualHeight => 1.3f;
+    protected override float DesiredVisualFootprint => 1.0f;
 
     protected override void Awake()
     {
