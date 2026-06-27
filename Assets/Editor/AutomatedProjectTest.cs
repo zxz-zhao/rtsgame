@@ -13,11 +13,13 @@ using UnityEngine.UI;
 
 public static class AutomatedProjectTest
 {
+    // 冒烟测试依赖的核心场景与资源路径。
     const string GameScenePath = "Assets/Scenes/GameScene.unity";
     const string LoginScenePath = "Assets/Scenes/LoginScene.unity";
     const string LobbyScenePath = "Assets/Scenes/LobbyScene.unity";
     const string NavMeshAssetPath = "Assets/Scenes/GameScene/NavMesh.asset";
 
+    /// <summary>编辑器菜单入口，运行完整冒烟测试但不抛出异常。</summary>
     [MenuItem("RTS/测试/运行自动冒烟测试")]
     public static void RunFromMenu()
     {
@@ -30,11 +32,13 @@ public static class AutomatedProjectTest
         RunSmokeTest(true);
     }
 
+    /// <summary>场景生成流程结束后复用同一套校验，批处理模式下保持失败即退出。</summary>
     public static void RunAfterSceneGeneration()
     {
         RunSmokeTest(Application.isBatchMode);
     }
 
+    /// <summary>汇总场景、布局与资源校验结果，并在需要时抛出失败原因。</summary>
     public static bool RunSmokeTest(bool throwOnFailure)
     {
         var failures = new List<string>();
@@ -155,6 +159,7 @@ public static class AutomatedProjectTest
             failures.Add("缺少 AIController 组件。");
 
         ValidateHud(failures);
+        ValidateBattleHudLayout(failures);
         ValidateGameOverPanelLayout(failures);
         ValidateMinimap(failures);
         ValidateGeneratedTerrain(failures);
@@ -252,6 +257,226 @@ public static class AutomatedProjectTest
         if (hud.MinimapCameraRect == null) failures.Add("RTSHUD.MinimapCameraRect 未绑定。");
     }
 
+    /// <summary>执行战斗 HUD 的运行时重排，并检查左下角关键入口是否互相遮挡。</summary>
+    static void ValidateBattleHudLayout(List<string> failures)
+    {
+        RTSHUD hud = Object.FindObjectOfType<RTSHUD>();
+        if (hud == null) return;
+
+        MethodInfo rebuildLayoutMethod = typeof(RTSHUD).GetMethod(
+            "RebuildBattleHudLayout",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        if (rebuildLayoutMethod == null)
+        {
+            failures.Add("RTSHUD missing RebuildBattleHudLayout.");
+            return;
+        }
+
+        try
+        {
+            rebuildLayoutMethod.Invoke(hud, null);
+        }
+        catch (System.Exception e)
+        {
+            failures.Add("RTSHUD.RebuildBattleHudLayout failed: " + e.Message);
+            return;
+        }
+
+        ValidateOptionalUiRectsDoNotOverlap(
+            "MinimapImage",
+            "BuildMenuToggle",
+            failures,
+            "Battle HUD minimap overlaps build button.");
+        ValidateOptionalUiRectsDoNotOverlap(
+            "MinimapImage",
+            "_TechButton",
+            failures,
+            "Battle HUD minimap overlaps tech button.");
+        ValidateOptionalUiRectsDoNotOverlap(
+            "BuildMenuToggle",
+            "_TechButton",
+            failures,
+            "Battle HUD build/tech buttons overlap.");
+        ValidateBattleHudActionColumnLayout(failures);
+        ValidateBattleHudCommandBarLayout(failures);
+        ValidateBattleBuildMenuPopupCentering(failures);
+        ValidateBattleChatLayout(hud, failures);
+    }
+
+    static void ValidateBattleHudActionColumnLayout(List<string> failures)
+    {
+        RectTransform minimap = FindRectTransform("MinimapImage");
+        RectTransform build = FindRectTransform("BuildMenuToggle");
+        RectTransform tech = FindRectTransform("_TechButton");
+        RectTransform chatDock = FindRectTransform("_ChatDockButton");
+        if (minimap == null || build == null || tech == null) return;
+
+        Rect minimapRect = GetWorldRect(minimap);
+        Rect buildRect = GetWorldRect(build);
+        Rect techRect = GetWorldRect(tech);
+
+        if (Mathf.Abs(buildRect.xMin - techRect.xMin) > 4f)
+            failures.Add("Battle HUD build/tech buttons are not left-aligned in one column.");
+
+        if (buildRect.yMin < techRect.yMax - 0.5f)
+            failures.Add("Battle HUD build button is not stacked above the tech button.");
+
+        if (techRect.yMin < minimapRect.yMax + 4f)
+            failures.Add("Battle HUD tech button is not placed above the minimap.");
+
+        if (Mathf.Abs(buildRect.xMin - minimapRect.xMin) > 4f || Mathf.Abs(techRect.xMin - minimapRect.xMin) > 4f)
+            failures.Add("Battle HUD build/tech buttons are not aligned to the minimap's left edge.");
+
+        if (chatDock != null)
+        {
+            Rect chatDockRect = GetWorldRect(chatDock);
+            if (buildRect.yMax > chatDockRect.yMin - 8f)
+                failures.Add("Battle HUD chat dock is too close to the build button.");
+        }
+    }
+
+    static void ValidateBattleHudCommandBarLayout(List<string> failures)
+    {
+        RectTransform canvas = FindRectTransform("HUDCanvas");
+        RectTransform commandBar = FindRectTransform("_CommandBar");
+        RectTransform selectAll = FindRectTransform("_Cmd_SelectAll");
+        RectTransform boxSelect = FindRectTransform("_Cmd_BoxSelect");
+        if (commandBar == null)
+        {
+            failures.Add("Battle HUD command bar is missing.");
+            return;
+        }
+
+        if (!commandBar.gameObject.activeInHierarchy)
+            failures.Add("Battle HUD command bar is inactive.");
+        if (selectAll == null)
+            failures.Add("Battle HUD command bar missing Select All button.");
+        if (boxSelect == null)
+            failures.Add("Battle HUD command bar missing Box Select button.");
+        if (canvas == null || selectAll == null || boxSelect == null)
+            return;
+
+        Rect canvasRect = GetWorldRect(canvas);
+        Rect commandRect = GetWorldRect(commandBar);
+        Rect selectAllRect = GetWorldRect(selectAll);
+        Rect boxSelectRect = GetWorldRect(boxSelect);
+
+        if (!RectContainsRect(canvasRect, commandRect))
+            failures.Add("Battle HUD command bar is outside the HUD canvas.");
+        if (!RectContainsRect(canvasRect, selectAllRect))
+            failures.Add("Battle HUD Select All button is outside the HUD canvas.");
+        if (!RectContainsRect(canvasRect, boxSelectRect))
+            failures.Add("Battle HUD Box Select button is outside the HUD canvas.");
+        if (selectAllRect.Overlaps(boxSelectRect))
+            failures.Add("Battle HUD Select All and Box Select buttons overlap.");
+    }
+
+    /// <summary>注入一条长聊天消息，验证自动换行后的文本仍位于聊天面板正文区域内。</summary>
+    static void ValidateBattleBuildMenuPopupCentering(List<string> failures)
+    {
+        RectTransform panel = FindRectTransform("BuildMenuPanel");
+        if (panel == null) return;
+
+        if (Vector2.Distance(panel.anchorMin, new Vector2(0.5f, 0.5f)) > 0.01f
+            || Vector2.Distance(panel.anchorMax, new Vector2(0.5f, 0.5f)) > 0.01f)
+            failures.Add("Battle HUD build menu panel is not anchored to the screen center.");
+
+        if (Vector2.Distance(panel.pivot, new Vector2(0.5f, 0.5f)) > 0.01f)
+            failures.Add("Battle HUD build menu panel pivot is not centered.");
+
+        if (panel.anchoredPosition.sqrMagnitude > 1f)
+            failures.Add("Battle HUD build menu panel is not positioned at the screen center.");
+
+        RectTransform close = FindRectTransform("_BuildPopupClose");
+        if (close == null)
+        {
+            failures.Add("Battle HUD build menu popup is missing the top-right close button.");
+        }
+        else
+        {
+            Rect panelRect = GetWorldRect(panel);
+            Rect closeRect = GetWorldRect(close);
+            if (closeRect.xMax < panelRect.xMax - 56f || closeRect.yMax < panelRect.yMax - 30f)
+                failures.Add("Battle HUD build menu close button is not anchored near the popup's top-right corner.");
+        }
+
+        RectTransform tabs = FindRectTransform("_BuildCategoryTabs");
+        if (tabs == null)
+            failures.Add("Battle HUD build menu popup is missing category tabs.");
+
+        RectTransform contentFrame = FindRectTransform("_BuildContentFrame");
+        if (contentFrame == null)
+            failures.Add("Battle HUD build menu popup is missing its content frame.");
+        else if (tabs != null)
+        {
+            Rect tabsRect = GetWorldRect(tabs);
+            Rect contentRect = GetWorldRect(contentFrame);
+            if (tabsRect.yMin < contentRect.yMax + 4f)
+                failures.Add("Battle HUD build menu tabs overlap the content frame.");
+        }
+    }
+
+    static void ValidateBattleChatLayout(RTSHUD hud, List<string> failures)
+    {
+        if (hud == null) return;
+
+        hud.AppendChatMessage(
+            "测试",
+            "这是一条需要自动换行的战场通讯消息，用来验证聊天面板里的多行文字不会互相覆盖或跑出语音框区域。",
+            Color.white);
+        Canvas.ForceUpdateCanvases();
+
+        RectTransform chatPanel = FindRectTransform("_ChatPanel");
+        if (chatPanel == null)
+        {
+            failures.Add("Battle HUD missing chat panel.");
+            return;
+        }
+
+        RectTransform body = chatPanel.Find("Body") as RectTransform;
+        if (body == null)
+        {
+            failures.Add("Battle HUD chat panel missing Body.");
+            return;
+        }
+
+        var lines = new List<Text>();
+        foreach (Text text in body.GetComponentsInChildren<Text>(true))
+        {
+            if (text != null && text.transform.parent == body)
+                lines.Add(text);
+        }
+
+        if (lines.Count < 2)
+        {
+            failures.Add("Battle HUD chat panel did not create enough lines for wrap validation.");
+            return;
+        }
+
+        lines.Sort((a, b) => b.rectTransform.anchoredPosition.y.CompareTo(a.rectTransform.anchoredPosition.y));
+        Rect bodyRect = GetWorldRect(body);
+        Rect previousRect = new Rect();
+        bool hasPrevious = false;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            Rect currentRect = GetWorldRect(lines[i].rectTransform);
+            if (!RectContainsRect(bodyRect, currentRect))
+            {
+                failures.Add("Battle HUD chat text overflows the chat body.");
+                return;
+            }
+
+            if (hasPrevious && previousRect.Overlaps(currentRect))
+            {
+                failures.Add("Battle HUD chat messages overlap when wrapping.");
+                return;
+            }
+
+            previousRect = currentRect;
+            hasPrevious = true;
+        }
+    }
+
     static void ValidateMinimap(List<string> failures)
     {
         MinimapManager minimap = Object.FindObjectOfType<MinimapManager>();
@@ -286,7 +511,11 @@ public static class AutomatedProjectTest
         }
         catch (System.Exception e)
         {
-            failures.Add("RTSHUD.EnsureGameOverPanelLayout 执行失败：" + e.Message);
+            System.Exception root = e is TargetInvocationException && e.InnerException != null
+                ? e.InnerException
+                : e;
+            failures.Add("RTSHUD.EnsureGameOverPanelLayout failed: "
+                + root.GetType().Name + ": " + root.Message + "\n" + root.StackTrace);
             return;
         }
 
@@ -375,16 +604,22 @@ public static class AutomatedProjectTest
             "Barracks_P", "Barracks_E",
             "AirFactory_P", "AirFactory_E",
             "TankFactory_P", "TankFactory_E",
+            "ArmorFactory_P", "ArmorFactory_E",
             "PowerPlant_P", "PowerPlant_E",
             "GoldMine_P", "GoldMine_E",
-            "Turret_E",
+            "Turret_P", "Turret_E",
+            "NavalYard_P", "NavalYard_E",
             "Infantry_P", "Infantry_E",
             "Fighter_P", "Fighter_E",
             "Bomber_P", "Bomber_E",
             "ScoutPlane_P", "ScoutPlane_E",
             "Tank_P", "Tank_E",
             "Artillery_P", "Artillery_E",
+            "AntiAirGun_P", "AntiAirGun_E",
             "Flamethrower_P", "Flamethrower_E",
+            "PatrolBoat_P", "PatrolBoat_E",
+            "DestroyerShip_P", "DestroyerShip_E",
+            "TransportShip_P", "TransportShip_E",
         };
 
         foreach (string prefabName in prefabNames)
@@ -407,6 +642,8 @@ public static class AutomatedProjectTest
         ValidatePrefabModel("Infantry_E", failures, "Model", "MixamoBasicShooter", "KenneyWeapon", "WW2RifleBarrel", "Muzzle", "FactionPlate");
         ValidatePrefabModel("Tank_P", failures, "Model", "KenneyVehicleBase", "KenneyTankCannon", "Muzzle", "FactionPlate");
         ValidatePrefabModel("Tank_E", failures, "Model", "KenneyVehicleBase", "KenneyTankCannon", "Muzzle", "FactionPlate");
+        ValidatePrefabModel("AntiAirGun_P", failures, "Model", "KenneyVehicleBase", "KenneyTankCannon", "Muzzle", "FactionPlate");
+        ValidatePrefabModel("AntiAirGun_E", failures, "Model", "KenneyVehicleBase", "KenneyTankCannon", "Muzzle", "FactionPlate");
         ValidatePrefabModel("Artillery_P", failures, "Model", "MixamoBasicShooter", "KenneyWeapon", "WW2ShoulderTube", "WW2ShoulderMuzzle", "Muzzle", "FactionPlate");
         ValidatePrefabModel("Artillery_E", failures, "Model", "MixamoBasicShooter", "KenneyWeapon", "WW2ShoulderTube", "WW2ShoulderMuzzle", "Muzzle", "FactionPlate");
         ValidatePrefabDoesNotContain("Infantry_P", failures, "WW2ShoulderTube", "WW2ShoulderMuzzle");
@@ -418,6 +655,9 @@ public static class AutomatedProjectTest
         ValidatePrefabModel("Fighter_P", failures, "Model", "KenneyAircraft", "KenneyNosePod", "Muzzle", "FactionPlate");
         ValidatePrefabModel("Bomber_P", failures, "Model", "KenneyAircraft", "KenneyBombA", "KenneyBombB", "Muzzle", "FactionPlate");
         ValidatePrefabModel("ScoutPlane_P", failures, "Model", "KenneyAircraft", "KenneySensor", "Muzzle", "FactionPlate");
+        ValidatePrefabModel("PatrolBoat_P", failures, "Model", "KenneyWatercraft", "PatrolBowGun", "Muzzle", "NavalFactionStripeL", "NavalFactionStripeR");
+        ValidatePrefabModel("DestroyerShip_P", failures, "Model", "KenneyWatercraft", "DestroyerMainGun", "Muzzle", "DestroyerSignalMast", "NavalFactionStripeL");
+        ValidatePrefabModel("TransportShip_P", failures, "Model", "KenneyWatercraft", "BattleshipForwardGun", "BattleshipAftGun", "BattleshipSignalMast", "Muzzle", "NavalFactionStripeL");
         ValidateAircraftSlotRequirement("Fighter_P", true, failures);
         ValidateAircraftSlotRequirement("Fighter_E", true, failures);
         ValidateAircraftSlotRequirement("Bomber_P", true, failures);
@@ -426,6 +666,8 @@ public static class AutomatedProjectTest
         ValidateAircraftSlotRequirement("ScoutPlane_E", false, failures);
         ValidatePrefabParts("Turret_P", failures, "Model", "WW2TurretCannon", "Muzzle", "FactionPlate");
         ValidatePrefabParts("Turret_E", failures, "Model", "WW2TurretCannon", "Muzzle", "FactionPlate");
+        ValidatePrefabParts("NavalYard_P", failures, "Model", "WW2NavalYardRamp", "WW2NavalYardCraneGate", "WW2NavalYardBoatPreview");
+        ValidatePrefabParts("NavalYard_E", failures, "Model", "WW2NavalYardRamp", "WW2NavalYardCraneGate", "WW2NavalYardBoatPreview");
         ValidatePrefabParts("PowerPlant_P", failures, "Model", "WW2PowerPlantShed", "WW2PowerStackA", "WW2PowerFuelTankL", "WW2PowerGeneratorHouse", "WW2PowerSandbagFence", "FactionPlate");
         ValidatePrefabParts("PowerPlant_E", failures, "Model", "WW2PowerPlantShed", "WW2PowerStackA", "WW2PowerFuelTankL", "WW2PowerGeneratorHouse", "WW2PowerSandbagFence", "FactionPlate");
         ValidatePrefabAnimator("Infantry_P", failures);
@@ -442,15 +684,24 @@ public static class AutomatedProjectTest
         ValidateUnitScaleTarget<Infantry>("Infantry_E", failures, 3.6f, 2.0f);
         ValidateUnitScaleTarget<Artillery>("Artillery_P", failures, 3.6f, 2.0f);
         ValidateUnitScaleTarget<Artillery>("Artillery_E", failures, 3.6f, 2.0f);
+        ValidateUnitScaleTarget<AntiAirGun>("AntiAirGun_P", failures, 3.0f, 3.4f);
+        ValidateUnitScaleTarget<AntiAirGun>("AntiAirGun_E", failures, 3.0f, 3.4f);
         ValidateUnitScaleTarget<Fighter>("Fighter_P", failures, 1.2f, 2.6f);
         ValidateUnitScaleTarget<Fighter>("Fighter_E", failures, 1.2f, 2.6f);
+        ValidateUnitScaleTarget<PatrolBoat>("PatrolBoat_P", failures, 1.2f, 3.6f);
+        ValidateUnitScaleTarget<DestroyerShip>("DestroyerShip_P", failures, 1.8f, 5.7f);
+        ValidateUnitScaleTarget<TransportShip>("TransportShip_P", failures, 2.2f, 7.2f);
         ValidatePrefabProjectile("Infantry_P", failures, "Prefabs/Projectiles/BattleProjectile_Bullet");
         ValidatePrefabProjectile("Flamethrower_P", failures, "Prefabs/Projectiles/BattleProjectile_Flame");
         ValidatePrefabProjectile("Tank_P", failures, "Prefabs/Projectiles/BattleProjectile_Shell");
         ValidatePrefabProjectile("Artillery_P", failures, "Prefabs/Projectiles/BattleProjectile_Shell");
+        ValidatePrefabProjectile("AntiAirGun_P", failures, "Prefabs/Projectiles/BattleProjectile_Bullet");
         ValidatePrefabProjectile("Fighter_P", failures, "Prefabs/Projectiles/BattleProjectile_Bullet");
         ValidatePrefabProjectile("Bomber_P", failures, "Prefabs/Projectiles/BattleProjectile_Bomb");
         ValidatePrefabProjectile("ScoutPlane_P", failures, "Prefabs/Projectiles/BattleProjectile_Bullet");
+        ValidatePrefabProjectile("PatrolBoat_P", failures, "Prefabs/Projectiles/BattleProjectile_Bullet");
+        ValidatePrefabProjectile("DestroyerShip_P", failures, "Prefabs/Projectiles/BattleProjectile_Shell");
+        ValidatePrefabProjectile("TransportShip_P", failures, "Prefabs/Projectiles/BattleProjectile_Shell");
     }
 
     static void ValidateExternalModelAssets(List<string> failures)
@@ -481,6 +732,15 @@ public static class AutomatedProjectTest
         ValidateExternalModelAsset(failures, "Assets/External/Downloads/factory-kit/Models/FBX format/machine-fortified.fbx");
         ValidateExternalModelAsset(failures, "Assets/External/Downloads/factory-kit/Models/FBX format/pipe-large-long.fbx");
         ValidateExternalModelAsset(failures, "Assets/External/Downloads/factory-kit/Models/FBX format/catwalk-straight.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/boat-speed-e.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/ship-large.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/ramp-wide.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/gate.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/cargo-container-a.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/cargo-container-b.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/cargo-pile-a.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/buoy-flag.fbx");
+        ValidateExternalModelAsset(failures, "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/boat-speed-a.fbx");
     }
 
     static void ValidateExternalModelAsset(List<string> failures, string assetPath)
@@ -893,6 +1153,15 @@ public static class AutomatedProjectTest
             maxY = Mathf.Max(maxY, corners[i].y);
         }
         return Rect.MinMaxRect(minX, minY, maxX, maxY);
+    }
+
+    /// <summary>允许少量浮点误差，判断内矩形是否完整落在外矩形范围内。</summary>
+    static bool RectContainsRect(Rect outer, Rect inner)
+    {
+        return inner.xMin >= outer.xMin - 0.5f
+            && inner.xMax <= outer.xMax + 0.5f
+            && inner.yMin >= outer.yMin - 0.5f
+            && inner.yMax <= outer.yMax + 0.5f;
     }
 
     static void ValidateBounds(string mapName, string group, TerrainStripSpec[] values, List<string> failures)

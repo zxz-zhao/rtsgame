@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
@@ -132,8 +133,15 @@ public class EffectsManager : MonoBehaviour
         RTSCamera.Shake(baseMagnitude * falloff, dur);
     }
 
-    public static void PlayImpact(Vector3 pos, Vector3 normal, ProjectileType type)
+    public static void PlayImpact(Vector3 pos, Vector3 normal, ProjectileType type, float impactRadius = 0.55f)
     {
+        float radius = Mathf.Max(0.2f, impactRadius);
+        if (type == ProjectileType.Bomb)
+        {
+            PlayBombImpact(pos, normal, radius);
+            return;
+        }
+
         string key = type switch
         {
             ProjectileType.Bullet => ResKey.ImpactBullet,
@@ -142,9 +150,57 @@ public class EffectsManager : MonoBehaviour
             ProjectileType.Fire   => ResKey.ImpactFire,
             _                     => ResKey.ImpactBullet
         };
-        var rot = normal.sqrMagnitude > 0.01f ? Quaternion.LookRotation(normal) : Quaternion.identity;
-        if (Spawn(key, pos, rot) != null) return;
-        // Fallback: 命中冲击
+        Vector3 impactNormal = normal.sqrMagnitude > 0.01f ? normal.normalized : Vector3.up;
+        var rot = Quaternion.LookRotation(impactNormal);
+        Vector3 center = pos + impactNormal * 0.08f;
+
+        switch (type)
+        {
+            case ProjectileType.Shell:
+                _CombatSfx.PlaySmallExplosion(pos);
+                SpawnScorchMark(pos, Mathf.Clamp(radius * 0.9f, 0.85f, 1.9f));
+                TryShakeCamera(pos, Mathf.Clamp(radius * 0.06f, 0.06f, 0.16f), 0.08f);
+                BuildShockwaveRing(center, Mathf.Clamp(radius * 0.72f, 0.85f, 1.4f), new Color(1f, 0.74f, 0.28f, 0.72f));
+                BuildFlash(center + Vector3.up * 0.05f, Mathf.Clamp(radius * 0.78f, 0.72f, 1.2f), new Color(1f, 0.86f, 0.42f, 0.86f), 0.11f);
+                SpawnLingeringImpactSmoke(center + impactNormal * 0.04f, radius, 3, 0.18f, 1f);
+                break;
+            case ProjectileType.Rocket:
+                _CombatSfx.PlaySmallExplosion(pos);
+                SpawnScorchMark(pos, Mathf.Clamp(radius * 1.05f, 1f, 2.15f));
+                TryShakeCamera(pos, Mathf.Clamp(radius * 0.075f, 0.07f, 0.2f), 0.09f);
+                BuildShockwaveRing(center, Mathf.Clamp(radius * 0.88f, 1f, 1.75f), new Color(1f, 0.58f, 0.18f, 0.8f));
+                BuildFlash(center + Vector3.up * 0.06f, Mathf.Clamp(radius * 0.92f, 0.92f, 1.55f), new Color(1f, 0.78f, 0.34f, 0.88f), 0.12f);
+                BuildParticle(center + impactNormal * 0.05f, Mathf.Clamp(radius * 0.66f, 0.85f, 1.6f), fire: false,
+                    burstCount: Mathf.RoundToInt(Mathf.Lerp(10f, 18f, Mathf.InverseLerp(0.8f, 2f, radius))),
+                    startSpeed: 2.6f + radius * 0.28f,
+                    startSize: Mathf.Clamp(radius * 0.22f, 0.22f, 0.46f),
+                    life: 0.55f,
+                    startColor: new Color(0.22f, 0.22f, 0.22f, 0.82f),
+                    gravity: -0.08f,
+                    sphereShape: false);
+                SpawnLingeringImpactSmoke(center + impactNormal * 0.05f, radius, 4, 0.16f, 1.15f);
+                break;
+            case ProjectileType.Fire:
+                _CombatSfx.PlayHit(pos);
+                BuildFlash(center, Mathf.Clamp(radius * 0.66f, 0.66f, 1.08f), new Color(1f, 0.48f, 0.16f, 0.72f), 0.08f);
+                break;
+            default:
+                _CombatSfx.PlayHit(pos);
+                break;
+        }
+
+        var customImpact = Spawn(key, pos, rot);
+        if (customImpact != null)
+        {
+            float customScale = type == ProjectileType.Bullet
+                ? Mathf.Clamp(radius * 0.85f, 0.45f, 0.8f)
+                : type == ProjectileType.Fire
+                    ? Mathf.Clamp(radius * 0.95f, 0.8f, 1.3f)
+                    : Mathf.Clamp(radius * 0.9f, 0.9f, 1.9f);
+            customImpact.transform.localScale *= customScale;
+            return;
+        }
+
         Color tint = type switch
         {
             ProjectileType.Rocket => new Color(1f, 0.55f, 0.20f),
@@ -152,34 +208,114 @@ public class EffectsManager : MonoBehaviour
             ProjectileType.Fire   => new Color(1f, 0.40f, 0.10f),
             _                     => new Color(1f, 0.92f, 0.55f)
         };
-        float impactScale = type == ProjectileType.Rocket ? 1.3f
-                          : type == ProjectileType.Shell  ? 1.0f
-                          : type == ProjectileType.Fire   ? 1.1f : 0.55f;
+        float impactScale = type == ProjectileType.Rocket ? Mathf.Clamp(radius * 1.05f, 1.2f, 2.1f)
+                          : type == ProjectileType.Shell  ? Mathf.Clamp(radius * 0.95f, 0.95f, 1.6f)
+                          : type == ProjectileType.Fire   ? Mathf.Clamp(radius * 0.9f, 0.9f, 1.35f)
+                          : Mathf.Clamp(radius * 0.55f, 0.45f, 0.75f);
         FallbackImpact(pos, tint, impactScale);
     }
 
-    public static void PlayMuzzleFlash(Vector3 pos, Quaternion rot, Transform parent = null)
+    static void PlayBombImpact(Vector3 pos, Vector3 normal, float impactRadius)
     {
+        float blastScale = Mathf.Clamp(impactRadius * 0.85f, 1.35f, 2.65f);
+        _CombatSfx.PlayBigExplosion(pos);
+        SpawnScorchMark(pos, Mathf.Clamp(blastScale * 1.55f, 2.2f, 4.1f));
+        TryShakeCamera(pos, Mathf.Clamp(blastScale * 0.16f, 0.24f, 0.42f), 0.16f);
+
+        Quaternion rot = normal.sqrMagnitude > 0.01f ? Quaternion.LookRotation(normal) : Quaternion.identity;
+        var customImpact = Spawn(ResKey.ImpactRocket, pos, rot);
+        bool hasCustomImpact = customImpact != null;
+        Vector3 center = pos + Vector3.up * 0.24f;
+
+        if (hasCustomImpact)
+        {
+            customImpact.transform.localScale *= Mathf.Clamp(blastScale, 1.25f, 2.2f);
+            BuildShockwaveRing(center, blastScale * 1.55f, new Color(1f, 0.62f, 0.16f, 0.82f));
+            BuildFlash(center + Vector3.up * 0.1f, blastScale * 1.35f, new Color(1f, 0.86f, 0.46f, 0.88f), 0.2f);
+        }
+        else
+        {
+            FallbackExplosion(center, blastScale);
+        }
+
+        BuildParticle(center + Vector3.up * 0.14f, blastScale * 1.18f, fire: false,
+            burstCount: Mathf.RoundToInt(Mathf.Lerp(28f, 44f, Mathf.InverseLerp(1.35f, 2.65f, blastScale))),
+            startSpeed: 2.8f + blastScale * 0.38f,
+            startSize: Mathf.Lerp(0.94f, 1.34f, Mathf.InverseLerp(1.35f, 2.65f, blastScale)),
+            life: 1.9f,
+            startColor: new Color(0.18f, 0.18f, 0.18f, 0.92f),
+            gravity: -0.18f,
+            sphereShape: false);
+        PlayDamageSmoke(center + Vector3.up * 0.2f, 2.15f, true);
+        SpawnLingeringImpactSmoke(center + Vector3.up * 0.12f, blastScale * 1.45f, 8, 0.16f, 1.85f);
+    }
+
+    public static void PlayMuzzleFlash(Vector3 pos, Quaternion rot, ProjectileType type = ProjectileType.Bullet, float intensity = 1f, Transform parent = null)
+    {
+        if (intensity <= 0.01f)
+            return;
+
+        EnsureInstance();
+        float particleScale = 0.6f * intensity;
+        int burstCount = Mathf.RoundToInt(8f * intensity);
+        float startSpeed = 5.5f * intensity;
+        float startSize = 0.10f * intensity;
+        float life = 0.18f;
+        Color startColor = new Color(1f, 0.92f, 0.45f);
+        float gravity = 0.2f;
+        float flashScale = 0.6f * intensity;
+        Color flashColor = new Color(1f, 0.95f, 0.55f, 0.85f);
+        float flashLife = 0.10f;
+
+        switch (type)
+        {
+            case ProjectileType.Shell:
+            case ProjectileType.Rocket:
+                particleScale = 0.78f * intensity;
+                burstCount = Mathf.RoundToInt(10f * intensity);
+                startSpeed = 6.4f * intensity;
+                startSize = 0.12f * intensity;
+                life = 0.2f;
+                startColor = new Color(1f, 0.86f, 0.38f);
+                gravity = 0.12f;
+                flashScale = 0.88f * intensity;
+                flashColor = new Color(1f, 0.92f, 0.52f, 0.9f);
+                flashLife = 0.11f;
+                break;
+            case ProjectileType.Fire:
+                particleScale = 0.85f * intensity;
+                burstCount = Mathf.RoundToInt(12f * intensity);
+                startSpeed = 4.6f * intensity;
+                startSize = 0.14f * intensity;
+                life = 0.22f;
+                startColor = new Color(1f, 0.46f, 0.14f);
+                gravity = -0.05f;
+                flashScale = 0.7f * intensity;
+                flashColor = new Color(1f, 0.52f, 0.16f, 0.82f);
+                flashLife = 0.09f;
+                break;
+        }
+
         // 枪声（按距离/节流，避免成百上千攻击同帧爆耳）
         _CombatSfx.PlayShot(pos);
         var inst = Spawn(ResKey.MuzzleFlash, pos, rot);
         if (inst != null)
         {
+            inst.transform.localScale *= Mathf.Max(0.45f, flashScale);
             if (parent != null) inst.transform.SetParent(parent, true);
             return;
         }
         // Fallback：黄色短促小火星 + 闪光
-        EnsureInstance();
-        BuildParticle(pos, 0.6f, fire: true,
-            burstCount: 8,
-            startSpeed: 5.5f,
-            startSize: 0.10f,
-            life: 0.18f,
-            startColor: new Color(1f, 0.92f, 0.45f),
-            gravity: 0.2f,
+        BuildParticle(pos, particleScale, fire: true,
+            burstCount: burstCount,
+            startSpeed: startSpeed,
+            startSize: startSize,
+            life: life,
+            startColor: startColor,
+            gravity: gravity,
             sphereShape: true);
         // 短闪光（黄白色）
-        BuildFlash(pos, 0.6f, new Color(1f, 0.95f, 0.55f, 0.85f), 0.10f);
+        BuildFlash(pos, flashScale, flashColor, flashLife);
     }
 
     public static void PlayBuildComplete(Vector3 pos)
@@ -204,6 +340,24 @@ public class EffectsManager : MonoBehaviour
             startColor: tint,
             gravity: 0.8f,
             sphereShape: true);
+    }
+
+    public static void PlayDamageSmoke(Vector3 pos, float intensity = 1f, bool lingering = false)
+    {
+        EnsureInstance();
+        float safeIntensity = Mathf.Clamp(intensity, 0.35f, 2.4f);
+        float scale = Mathf.Clamp(0.42f + safeIntensity * 0.24f, 0.38f, 1.55f);
+        BuildParticle(pos + Vector3.up * 0.06f, scale, fire: false,
+            burstCount: Mathf.RoundToInt(Mathf.Lerp(4f, 10f, Mathf.InverseLerp(0.35f, 2.2f, safeIntensity))),
+            startSpeed: 0.82f + safeIntensity * 0.24f,
+            startSize: Mathf.Clamp(0.16f + scale * 0.12f, 0.18f, 0.44f),
+            life: Mathf.Lerp(0.55f, 1.05f, Mathf.InverseLerp(0.35f, 2.2f, safeIntensity)),
+            startColor: new Color(0.24f, 0.24f, 0.24f, Mathf.Lerp(0.48f, 0.72f, Mathf.InverseLerp(0.35f, 2.2f, safeIntensity))),
+            gravity: -0.10f,
+            sphereShape: false);
+
+        if (lingering)
+            SpawnLingeringImpactSmoke(pos + Vector3.up * 0.04f, scale * 0.48f, 2, 0.09f, Mathf.Lerp(0.45f, 0.75f, Mathf.InverseLerp(0.35f, 2.2f, safeIntensity)));
     }
 
     public static void PlayLevelUp(Vector3 pos)
@@ -496,6 +650,38 @@ public class EffectsManager : MonoBehaviour
         return go;
     }
 
+    static void SpawnLingeringImpactSmoke(Vector3 pos, float scale, int puffCount, float puffDelay, float density)
+    {
+        EnsureInstance();
+        if (Instance == null) return;
+        Instance.StartCoroutine(LingerImpactSmokeRoutine(pos, scale, puffCount, puffDelay, density));
+    }
+
+    static IEnumerator LingerImpactSmokeRoutine(Vector3 pos, float scale, int puffCount, float puffDelay, float density)
+    {
+        puffCount = Mathf.Max(1, puffCount);
+        float safeScale = Mathf.Max(0.35f, scale);
+        float safeDensity = Mathf.Max(0.35f, density);
+
+        for (int i = 0; i < puffCount; i++)
+        {
+            float t = puffCount == 1 ? 1f : i / Mathf.Max(1f, puffCount - 1f);
+            Vector3 puffPos = pos + Vector3.up * (0.08f + safeScale * Mathf.Lerp(0.06f, 0.24f, t));
+            float puffScale = Mathf.Clamp(safeScale * Mathf.Lerp(0.58f, 0.92f, t) * safeDensity, 0.28f, 3.2f);
+            BuildParticle(puffPos, puffScale, fire: false,
+                burstCount: Mathf.RoundToInt(Mathf.Lerp(6f, 14f, t) * safeDensity),
+                startSpeed: Mathf.Lerp(0.85f, 1.55f, t) + safeScale * 0.06f,
+                startSize: Mathf.Clamp(safeScale * Mathf.Lerp(0.30f, 0.50f, t), 0.22f, 1.05f),
+                life: Mathf.Lerp(0.95f, 1.75f, t) + safeScale * 0.08f,
+                startColor: new Color(0.24f, 0.24f, 0.24f, Mathf.Lerp(0.82f, 0.58f, t)),
+                gravity: -0.22f,
+                sphereShape: false);
+
+            if (i + 1 < puffCount)
+                yield return new WaitForSeconds(Mathf.Max(0.05f, puffDelay));
+        }
+    }
+
     static GameObject BuildShockwaveRing(Vector3 pos, float maxScale, Color color)
     {
         return BuildParticle(pos + Vector3.up * 0.08f, maxScale, fire: true,
@@ -559,5 +745,6 @@ public enum ProjectileType
     Bullet,
     Shell,
     Rocket,
+    Bomb,
     Fire
 }

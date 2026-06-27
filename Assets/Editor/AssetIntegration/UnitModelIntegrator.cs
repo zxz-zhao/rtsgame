@@ -19,7 +19,7 @@ public class UnitModelIntegrator : EditorWindow
         "Fighter", "Bomber", "ScoutPlane"
     };
     static readonly string[] BuildingKeys = {
-        "MainBase", "Barracks", "TankFactory", "AirFactory",
+        "MainBase", "Barracks", "TankFactory", "ArmorFactory", "AirFactory",
         "Turret", "GoldMine", "PowerPlant"
     };
 

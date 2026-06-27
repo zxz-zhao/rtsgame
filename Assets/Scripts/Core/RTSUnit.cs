@@ -31,6 +31,44 @@ public class RTSUnit : MonoBehaviour
 
     protected virtual float MoveStoppingDistance => 0.35f;
     protected virtual float CombatStoppingDistance => Mathf.Max(0.5f, AttackRange * 0.8f);
+    protected virtual float AgentAngularSpeed => 120f;
+    protected virtual bool CanTraverseForestZones => true;
+
+    /// <summary>
+    /// Clamps a requested destination into a position this unit is allowed to occupy.
+    /// </summary>
+    public virtual Vector3 ClampWorldPosition(Vector3 requested)
+    {
+        return requested;
+    }
+
+    /// <summary>
+    /// Returns whether this unit can attack the supplied enemy aircraft.
+    /// Ground units default to not being able to engage air; aircraft can engage air by default.
+    /// </summary>
+    protected virtual bool CanAttackAirUnit(AirUnit target)
+    {
+        return bFlying;
+    }
+
+    /// <summary>
+    /// Returns whether this unit can attack the supplied enemy unit under the current land/air combat rules.
+    /// </summary>
+    public virtual bool CanAttackUnit(RTSUnit target)
+    {
+        if (target == null || target == this || target.IsDead())
+            return false;
+        if (target.bPlayerOwned == bPlayerOwned)
+            return false;
+        if (target.bFlying)
+        {
+            var airTarget = target as AirUnit;
+            return airTarget != null ? CanAttackAirUnit(airTarget) : bFlying;
+        }
+        return true;
+    }
+
+    public bool CanAttackGroundPoint => !bFlying && SplashRadius > 0.05f && AttackRange > 0.5f && AttackDamage > 0;
 
     [Header("状态")]
     public bool bPlayerOwned = false;
@@ -46,14 +84,18 @@ public class RTSUnit : MonoBehaviour
     protected float AttackTimer = 0f;
     protected NavMeshAgent Agent;
     protected RTSPlayerController OwnerPC;
+    float _attackCooldownOverride = -1f;
 
     // 命令类型
-    public enum CommandType { None, Move, Attack, AttackMove, Stop, Patrol, Guard }
+    public enum CommandType { None, Move, Attack, AttackMove, AttackGround, Stop, Patrol, Guard }
     protected CommandType CurrentCommand = CommandType.None;
     protected Vector3 CommandTarget;
     protected RTSUnit CommandTargetUnit;
     private const float MoveArrivalPadding = 0.55f;
 
+    /// <summary>
+    /// Applies unit definition defaults and creates the minimal runtime state needed before ownership is assigned.
+    /// </summary>
     protected virtual void Awake()
     {
         CaptureBaseStats();
@@ -62,11 +104,16 @@ public class RTSUnit : MonoBehaviour
         if (Agent != null)
         {
             Agent.speed = MoveSpeed;
+            Agent.angularSpeed = AgentAngularSpeed;
             UseMoveStoppingDistance();
+            ConfigureNavigationAreaMask();
         }
         // 阵营球和小地图标记在 Start() 创建（bPlayerOwned 由外部在 Awake 之后设置）
     }
 
+    /// <summary>
+    /// Captures the unit's unbuffed base stats so temporary tech effects can recompute from a stable reference.
+    /// </summary>
     void CaptureBaseStats()
     {
         _baseMaxHP = Mathf.Max(1, MaxHP);
@@ -77,16 +124,49 @@ public class RTSUnit : MonoBehaviour
         _baseMoveSpeed = Mathf.Max(0.1f, MoveSpeed);
     }
 
+    /// <summary>
+    /// Restores the NavMesh stopping distance used for ordinary movement orders.
+    /// </summary>
     protected void UseMoveStoppingDistance()
     {
         if (Agent != null)
             Agent.stoppingDistance = MoveStoppingDistance;
     }
 
+    /// <summary>
+    /// Switches the NavMesh stopping distance to the shorter combat spacing used while attacking.
+    /// </summary>
     protected void UseCombatStoppingDistance()
     {
         if (Agent != null)
             Agent.stoppingDistance = CombatStoppingDistance;
+    }
+
+    /// <summary>
+    /// Applies per-unit NavMesh area permissions such as forest traversal.
+    /// </summary>
+    protected void ConfigureNavigationAreaMask()
+    {
+        if (Agent == null)
+            return;
+
+        int areaMask = Agent.areaMask;
+        if (CanTraverseForestZones)
+            areaMask |= BattlefieldNavAreas.ForestAreaMask;
+        else
+            areaMask &= ~BattlefieldNavAreas.ForestAreaMask;
+
+        Agent.areaMask = areaMask;
+    }
+
+    /// <summary>
+    /// Converts a requested world point into the clamped path destination this unit should actually pursue.
+    /// </summary>
+    protected Vector3 GetPathDestination(Vector3 requested)
+    {
+        Vector3 clamped = ClampWorldPosition(requested);
+        clamped.y = requested.y;
+        return clamped;
     }
 
     // 头顶血条
@@ -152,6 +232,9 @@ public class RTSUnit : MonoBehaviour
     protected virtual float UnitLabelHeight => 2.0f;
     protected virtual float SelectionRingRadius => bFlying ? 2.2f : 1.5f;
 
+    /// <summary>
+    /// Finishes runtime setup after ownership is known, including visuals, UI helpers, tinting, and registration.
+    /// </summary>
     protected virtual void Start()
     {
         // 归属玩家
@@ -195,6 +278,9 @@ public class RTSUnit : MonoBehaviour
             gameObject.AddComponent<FogHideable>();
     }
 
+    /// <summary>
+    /// Applies the default faction tinting pass for units that do not need a specialized recolor rule.
+    /// </summary>
     protected virtual void ApplyMilitaryTint()
     {
         // Ground units keep the WW2 palette; aircraft need stronger separation from the teal battlefield.
@@ -226,6 +312,9 @@ public class RTSUnit : MonoBehaviour
     }
 
     // 创建扁平圆盘光环，radius 为世界单位半径
+    /// <summary>
+    /// Creates the world-space selection ring visual used when the unit becomes selected.
+    /// </summary>
     static GameObject CreateSelectionRing(Transform parent, float radius)
     {
         // 金色（与 HUD 金边一致），用 Quad+圆环贴图替代旧 Cylinder
@@ -236,6 +325,9 @@ public class RTSUnit : MonoBehaviour
         return ring;
     }
 
+    /// <summary>
+    /// Toggles the unit's selected state and updates the associated world-space selection feedback.
+    /// </summary>
     public void SetSelected(bool selected)
     {
         IsSelected = selected;
@@ -270,16 +362,27 @@ public class RTSUnit : MonoBehaviour
         return lr;
     }
 
-    protected System.Collections.IEnumerator FlashAttackLine(Vector3 targetPos)
+    /// <summary>
+    /// Briefly shows the attack-line helper toward the current target position.
+    /// </summary>
+    protected System.Collections.IEnumerator FlashAttackLine(Vector3 targetPos, ProjectileType projectileType)
     {
-        if (_attackLine == null) yield break;
         Vector3 origin = GetAttackOrigin();
-        Vector3 impact = targetPos + Vector3.up * 1.0f;
-        _attackLine.SetPosition(0, origin);
-        _attackLine.SetPosition(1, impact);
-        _attackLine.enabled = true;
-        SpawnProjectileVisual(origin, impact);
-        yield return new WaitForSeconds(Mathf.Clamp(TracerDuration, 0.02f, 0.14f));
+        Vector3 impact = targetPos + Vector3.up * ProjectileVisualProfile.GetImpactHeightOffset(projectileType);
+        bool showTracer = _attackLine != null && ProjectileVisualProfile.ShouldShowTracer(projectileType);
+        if (showTracer)
+        {
+            ProjectileVisualProfile.ApplyTracerStyle(_attackLine, projectileType, bFlying);
+            _attackLine.SetPosition(0, origin);
+            _attackLine.SetPosition(1, impact);
+            _attackLine.enabled = true;
+        }
+
+        SpawnProjectileVisual(origin, impact, projectileType);
+        if (!showTracer)
+            yield break;
+
+        yield return new WaitForSeconds(ProjectileVisualProfile.GetTracerDuration(projectileType, TracerDuration));
         if (_attackLine != null) _attackLine.enabled = false;
     }
 
@@ -314,6 +417,25 @@ public class RTSUnit : MonoBehaviour
         return Quaternion.LookRotation(fallbackDirection.normalized, Vector3.up);
     }
 
+    protected ProjectileType ResolveAttackProjectileType()
+    {
+        return ProjectileVisualProfile.ResolveType(ProjectilePrefabPath, ProjectileArcHeight, ProjectileImpactRadius, ProjectileTint);
+    }
+
+    protected virtual void AimAtCombatTarget(Vector3 targetPosition)
+    {
+        Vector3 dir = targetPosition - transform.position;
+        if (!bFlying)
+            dir.y = 0f;
+        if (dir.sqrMagnitude < 0.0001f)
+            return;
+
+        transform.rotation = Quaternion.Slerp(
+            transform.rotation,
+            Quaternion.LookRotation(dir.normalized, Vector3.up),
+            Time.deltaTime * 5f);
+    }
+
     Transform FindWeaponHardpoint(Transform root)
     {
         string[] priorityNames =
@@ -343,7 +465,7 @@ public class RTSUnit : MonoBehaviour
         return null;
     }
 
-    void SpawnProjectileVisual(Vector3 origin, Vector3 targetPos)
+    void SpawnProjectileVisual(Vector3 origin, Vector3 targetPos, ProjectileType projectileType)
     {
         GameObject prefab = string.IsNullOrEmpty(ProjectilePrefabPath)
             ? null
@@ -351,7 +473,7 @@ public class RTSUnit : MonoBehaviour
 
         if (prefab == null)
         {
-            SpawnImpactFlash(targetPos, ProjectileTint, Mathf.Max(ProjectileImpactRadius, SplashRadius * 0.32f));
+            SpawnImpactFlash(targetPos, projectileType, Mathf.Max(ProjectileImpactRadius, SplashRadius * 0.32f));
             return;
         }
 
@@ -363,12 +485,12 @@ public class RTSUnit : MonoBehaviour
         float radius = ProjectileImpactRadius > 0f
             ? ProjectileImpactRadius
             : (SplashRadius > 0f ? Mathf.Clamp(SplashRadius * 0.32f, 0.45f, 1.8f) : 0.45f);
-        visual.Initialize(origin, targetPos, ProjectileTint, ProjectileSpeed, ProjectileArcHeight, radius);
+        visual.Initialize(origin, targetPos, ProjectileTint, ProjectileSpeed, ProjectileArcHeight, radius, projectileType);
     }
 
-    void SpawnImpactFlash(Vector3 targetPos, Color color, float radius)
+    void SpawnImpactFlash(Vector3 targetPos, ProjectileType projectileType, float radius)
     {
-        EffectsManager.PlayImpact(targetPos, Vector3.up, ProjectileType.Bullet);
+        EffectsManager.PlayImpact(targetPos, Vector3.up, projectileType, radius);
     }
 
     void ApplyUnitBodyColor(Color c)
@@ -407,6 +529,9 @@ public class RTSUnit : MonoBehaviour
     private const float StuckCheckInterval = 20f; // 每 20s 检查一次
     private const float StuckMinDistance   = 1f;  // 低于此距离视为卡住
 
+    /// <summary>
+    /// Advances shared unit runtime behavior such as UI, death handling, movement state, and command execution.
+    /// </summary>
     protected virtual void Update()
     {
         if (IsDead()) return;
@@ -517,6 +642,9 @@ public class RTSUnit : MonoBehaviour
         lastCheckPos = transform.position;
     }
 
+    /// <summary>
+    /// Runs the base ground-unit combat and movement decision loop for the current command mode.
+    /// </summary>
     protected virtual void UpdateAI()
     {
         switch (CurrentCommand)
@@ -529,6 +657,9 @@ public class RTSUnit : MonoBehaviour
                 break;
             case CommandType.AttackMove:
                 UpdateAttackMove();
+                break;
+            case CommandType.AttackGround:
+                UpdateAttackGround();
                 break;
             case CommandType.Stop:
                 SafeResetPath();
@@ -589,7 +720,7 @@ public class RTSUnit : MonoBehaviour
 
     void UpdateAttack()
     {
-        if (AttackTarget == null || AttackTarget.IsDead())
+        if (AttackTarget == null || AttackTarget.IsDead() || !CanAttackUnit(AttackTarget))
         {
             AttackTarget = null;
             CurrentCommand = CommandType.None;
@@ -599,21 +730,19 @@ public class RTSUnit : MonoBehaviour
         if (dist <= AttackRange)
         {
             SafeResetPath();
-            // 朝向目标
-            Vector3 dir = (AttackTarget.transform.position - transform.position).normalized;
-            if (dir != Vector3.zero)
-                transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Time.deltaTime * 5f);
+            AimAtCombatTarget(AttackTarget.transform.position);
             // 攻击
             if (AttackTimer <= 0f)
             {
                 DoAttack(AttackTarget);
-                AttackTimer = AttackInterval;
+                AttackTimer = ConsumeAttackCooldown();
             }
         }
         else
         {
             UseCombatStoppingDistance();
-            if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(AttackTarget.transform.position);
+            if (Agent != null && Agent.isOnNavMesh)
+                Agent.SetDestination(GetPathDestination(AttackTarget.transform.position));
         }
     }
 
@@ -630,27 +759,26 @@ public class RTSUnit : MonoBehaviour
                 _enemyScanTimer = EnemyScanInterval;
             }
         }
+        if (AttackTarget != null && !CanAttackUnit(AttackTarget))
+            AttackTarget = null;
         if (AttackTarget != null)
         {
             float dist = Vector3.Distance(transform.position, AttackTarget.transform.position);
             if (dist <= AttackRange)
             {
                 SafeResetPath();
-                Vector3 dir = (AttackTarget.transform.position - transform.position).normalized;
-                if (dir != Vector3.zero)
-                    transform.rotation = Quaternion.Slerp(transform.rotation,
-                        Quaternion.LookRotation(dir), Time.deltaTime * 5f);
+                AimAtCombatTarget(AttackTarget.transform.position);
                 if (AttackTimer <= 0f)
                 {
                     DoAttack(AttackTarget);
-                    AttackTimer = AttackInterval;
+                    AttackTimer = ConsumeAttackCooldown();
                 }
             }
             else
             {
                 UseCombatStoppingDistance();
                 if (Agent != null && Agent.isOnNavMesh)
-                    Agent.SetDestination(AttackTarget.transform.position);
+                    Agent.SetDestination(GetPathDestination(AttackTarget.transform.position));
             }
         }
         else
@@ -671,41 +799,63 @@ public class RTSUnit : MonoBehaviour
                 if (dist <= AttackRange)
                 {
                     SafeResetPath();
-                    Vector3 dir = (buildingTarget.transform.position - transform.position).normalized;
-                    if (dir != Vector3.zero)
-                        transform.rotation = Quaternion.Slerp(transform.rotation,
-                            Quaternion.LookRotation(dir), Time.deltaTime * 5f);
+                    AimAtCombatTarget(buildingTarget.transform.position);
                     if (AttackTimer <= 0f)
                     {
-                        PlayAttackVisuals(buildingTarget.transform.position);
-                        AttackTimer = AttackInterval;
-                        var _ns2 = GameNetworkSync.Instance;
-                        if (_ns2 == null || !_ns2.IsNetworkGame || _ns2.IsHost)
-                        {
-                            int prevHP = buildingTarget.GetHP();
-                            buildingTarget.TakeDamage(AttackDamage);
+                        DoAttackBuilding(buildingTarget);
+                        AttackTimer = ConsumeAttackCooldown();
                             // 摧毁建筑算 1 击杀（与单位击杀同等晋升）
-                            if (prevHP > 0 && buildingTarget.GetHP() <= 0) AddKill();
-                        }
                     }
                 }
                 else
                 {
                     UseCombatStoppingDistance();
                     if (Agent != null && Agent.isOnNavMesh)
-                        Agent.SetDestination(buildingTarget.transform.position);
+                        Agent.SetDestination(GetPathDestination(buildingTarget.transform.position));
                 }
             }
             else
             {
                 UseMoveStoppingDistance();
                 if (Agent != null && Agent.isOnNavMesh)
-                    Agent.SetDestination(CommandTarget);
+                    Agent.SetDestination(GetPathDestination(CommandTarget));
                 UpdateMove();
             }
         }
     }
 
+    void UpdateAttackGround()
+    {
+        if (!CanAttackGroundPoint)
+        {
+            CurrentCommand = CommandType.None;
+            SafeResetPath();
+            return;
+        }
+
+        Vector3 flatDelta = CommandTarget - transform.position;
+        flatDelta.y = 0f;
+        if (flatDelta.magnitude <= AttackRange)
+        {
+            SafeResetPath();
+            if (flatDelta.sqrMagnitude > 0.0001f)
+                AimAtCombatTarget(CommandTarget);
+            if (AttackTimer <= 0f)
+            {
+                DoAttackGround(CommandTarget);
+                AttackTimer = ConsumeAttackCooldown();
+            }
+            return;
+        }
+
+        UseCombatStoppingDistance();
+        if (Agent != null && Agent.isOnNavMesh)
+            Agent.SetDestination(GetPathDestination(CommandTarget));
+    }
+
+    /// <summary>
+    /// Finds the nearest enemy building within the unit's building-search radius.
+    /// </summary>
     protected RTSBuilding FindNearestEnemyBuilding()
     {
         RTSBuilding nearest = null;
@@ -722,8 +872,12 @@ public class RTSUnit : MonoBehaviour
         return nearest;
     }
 
+    /// <summary>
+    /// Applies one attack against an enemy unit, including damage, splash, and network-authority checks.
+    /// </summary>
     protected virtual void DoAttack(RTSUnit target)
     {
+        if (!CanAttackUnit(target)) return;
         PlayAttackVisuals(target.transform.position);
         // 联机模式：只有 Host（权威端）计算伤害，Guest 只播放攻击特效
         var _ns = GameNetworkSync.Instance;
@@ -739,32 +893,170 @@ public class RTSUnit : MonoBehaviour
                 float dist = Vector3.Distance(target.transform.position, u.transform.position);
                 float mult = Mathf.Lerp(1f, SplashFalloff, dist / SplashRadius);
                 bool wasAlive = !u.IsDead();
-                u.TakeDamage(Mathf.RoundToInt(AttackDamage * mult));
+                u.TakeDamageFrom(this, Mathf.RoundToInt(AttackDamage * mult));
                 if (wasAlive && u.IsDead()) AddKill();
             }
         }
         else
         {
             bool wasAlive = !target.IsDead();
-            target.TakeDamage(AttackDamage);
+            target.TakeDamageFrom(this, AttackDamage);
             if (wasAlive && target.IsDead()) AddKill();
         }
     }
 
-    protected void PlayAttackVisuals(Vector3 targetPosition)
+    protected virtual void DoAttackBuilding(RTSBuilding target)
     {
+        if (target == null || target.GetHP() <= 0) return;
+        PlayAttackVisuals(target.transform.position);
+
+        var sync = GameNetworkSync.Instance;
+        if (sync != null && sync.IsNetworkGame && !sync.IsHost) return;
+
+        int prevHP = target.GetHP();
+        target.TakeDamageFrom(this, AttackDamage);
+        if (prevHP > 0 && target.GetHP() <= 0)
+            AddKill();
+    }
+
+    protected virtual void DoAttackGround(Vector3 point)
+    {
+        if (!CanAttackGroundPoint) return;
+        PlayAttackVisuals(point);
+
+        var _ns = GameNetworkSync.Instance;
+        if (_ns != null && _ns.IsNetworkGame && !_ns.IsHost) return;
+
+        float radius = Mathf.Max(0.25f, SplashRadius);
+        var units = GameManager.Instance?.GetAllUnits();
+        if (units != null)
+        {
+            for (int i = 0; i < units.Count; i++)
+            {
+                RTSUnit u = units[i];
+                if (u == null || u == this || u.IsDead() || u.bFlying || u.bPlayerOwned == bPlayerOwned) continue;
+
+                float dist = GroundDistance(point, u.transform.position);
+                if (dist > radius) continue;
+
+                float mult = Mathf.Lerp(1f, SplashFalloff, Mathf.Clamp01(dist / radius));
+                bool wasAlive = !u.IsDead();
+                u.TakeDamageFrom(this, Mathf.RoundToInt(AttackDamage * mult));
+                if (wasAlive && u.IsDead()) AddKill();
+            }
+        }
+
+        var buildings = GameManager.Instance?.GetAllBuildings();
+        if (buildings != null)
+        {
+            for (int i = 0; i < buildings.Count; i++)
+            {
+                RTSBuilding b = buildings[i];
+                if (b == null || b.GetHP() <= 0 || b.bPlayerOwned == bPlayerOwned) continue;
+
+                float dist = DistanceToBuildingGroundPoint(b, point);
+                if (dist > radius) continue;
+
+                float mult = Mathf.Lerp(1f, SplashFalloff, Mathf.Clamp01(dist / radius));
+                int prevHP = b.GetHP();
+                b.TakeDamageFrom(this, Mathf.RoundToInt(AttackDamage * mult));
+                if (prevHP > 0 && b.GetHP() <= 0) AddKill();
+            }
+        }
+    }
+
+    protected void QueueAttackCooldown(float cooldown)
+    {
+        _attackCooldownOverride = Mathf.Max(0.01f, cooldown);
+    }
+
+    protected float ConsumeAttackCooldown()
+    {
+        if (_attackCooldownOverride > 0f)
+        {
+            float cooldown = _attackCooldownOverride;
+            _attackCooldownOverride = -1f;
+            return cooldown;
+        }
+
+        return AttackInterval;
+    }
+
+    protected static float GroundDistance(Vector3 a, Vector3 b)
+    {
+        a.y = 0f;
+        b.y = 0f;
+        return Vector3.Distance(a, b);
+    }
+
+    static float DistanceToBuildingGroundPoint(RTSBuilding building, Vector3 point)
+    {
+        Collider col = building.GetComponent<Collider>();
+        if (col != null && col.enabled)
+        {
+            Bounds bounds = col.bounds;
+            Vector3 closest = new Vector3(
+                Mathf.Clamp(point.x, bounds.min.x, bounds.max.x),
+                point.y,
+                Mathf.Clamp(point.z, bounds.min.z, bounds.max.z));
+            return GroundDistance(point, closest);
+        }
+        return GroundDistance(point, building.transform.position);
+    }
+
+    /// <summary>
+    /// Plays muzzle flash, tracer, and attack-line visuals for the current shot.
+    /// </summary>
+    protected void PlayAttackVisuals(Vector3 targetPosition, bool playMuzzleFlash = true)
+    {
+        ProjectileType projectileType = ResolveAttackProjectileType();
         _visualAnimator?.TriggerFireAnimation();
-        StartCoroutine(FlashAttackLine(targetPosition));
+        StartCoroutine(FlashAttackLine(targetPosition, projectileType));
+        if (playMuzzleFlash)
+        {
         // 枪口火焰特效（取单位前方约 1m 处作为枪口位置）
         Vector3 dir = (targetPosition - transform.position).normalized;
         Vector3 muzzlePos = GetAttackOrigin();
         Quaternion muzzleRot = GetAttackRotation(dir);
-        EffectsManager.PlayMuzzleFlash(muzzlePos, muzzleRot, transform);
-        if (bFlying)
-            RTSCamera.Shake(0.045f, 0.055f);
+        float flashIntensity = ProjectileVisualProfile.GetMuzzleFlashIntensity(projectileType, ProjectileImpactRadius);
+        EffectsManager.PlayMuzzleFlash(muzzlePos, muzzleRot, projectileType, flashIntensity, transform);
+
+        }
+
+        float shakeMagnitude = ProjectileVisualProfile.GetLaunchShakeMagnitude(projectileType, bFlying, ProjectileImpactRadius);
+        if (shakeMagnitude > 0.001f)
+            RTSCamera.Shake(shakeMagnitude, ProjectileVisualProfile.GetLaunchShakeDuration(projectileType));
     }
 
     /// <summary>击杀 +1，3 杀晋升老兵（头顶亮星），5 杀晋升精英（金星）。</summary>
+    protected void PlayTemporaryAttackVisuals(Vector3 targetPosition,
+        string projectilePrefabPath, float projectileSpeed, float projectileArcHeight, float projectileImpactRadius,
+        Color projectileTint, float tracerDuration, bool playMuzzleFlash = true)
+    {
+        string oldPrefabPath = ProjectilePrefabPath;
+        float oldSpeed = ProjectileSpeed;
+        float oldArcHeight = ProjectileArcHeight;
+        float oldImpactRadius = ProjectileImpactRadius;
+        Color oldTint = ProjectileTint;
+        float oldTracerDuration = TracerDuration;
+
+        ProjectilePrefabPath = projectilePrefabPath;
+        ProjectileSpeed = projectileSpeed;
+        ProjectileArcHeight = projectileArcHeight;
+        ProjectileImpactRadius = projectileImpactRadius;
+        ProjectileTint = projectileTint;
+        TracerDuration = tracerDuration;
+
+        PlayAttackVisuals(targetPosition, playMuzzleFlash);
+
+        ProjectilePrefabPath = oldPrefabPath;
+        ProjectileSpeed = oldSpeed;
+        ProjectileArcHeight = oldArcHeight;
+        ProjectileImpactRadius = oldImpactRadius;
+        ProjectileTint = oldTint;
+        TracerDuration = oldTracerDuration;
+    }
+
     public void AddKill()
     {
         int prev = Kills;
@@ -779,6 +1071,9 @@ public class RTSUnit : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Plays a brief scale pulse on the veteran label when the unit crosses a promotion threshold.
+    /// </summary>
     System.Collections.IEnumerator VeteranPromoteFlash()
     {
         if (_veteranLabel == null) yield break;
@@ -796,6 +1091,9 @@ public class RTSUnit : MonoBehaviour
         if (_veteranLabel != null) _veteranLabel.transform.localScale = origin;
     }
 
+    /// <summary>
+    /// Creates or refreshes the veteran star label shown above units with at least one kill.
+    /// </summary>
     void UpdateVeteranLabel()
     {
         if (Kills <= 0) return;
@@ -828,7 +1126,37 @@ public class RTSUnit : MonoBehaviour
         _veteranLabel.color = col;
     }
 
+    /// <summary>
+    /// Returns a multiplier for positive incoming damage from another unit.
+    /// </summary>
+    protected virtual float GetIncomingDamageMultiplier(RTSUnit attacker)
+    {
+        return 1f;
+    }
+
+    /// <summary>
+    /// Applies incoming damage from another unit, allowing target-specific armor rules before shared damage handling.
+    /// </summary>
+    public virtual void TakeDamageFrom(RTSUnit attacker, int dmg)
+    {
+        if (dmg > 0)
+        {
+            float multiplier = Mathf.Max(0f, GetIncomingDamageMultiplier(attacker));
+            dmg = multiplier <= 0f ? 0 : Mathf.Max(1, Mathf.RoundToInt(dmg * multiplier));
+        }
+
+        ApplyResolvedDamage(attacker, dmg);
+    }
+
+    /// <summary>
+    /// Applies incoming damage or healing, updates hit reactions, and synchronizes health changes when needed.
+    /// </summary>
     public virtual void TakeDamage(int dmg)
+    {
+        TakeDamageFrom(null, dmg);
+    }
+
+    void ApplyResolvedDamage(RTSUnit attacker, int dmg)
     {
         if (_isDying) return;
         if (dmg > 0 && _techDamageReduction > 0f)
@@ -849,6 +1177,15 @@ public class RTSUnit : MonoBehaviour
             // 受击火星粒子（命中点取单位中心）
             EffectsManager.PlayHitSpark(
                 transform.position + Vector3.up * transform.localScale.y * 0.6f, crit);
+            bool fromAircraft = attacker is AirUnit;
+            bool armoredTarget = this is Tank || this is Artillery || this is AntiAirGun || this is Flamethrower;
+            float smokeIntensity = crit ? 1.05f : 0.68f;
+            if (fromAircraft) smokeIntensity += 0.28f;
+            if (armoredTarget) smokeIntensity += 0.22f;
+            EffectsManager.PlayDamageSmoke(
+                transform.position + Vector3.up * transform.localScale.y * 0.45f,
+                smokeIntensity,
+                fromAircraft || crit || armoredTarget);
         }
         // 联机 Host → Guest: 同步当前HP（含治疗）
         if (!NetSyncIncoming)
@@ -861,6 +1198,9 @@ public class RTSUnit : MonoBehaviour
     }
 
     // 接收端直接设置HP（不触发重复同步）
+    /// <summary>
+    /// Sets health directly without running the usual repeated local-to-remote sync path.
+    /// </summary>
     public void ForceSetHP(int hp)
     {
         NetSyncIncoming = true;
@@ -868,6 +1208,9 @@ public class RTSUnit : MonoBehaviour
         NetSyncIncoming = false;
     }
 
+    /// <summary>
+    /// Applies or refreshes a timed runtime tech buff and immediately recomputes effective unit stats.
+    /// </summary>
     public void ApplyTechBuff(string sourceId, float duration, float moveMultiplier, float damageMultiplier,
         float attackRangeBonus, float attackIntervalMultiplier, float defenseReduction, float sightRangeBonus,
         float regenPerSecond, Color tint)
@@ -894,6 +1237,9 @@ public class RTSUnit : MonoBehaviour
         EnsureTechBuffRing(buff.Tint);
     }
 
+    /// <summary>
+    /// Rebuilds all tech-modified combat and movement stats from the captured base values.
+    /// </summary>
     void RecalculateTechBuffStats()
     {
         if (_baseMaxHP <= 0) CaptureBaseStats();
@@ -942,6 +1288,9 @@ public class RTSUnit : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Creates the ground-ring helper used to show that one or more tech buffs are active.
+    /// </summary>
     void EnsureTechBuffRing(Color color)
     {
         if (_techBuffRing != null) return;
@@ -952,6 +1301,9 @@ public class RTSUnit : MonoBehaviour
         _techBuffRingRenderer = _techBuffRing.GetComponent<Renderer>();
     }
 
+    /// <summary>
+    /// Animates the tech-buff ring based on stack count and time so active buffs remain noticeable.
+    /// </summary>
     void UpdateTechBuffRingVisual()
     {
         if (_techBuffs.Count == 0 || _techBuffRing == null) return;
@@ -970,6 +1322,9 @@ public class RTSUnit : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Temporarily flashes unit renderers to emphasize that the unit has just been hit.
+    /// </summary>
     System.Collections.IEnumerator HitFlash()
     {
         var renderers = GetComponentsInChildren<Renderer>();
@@ -997,6 +1352,9 @@ public class RTSUnit : MonoBehaviour
                     RendererColorUtil.TrySetColor(renderers[i], origColors[i]);
     }
 
+    /// <summary>
+    /// Runs the shared unit death flow, including FX, deregistration, cleanup, and delayed destruction.
+    /// </summary>
     protected virtual void OnDeath()
     {
         if (_isDying) return;
@@ -1028,6 +1386,9 @@ public class RTSUnit : MonoBehaviour
         StartCoroutine(DeathEffect());
     }
 
+    /// <summary>
+    /// Plays the short dissolve-like burn-out effect used before the dead unit object is destroyed.
+    /// </summary>
     System.Collections.IEnumerator DeathEffect()
     {
         float dur = 0.35f, t = 0f;
@@ -1050,6 +1411,9 @@ public class RTSUnit : MonoBehaviour
     }
 
     // 寻找最近敌人
+    /// <summary>
+    /// Finds the nearest enemy unit within this unit's sight range.
+    /// </summary>
     protected RTSUnit FindNearestEnemy()
     {
         RTSUnit nearest = null;
@@ -1059,6 +1423,7 @@ public class RTSUnit : MonoBehaviour
         foreach (var u in all)
         {
             if (u == null || u.IsDead()) continue;
+            if (!CanAttackUnit(u)) continue;
             if (u.bPlayerOwned == bPlayerOwned) continue; // 同阵营跳过
             float d = Vector3.Distance(transform.position, u.transform.position);
             if (d < minDist) { minDist = d; nearest = u; }
@@ -1067,8 +1432,12 @@ public class RTSUnit : MonoBehaviour
     }
 
     // 执行命令
+    /// <summary>
+    /// Applies a pure movement order and clears any attack-specific targets.
+    /// </summary>
     public virtual void ApplyMoveCommand(Vector3 dest)
     {
+        dest = GetPathDestination(dest);
         CurrentCommand = CommandType.Move;
         CommandTarget = dest;
         AttackTarget = null;
@@ -1077,16 +1446,29 @@ public class RTSUnit : MonoBehaviour
         if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(dest);
     }
 
+    /// <summary>
+    /// Applies a direct attack order against a specific enemy unit.
+    /// </summary>
     public void ApplyAttackCommand(RTSUnit target)
     {
+        if (!CanAttackUnit(target))
+        {
+            AttackTarget = null;
+            buildingTarget = null;
+            return;
+        }
         CurrentCommand = CommandType.Attack;
         AttackTarget = target;
         buildingTarget = null;
         UseCombatStoppingDistance();
     }
 
+    /// <summary>
+    /// Applies an attack-move order that advances toward a point while opportunistically engaging enemies.
+    /// </summary>
     public void ApplyAttackMoveCommand(Vector3 dest)
     {
+        dest = GetPathDestination(dest);
         CurrentCommand = CommandType.AttackMove;
         CommandTarget = dest;
         buildingTarget = null;
@@ -1097,17 +1479,40 @@ public class RTSUnit : MonoBehaviour
         if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(dest);
     }
 
+    /// <summary>
+    /// Applies a persistent ground-attack order against a world point.
+    /// </summary>
+    public bool ApplyAttackGroundCommand(Vector3 point)
+    {
+        if (!CanAttackGroundPoint) return false;
+
+        CurrentCommand = CommandType.AttackGround;
+        CommandTarget = point;
+        buildingTarget = null;
+        AttackTarget = null;
+        UseCombatStoppingDistance();
+        if (Agent != null && Agent.isOnNavMesh)
+            Agent.SetDestination(GetPathDestination(point));
+        return true;
+    }
+
+    /// <summary>
+    /// Applies a direct attack order against a specific enemy building.
+    /// </summary>
     public void ApplyAttackBuildingCommand(RTSBuilding target)
     {
         if (target == null) return;
         CurrentCommand = CommandType.AttackMove;
         buildingTarget = target;
         AttackTarget = null;
-        CommandTarget = target.transform.position;
+        CommandTarget = GetPathDestination(target.transform.position);
         UseCombatStoppingDistance();
-        if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(target.transform.position);
+        if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(CommandTarget);
     }
 
+    /// <summary>
+    /// Cancels the current action and resets the unit to an idle command state.
+    /// </summary>
     public void ApplyStopCommand()
     {
         CurrentCommand = CommandType.Stop;
@@ -1118,20 +1523,27 @@ public class RTSUnit : MonoBehaviour
     // 巡逻：在 A、B 两点之间往返，途中敌人进入 SightRange 自动反击
     private Vector3 _patrolA, _patrolB;
     private bool _patrolTowardsB = true;
+    /// <summary>
+    /// Starts a patrol loop between two points, preserving the ability to auto-engage threats along the route.
+    /// </summary>
     public void ApplyPatrolCommand(Vector3 a, Vector3 b)
     {
-        _patrolA = a; _patrolB = b;
+        _patrolA = GetPathDestination(a);
+        _patrolB = GetPathDestination(b);
         _patrolTowardsB = true;
         CurrentCommand = CommandType.Patrol;
         AttackTarget = null;
         buildingTarget = null;
-        CommandTarget = b;
+        CommandTarget = _patrolB;
         _enemyScanTimer = 0f;
         _bldgScanTimer = 0f;
         UseMoveStoppingDistance();
-        if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(b);
+        if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(_patrolB);
     }
 
+    /// <summary>
+    /// Advances patrol behavior, including route traversal and opportunistic combat reactions.
+    /// </summary>
     void UpdatePatrol()
     {
         // 优先反击：附近有敌人 → 转入战斗（杀完后会回 None，下一帧用 _patrolPersist 重新进入巡逻）
@@ -1144,21 +1556,22 @@ public class RTSUnit : MonoBehaviour
                 _enemyScanTimer = 0.4f;
             }
         }
+        if (AttackTarget != null && !CanAttackUnit(AttackTarget))
+            AttackTarget = null;
         if (AttackTarget != null && !AttackTarget.IsDead())
         {
             float dist = Vector3.Distance(transform.position, AttackTarget.transform.position);
             if (dist <= AttackRange)
             {
                 SafeResetPath();
-                Vector3 dir = (AttackTarget.transform.position - transform.position).normalized;
-                if (dir != Vector3.zero)
-                    transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Time.deltaTime * 5f);
-                if (AttackTimer <= 0f) { DoAttack(AttackTarget); AttackTimer = AttackInterval; }
+                AimAtCombatTarget(AttackTarget.transform.position);
+                if (AttackTimer <= 0f) { DoAttack(AttackTarget); AttackTimer = ConsumeAttackCooldown(); }
             }
             else if (dist <= SightRange)
             {
                 UseCombatStoppingDistance();
-                if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(AttackTarget.transform.position);
+                if (Agent != null && Agent.isOnNavMesh)
+                    Agent.SetDestination(GetPathDestination(AttackTarget.transform.position));
             }
             else
             {
@@ -1172,11 +1585,11 @@ public class RTSUnit : MonoBehaviour
         if (Agent != null && Agent.isOnNavMesh)
         {
             UseMoveStoppingDistance();
-            if (Agent.destination != target) Agent.SetDestination(target);
+            if (Agent.destination != target) Agent.SetDestination(GetPathDestination(target));
             if (!Agent.pathPending && Agent.remainingDistance < 1.0f)
             {
                 _patrolTowardsB = !_patrolTowardsB;
-                Agent.SetDestination(_patrolTowardsB ? _patrolB : _patrolA);
+                Agent.SetDestination(GetPathDestination(_patrolTowardsB ? _patrolB : _patrolA));
             }
         }
         else
@@ -1188,17 +1601,23 @@ public class RTSUnit : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Resumes movement toward the current patrol endpoint after an interruption.
+    /// </summary>
     void ResumePatrolMove()
     {
         Vector3 target = _patrolTowardsB ? _patrolB : _patrolA;
         UseMoveStoppingDistance();
-        if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(target);
+        if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(GetPathDestination(target));
     }
 
     // 守卫：跟随目标友军 + 在守卫范围内反击靠近的敌人
     private RTSUnit _guardTarget;
     private const float GuardFollowDistance = 6f;   // 跟随保持的距离
     private const float GuardLeashRange = 18f;      // 距守卫者超过此值则放弃追击敌人，回守目标
+    /// <summary>
+    /// Starts guarding an allied unit by following it and reacting to nearby enemies.
+    /// </summary>
     public void ApplyGuardCommand(RTSUnit ally)
     {
         if (ally == null || ally == this || ally.IsDead()) return;
@@ -1209,6 +1628,9 @@ public class RTSUnit : MonoBehaviour
         _enemyScanTimer = 0f;
     }
 
+    /// <summary>
+    /// Advances guard behavior, balancing ally following with temporary local combat responses.
+    /// </summary>
     void UpdateGuard()
     {
         // 守卫目标死亡 → 终止
@@ -1230,6 +1652,8 @@ public class RTSUnit : MonoBehaviour
                 _enemyScanTimer = 0.4f;
             }
         }
+        if (AttackTarget != null && !CanAttackUnit(AttackTarget))
+            AttackTarget = null;
         if (AttackTarget != null && !AttackTarget.IsDead())
         {
             float distToGuard = Vector3.Distance(transform.position, guardPos);
@@ -1242,16 +1666,15 @@ public class RTSUnit : MonoBehaviour
             else if (distToEnemy <= AttackRange)
             {
                 SafeResetPath();
-                Vector3 dir = (AttackTarget.transform.position - transform.position).normalized;
-                if (dir != Vector3.zero)
-                    transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Time.deltaTime * 5f);
-                if (AttackTimer <= 0f) { DoAttack(AttackTarget); AttackTimer = AttackInterval; }
+                AimAtCombatTarget(AttackTarget.transform.position);
+                if (AttackTimer <= 0f) { DoAttack(AttackTarget); AttackTimer = ConsumeAttackCooldown(); }
                 return;
             }
             else if (distToEnemy <= SightRange)
             {
                 UseCombatStoppingDistance();
-                if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(AttackTarget.transform.position);
+                if (Agent != null && Agent.isOnNavMesh)
+                    Agent.SetDestination(GetPathDestination(AttackTarget.transform.position));
                 return;
             }
             else
@@ -1264,7 +1687,7 @@ public class RTSUnit : MonoBehaviour
         if (d > GuardFollowDistance)
         {
             UseMoveStoppingDistance();
-            if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(guardPos);
+            if (Agent != null && Agent.isOnNavMesh) Agent.SetDestination(GetPathDestination(guardPos));
         }
         else
         {
@@ -1274,11 +1697,29 @@ public class RTSUnit : MonoBehaviour
     }
 
     // 属性访问器
+    /// <summary>
+    /// Returns the unit's current hit points.
+    /// </summary>
     public int GetHP() => CurrentHP;
+    /// <summary>
+    /// Returns the unit's maximum hit points.
+    /// </summary>
     public int GetMaxHP() => MaxHP;
+    /// <summary>
+    /// Returns the unit's current enemy-unit attack target, if any.
+    /// </summary>
     public RTSUnit GetAttackTarget() => AttackTarget;
+    /// <summary>
+    /// Returns whether the unit has already reached the dead state.
+    /// </summary>
     public bool IsDead() => CurrentHP <= 0;
+    /// <summary>
+    /// Returns whether the unit belongs to the player faction.
+    /// </summary>
     public bool IsPlayerOwned() => bPlayerOwned;
+    /// <summary>
+    /// Rebinds the owning player controller and updates faction-specific helper visuals accordingly.
+    /// </summary>
     public void SetOwnerPC(RTSPlayerController pc)
     {
         OwnerPC = pc; bPlayerOwned = true;

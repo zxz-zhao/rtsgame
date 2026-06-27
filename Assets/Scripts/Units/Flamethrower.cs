@@ -1,9 +1,16 @@
 ﻿using UnityEngine;
+/// <summary>
+/// Short-range support vehicle that uses rapid splash-based flame attacks to clear dense infantry groups.
+/// </summary>
 public class Flamethrower : RTSUnit
 {
     protected override float DesiredVisualHeight => 1.3f;
     protected override float DesiredVisualFootprint => 1.0f;
+    protected override bool CanTraverseForestZones => false;
 
+    /// <summary>
+    /// Applies the flamethrower's close-range combat stats before the shared unit startup runs.
+    /// </summary>
     protected override void Awake()
     {
         DisplayName = "喷火车";

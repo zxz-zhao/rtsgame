@@ -10,6 +10,9 @@ public static class RendererColorUtil
     static readonly MaterialPropertyBlock _block = new MaterialPropertyBlock();
 
     // ── Renderer 重载：全走 PropertyBlock ──────────────────────────
+    /// <summary>
+    /// Reads the effective color from a renderer, preferring any active property block override.
+    /// </summary>
     public static bool TryGetColor(Renderer renderer, out Color color)
     {
         color = Color.white;
@@ -30,6 +33,9 @@ public static class RendererColorUtil
         return TryGetColor(renderer.sharedMaterial, out color);
     }
 
+    /// <summary>
+    /// Writes a color override onto a renderer's property block without instantiating new materials.
+    /// </summary>
     public static bool TrySetColor(Renderer renderer, Color color)
     {
         if (renderer == null) return false;
@@ -41,6 +47,9 @@ public static class RendererColorUtil
     }
 
     // ── Material 重载：直接写 Material（Editor 用，运行时尽量不用）──
+    /// <summary>
+    /// Reads a tint color directly from a material using the legacy or SRP base-color property name.
+    /// </summary>
     public static bool TryGetColor(Material material, out Color color)
     {
         color = Color.white;
@@ -50,6 +59,9 @@ public static class RendererColorUtil
         return false;
     }
 
+    /// <summary>
+    /// Writes a tint color directly onto a material when renderer-level overrides are not appropriate.
+    /// </summary>
     public static bool TrySetColor(Material material, Color color)
     {
         if (material == null) return false;
@@ -59,6 +71,9 @@ public static class RendererColorUtil
     }
 
     // ── 工具：清除 PropertyBlock（重置为材质默认）────────────────────
+    /// <summary>
+    /// Clears any renderer property-block override so the shared material color becomes visible again.
+    /// </summary>
     public static void ClearPropertyBlock(Renderer renderer)
     {
         if (renderer == null) return;

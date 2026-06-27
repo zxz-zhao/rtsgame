@@ -50,6 +50,7 @@ public class RTSBuilding : MonoBehaviour
     public float ProductionProgress = 0f;
     public float ProductionDisplayProgress = 0f;
     public float ConstructionProgress = 0f;
+    public virtual int MaxProductionQueueSize => 8;
 
     private float goldTimer = 0f;
     private float turretTimer = 0f;
@@ -78,7 +79,13 @@ public class RTSBuilding : MonoBehaviour
     protected virtual float DesiredVisualHeight => 0f;
     /// <summary>建筑期望可视占地直径（X/Z 最大边，米）。</summary>
     protected virtual float DesiredVisualFootprint => 0f;
+    protected virtual float ProductionSpeedMultiplier => 1f;
+    protected virtual float ReadableTopOffsetFallback => bIsMainBase ? 6f : 4f;
+    protected virtual float GetBuildingLabelAnchorYOffset(float topOffset) => topOffset + 0.8f;
 
+    /// <summary>
+    /// Applies building definition defaults and creates the minimal runtime state needed before gameplay starts.
+    /// </summary>
     protected virtual void Awake()
     {
         ApplyDefinitionDefaults();
@@ -87,6 +94,21 @@ public class RTSBuilding : MonoBehaviour
 
     /// <summary>应用建筑的静态建造数据。HUD 读取 prefab 元数据时也会调用，避免依赖 prefab 序列化旧值。</summary>
     public virtual void ApplyDefinitionDefaults() { }
+    public virtual bool SupportsBuildingUpgrade => false;
+    public virtual int GetUpgradeButtonSlotIndex() => 0;
+    public virtual string GetUpgradeButtonText() => string.Empty;
+    public virtual string GetUpgradePanelStatusText(bool detailed) => string.Empty;
+    public virtual bool CanUpgradeBuilding(out string failureReason)
+    {
+        failureReason = "该建筑不可升级";
+        return false;
+    }
+    public virtual bool TryUpgradeBuilding(out string failureReason)
+    {
+        failureReason = "该建筑不可升级";
+        return false;
+    }
+    public virtual void ForceUpgradeToLevel(int level) { }
 
     // 头顶血条
     private WorldHealthBar healthBar;
@@ -124,6 +146,9 @@ public class RTSBuilding : MonoBehaviour
     };
     private bool _started = false;
 
+    /// <summary>
+    /// Finishes runtime setup after ownership is known, including visuals, UI helpers, and registration.
+    /// </summary>
     protected virtual void Start()
     {
         ApplyDefinitionDefaults();
@@ -143,8 +168,8 @@ public class RTSBuilding : MonoBehaviour
             }
         }
         GameManager.Instance?.RegisterBuilding(this);
-        float topOffset = GetReadableTopOffset(bIsMainBase ? 6f : 4f);
-        RefreshBuildingLabels(topOffset + 0.8f);
+        float topOffset = GetReadableTopOffset(ReadableTopOffsetFallback);
+        RefreshBuildingLabels(GetBuildingLabelAnchorYOffset(topOffset));
         // 创建头顶血条（建筑血条偏移更大）
         healthBar = WorldHealthBar.Create(transform, topOffset);
         healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
@@ -181,6 +206,9 @@ public class RTSBuilding : MonoBehaviour
             PrepareConstructionVisuals(Mathf.Max(2.4f, topOffset - 1.1f));
     }
 
+    /// <summary>
+    /// Applies the default faction tinting pass for buildings that do not need a specialized recolor rule.
+    /// </summary>
     protected virtual void ApplyMilitaryTint()
     {
         Color tint = bPlayerOwned
@@ -212,6 +240,9 @@ public class RTSBuilding : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Normalizes the building visual hierarchy to the requested presentation footprint and height.
+    /// </summary>
     public void PrepareVisualScaleForRuntime()
     {
         // 先清理违和的小装饰（旗子、瞄准镜、子弹、油桶、散件箱），避免它们影响后续缩放包围盒计算
@@ -452,6 +483,9 @@ public class RTSBuilding : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Performs a guarded division that returns 0 when the denominator is too small to trust.
+    /// </summary>
     static float SafeDivide(float numerator, float denominator)
     {
         return denominator > 0.0001f ? numerator / denominator : numerator;
@@ -540,6 +574,9 @@ public class RTSBuilding : MonoBehaviour
     }
 
     // Guest 翻转归属后补注电力/人口/Owner 引用
+    /// <summary>
+    /// Rebuilds ownership-dependent visuals and runtime state after the building changes faction.
+    /// </summary>
     public void ReinitAfterOwnershipFlip()
     {
         if (!bPlayerOwned) return;
@@ -557,6 +594,9 @@ public class RTSBuilding : MonoBehaviour
         if (fh != null) { fh.SetVisible(true); Destroy(fh); }
     }
 
+    /// <summary>
+    /// Starts the construction state and initializes the staged build-up visuals and timers.
+    /// </summary>
     public void BeginConstruction(float duration = -1f)
     {
         ApplyDefinitionDefaults();
@@ -607,6 +647,33 @@ public class RTSBuilding : MonoBehaviour
         _ownerBonusesApplied = false;
     }
 
+    protected void ReapplyOwnerBonuses()
+    {
+        if (!bPlayerOwned)
+            return;
+
+        if (OwnerState == null)
+            OwnerState = RTSPlayerState.Instance;
+        if (OwnerState == null)
+            return;
+
+        RemoveOwnerBonusesIfNeeded();
+        if (!bUnderConstruction)
+            ApplyOwnerBonusesIfNeeded();
+    }
+
+    protected void RefreshBuildingRuntimePresentation()
+    {
+        healthBar?.SetHP(CurrentHP, MaxHP, !bPlayerOwned);
+        float topOffset = GetReadableTopOffset(ReadableTopOffsetFallback);
+        RefreshBuildingLabels(GetBuildingLabelAnchorYOffset(topOffset));
+    }
+
+    protected void RefreshProductionRuntimeState()
+    {
+        RebuildProductionDisplayWorkFromQueue();
+    }
+
     LineRenderer CreateTurretLine()
     {
         var lr = gameObject.AddComponent<LineRenderer>();
@@ -623,20 +690,24 @@ public class RTSBuilding : MonoBehaviour
 
     System.Collections.IEnumerator FlashTurretLine(Vector3 targetPos)
     {
-        if (_turretLine == null) yield break;
+        ProjectileType projectileType = ProjectileType.Shell;
         Vector3 origin = GetTurretAttackOrigin();
-        Vector3 impact = targetPos + Vector3.up * 1f;
-        _turretLine.SetPosition(0, origin);
-        _turretLine.SetPosition(1, impact);
-        _turretLine.enabled = true;
+        Vector3 impact = targetPos + Vector3.up * ProjectileVisualProfile.GetImpactHeightOffset(projectileType);
+        if (_turretLine != null)
+        {
+            ProjectileVisualProfile.ApplyTracerStyle(_turretLine, projectileType, false);
+            _turretLine.SetPosition(0, origin);
+            _turretLine.SetPosition(1, impact);
+            _turretLine.enabled = true;
+        }
         Vector3 dir = (impact - origin).normalized;
-        EffectsManager.PlayMuzzleFlash(origin, GetTurretAttackRotation(dir), transform);
-        SpawnTurretProjectile(origin, impact);
-        yield return new WaitForSeconds(0.12f);
+        EffectsManager.PlayMuzzleFlash(origin, GetTurretAttackRotation(dir), projectileType, 1f, transform);
+        SpawnTurretProjectile(origin, impact, projectileType);
+        yield return new WaitForSeconds(ProjectileVisualProfile.GetTracerDuration(projectileType, 0.12f));
         if (_turretLine != null) _turretLine.enabled = false;
     }
 
-    void SpawnTurretProjectile(Vector3 origin, Vector3 impact)
+    void SpawnTurretProjectile(Vector3 origin, Vector3 impact, ProjectileType projectileType)
     {
         GameObject prefab = Resources.Load<GameObject>("Prefabs/Projectiles/BattleProjectile_Shell");
         if (prefab == null) return;
@@ -647,7 +718,7 @@ public class RTSBuilding : MonoBehaviour
             visual = projectile.AddComponent<CombatProjectile>();
 
         Color tint = bPlayerOwned ? new Color(0.42f, 1f, 0.62f, 1f) : new Color(1f, 0.38f, 0.08f, 1f);
-        visual.Initialize(origin, impact, tint, 55f, 1.4f, 0.9f);
+        visual.Initialize(origin, impact, tint, 55f, 1.4f, 0.9f, projectileType);
     }
 
     Vector3 GetTurretAttackOrigin()
@@ -697,16 +768,22 @@ public class RTSBuilding : MonoBehaviour
         return null;
     }
 
+    /// <summary>
+    /// Creates the world-space selection ring visual used when the building becomes selected.
+    /// </summary>
     static GameObject CreateSelectionRing(Transform parent, float radius)
     {
         // 金色（与 HUD 金边一致）；改用 FX 工厂的 Quad+圆环贴图，2 三角形 vs 旧 Cylinder ~80 三角形
         var ring = FxResources.MakeGroundDisc(parent, "SelectionRing", radius,
-            new Color(0.95f, 0.78f, 0.25f, 1f), FxResources.DiscStyle.ThinRing, 0.04f);
+            new Color(0.95f, 0.78f, 0.25f, 1f), FxResources.DiscStyle.ThinRing, 0.12f);
         ring.AddComponent<_SelectionRingPulse>();
         ring.SetActive(false);
         return ring;
     }
 
+    /// <summary>
+    /// Toggles the building's selected state and updates the associated world-space feedback.
+    /// </summary>
     public void SetSelected(bool selected)
     {
         if (!selectionRing) return;
@@ -720,6 +797,9 @@ public class RTSBuilding : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Advances shared building behavior such as production, construction, economy, combat, and UI upkeep.
+    /// </summary>
     protected virtual void Update()
     {
         if (bUnderConstruction)
@@ -772,6 +852,9 @@ public class RTSBuilding : MonoBehaviour
         UpdateLowHpPulse();
     }
 
+    /// <summary>
+    /// Refreshes late-frame helper visuals after movement-independent building state is settled.
+    /// </summary>
     protected virtual void LateUpdate()
     {
         UpdateBuildingLabelScalesForCamera();
@@ -1233,7 +1316,7 @@ public class RTSBuilding : MonoBehaviour
     float GetProductionDuration(int idx)
     {
         float prodTime = (ProductionTimes != null && idx >= 0 && idx < ProductionTimes.Length) ? ProductionTimes[idx] : 5f;
-        return Mathf.Max(0.05f, prodTime);
+        return Mathf.Max(0.05f, prodTime / Mathf.Max(0.01f, ProductionSpeedMultiplier));
     }
 
     void EnsureProductionDisplayWork()
@@ -1320,12 +1403,18 @@ public class RTSBuilding : MonoBehaviour
     [System.NonSerialized] public bool HasRallyPoint = false;
     private int _rallySpawnSlot = 0;
 
+    /// <summary>
+    /// Sets the rally point used for newly produced units and refreshes the rally marker visual.
+    /// </summary>
     public void SetRallyPoint(Vector3 worldPos)
     {
         RallyPoint = new Vector3(worldPos.x, 0f, worldPos.z);
         HasRallyPoint = true;
         _rallySpawnSlot = 0;
     }
+    /// <summary>
+    /// Clears any active rally point and resets the spawn-slot rotator used for rallied units.
+    /// </summary>
     public void ClearRallyPoint() { HasRallyPoint = false; _rallySpawnSlot = 0; }
 
     void SpawnUnit(int idx)
@@ -1336,6 +1425,9 @@ public class RTSBuilding : MonoBehaviour
         Vector3 fwd = new Vector3(transform.forward.x, 0f, transform.forward.z).normalized;
         // 先在建筑旁出生（忽略 NavMesh 警告），下一帧用 Warp 强制贴 NavMesh
         Vector3 spawnPos = new Vector3(transform.position.x, 0f, transform.position.z) + fwd * 4f;
+        RTSUnit unitPrototype = ProductionUnits[idx].GetComponent<RTSUnit>();
+        if (unitPrototype != null)
+            spawnPos = unitPrototype.ClampWorldPosition(spawnPos);
         GameObject go = Instantiate(ProductionUnits[idx], spawnPos, Quaternion.identity);
         RTSUnit unit = go.GetComponent<RTSUnit>();
         if (unit != null)
@@ -1502,12 +1594,16 @@ public class RTSBuilding : MonoBehaviour
     }
 
     // 添加到生产队列
+    /// <summary>
+    /// Attempts to add one production entry to the queue and pays its resource cost on success.
+    /// </summary>
     public bool EnqueueUnit(int idx)
     {
         if (bUnderConstruction) return false;
         if (ProductionUnits == null || idx < 0 || idx >= ProductionUnits.Length) return false;
         if (OwnerState == null) return false;
         if (ProductionQueue == null) ProductionQueue = new List<int>();
+        if (IsProductionQueueFull()) return false;
         int cost = (ProductionCosts != null && idx < ProductionCosts.Length) ? ProductionCosts[idx] : 0;
         if (OwnerState.Gold < cost) return false;
         bool wasIdle = ProductionQueue == null || ProductionQueue.Count == 0;
@@ -1535,20 +1631,43 @@ public class RTSBuilding : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// Returns whether the production queue has reached its configured capacity.
+    /// </summary>
+    public bool IsProductionQueueFull()
+    {
+        int maxQueueSize = MaxProductionQueueSize;
+        return maxQueueSize > 0
+            && ProductionQueue != null
+            && ProductionQueue.Count >= maxQueueSize;
+    }
+
+    /// <summary>
+    /// Lets subclasses veto queueing a specific production entry before resources are spent.
+    /// </summary>
     protected virtual bool CanEnqueueProductionUnit(int idx)
     {
         return true;
     }
 
+    /// <summary>
+    /// Lets subclasses veto completing a queued production entry when runtime constraints are not satisfied.
+    /// </summary>
     protected virtual bool CanCompleteProductionUnit(int idx)
     {
         return true;
     }
 
+    /// <summary>
+    /// Hook for subclasses to post-process a freshly produced unit after it has spawned.
+    /// </summary>
     protected virtual void OnUnitSpawnedFromProduction(RTSUnit unit, int idx)
     {
     }
 
+    /// <summary>
+    /// Cancels the most recently queued production item and refunds its resource cost.
+    /// </summary>
     public void CancelLast()
     {
         if (ProductionQueue == null || ProductionQueue.Count == 0) return;
@@ -1571,7 +1690,10 @@ public class RTSBuilding : MonoBehaviour
         }
     }
 
-    public virtual void TakeDamage(int dmg)
+    /// <summary>
+    /// Applies incoming damage or healing, updates build-state effects, and triggers destruction when HP reaches zero.
+    /// </summary>
+    public virtual void TakeDamageFrom(RTSUnit attacker, int dmg)
     {
         if (_isDying) return;
         int prev = CurrentHP;
@@ -1587,8 +1709,18 @@ public class RTSBuilding : MonoBehaviour
             bool crit = dmg >= MaxHP / 5;
             DamageNumber.Spawn(
                 new Vector3(transform.position.x, top, transform.position.z), dmg, crit, gameObject);
+            EffectsManager.PlayHitSpark(
+                new Vector3(transform.position.x, top - 0.85f, transform.position.z), crit);
+            bool fromAircraft = attacker is AirUnit;
+            float smokeIntensity = crit ? 1.10f : 0.84f;
+            if (fromAircraft) smokeIntensity += 0.28f;
+            if (bIsMainBase) smokeIntensity += 0.24f;
+            EffectsManager.PlayDamageSmoke(
+                new Vector3(transform.position.x, top - 0.95f, transform.position.z),
+                smokeIntensity,
+                true);
             ApplyDamageStain((float)CurrentHP / MaxHP);
-            // 己方主基地受攻：触发屏幕边缘红光警报
+            // 己方主基地受攻：触发聊天警报；屏幕边缘红光由主基地低血量状态控制。
             if (bPlayerOwned && bIsMainBase && RTSHUD.Instance != null)
                 RTSHUD.Instance.NotifyBaseUnderAttack();
         }
@@ -1602,6 +1734,14 @@ public class RTSBuilding : MonoBehaviour
         if (CurrentHP <= 0) OnDestroyed();
     }
 
+    public virtual void TakeDamage(int dmg)
+    {
+        TakeDamageFrom(null, dmg);
+    }
+
+    /// <summary>
+    /// Darkens building renderers as health drops so damage becomes readable even at a distance.
+    /// </summary>
     void ApplyDamageStain(float hpRatio)
     {
         // 仅在低血量段生效，避免频繁调用
@@ -1619,6 +1759,9 @@ public class RTSBuilding : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Temporarily flashes building renderers to emphasize that the structure has just taken damage.
+    /// </summary>
     System.Collections.IEnumerator HitFlash()
     {
         var renderers = GetComponentsInChildren<Renderer>();
@@ -1646,6 +1789,9 @@ public class RTSBuilding : MonoBehaviour
             }
     }
 
+    /// <summary>
+    /// Runs the shared building destruction flow, including FX, deregistration, cleanup, and delayed teardown.
+    /// </summary>
     protected virtual void OnDestroyed()
     {
         if (_isDying) return;
@@ -1745,6 +1891,9 @@ public class RTSBuilding : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Plays the short burn-out scale-up effect before the destroyed building object is removed.
+    /// </summary>
     System.Collections.IEnumerator BuildingDeathEffect()
     {
         float dur = 0.5f, t = 0f;
@@ -1767,6 +1916,9 @@ public class RTSBuilding : MonoBehaviour
         Destroy(gameObject);
     }
 
+    /// <summary>
+    /// Sets health directly without re-running the full damage or healing pipeline.
+    /// </summary>
     public void ForceSetHP(int hp)
     {
         NetSyncIncoming = true;
@@ -1774,6 +1926,12 @@ public class RTSBuilding : MonoBehaviour
         NetSyncIncoming = false;
     }
 
+    /// <summary>
+    /// Returns the building's current hit points.
+    /// </summary>
     public int GetHP() => CurrentHP;
+    /// <summary>
+    /// Returns the building's maximum hit points.
+    /// </summary>
     public int GetMaxHP() => MaxHP;
 }

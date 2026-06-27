@@ -10,6 +10,7 @@ public static class MixamoBasicShooterInstaller
     const string ModelPath = SourceFolder + "/X Bot.fbx";
     const string ControllerPath = "Assets/Resources/Animations/Generated/BasicShooter.controller";
     const string AutoInstallMarker = SourceFolder + "/.install_requested";
+    static bool s_AutoInstallRunning;
 
     static readonly string[] PrefabPaths =
     {
@@ -64,13 +65,25 @@ public static class MixamoBasicShooterInstaller
     [InitializeOnLoadMethod]
     static void InstallWhenRequested()
     {
-        EditorApplication.delayCall += () =>
-        {
-            if (!File.Exists(AutoInstallMarker))
-                return;
+        EditorApplication.update -= InstallWhenRequestedOnEditorUpdate;
+        EditorApplication.update += InstallWhenRequestedOnEditorUpdate;
+        EditorApplication.delayCall += InstallWhenRequestedOnEditorUpdate;
+    }
 
+    static void InstallWhenRequestedOnEditorUpdate()
+    {
+        if (s_AutoInstallRunning || !File.Exists(AutoInstallMarker))
+            return;
+
+        s_AutoInstallRunning = true;
+        try
+        {
             Install();
-        };
+        }
+        finally
+        {
+            s_AutoInstallRunning = false;
+        }
     }
 
     static void ImportHumanoidAssets()
@@ -247,9 +260,11 @@ public static class MixamoBasicShooterInstaller
             animator.enabled = true;
 
             bool artillery = IsArtilleryPrefab(prefabPath);
+            bool playerOwned = IsPlayerPrefab(prefabPath);
             GameObject weapon = artillery ? BuildShoulderCannon(modelRoot) : BuildRifle(modelRoot);
             GameObject factionPlate = BuildFactionPlate(modelRoot);
             BuildSkinOverlay(modelRoot);
+            BuildUniformOverlay(modelRoot, playerOwned);
 
             UnitVisualAnimator visualAnimator = contents.GetComponent<UnitVisualAnimator>();
             if (visualAnimator != null)
@@ -291,6 +306,14 @@ public static class MixamoBasicShooterInstaller
         string fileName = Path.GetFileNameWithoutExtension(prefabPath);
         return fileName != null
             && fileName.IndexOf("Artillery", System.StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    static bool IsPlayerPrefab(string prefabPath)
+    {
+        string fileName = Path.GetFileNameWithoutExtension(prefabPath);
+        return fileName != null
+            && (fileName.EndsWith("_P", System.StringComparison.OrdinalIgnoreCase)
+                || fileName.IndexOf("Player", System.StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
     static void EnsureWeaponBinding(AnimatedUnitAttachmentBinder binder, bool artillery)
@@ -345,7 +368,37 @@ public static class MixamoBasicShooterInstaller
             LocalScale = Vector3.one,
         };
 
-        binder.Bindings = new[] { weaponBinding, plateBinding, faceBinding, leftHandBinding, rightHandBinding };
+        var helmetBinding = new AnimatedUnitAttachmentBinder.AttachmentBinding
+        {
+            AttachmentName = "InfantryUniformHelmet",
+            BoneCandidates = new[] { "Head", "mixamorig:Head" },
+            PreserveWorldPose = false,
+            LocalPosition = new Vector3(0f, 0.045f, 0.005f),
+            LocalEulerAngles = Vector3.zero,
+            LocalScale = Vector3.one,
+        };
+
+        var jacketBinding = new AnimatedUnitAttachmentBinder.AttachmentBinding
+        {
+            AttachmentName = "InfantryUniformJacket",
+            BoneCandidates = new[] { "UpperChest", "Chest", "Spine", "mixamorig:Spine2", "mixamorig:Spine1" },
+            PreserveWorldPose = false,
+            LocalPosition = new Vector3(0f, 0.02f, 0.055f),
+            LocalEulerAngles = Vector3.zero,
+            LocalScale = Vector3.one,
+        };
+
+        var backpackBinding = new AnimatedUnitAttachmentBinder.AttachmentBinding
+        {
+            AttachmentName = "InfantryUniformBackpack",
+            BoneCandidates = new[] { "UpperChest", "Chest", "Spine", "mixamorig:Spine2", "mixamorig:Spine1" },
+            PreserveWorldPose = false,
+            LocalPosition = new Vector3(0f, 0.01f, -0.13f),
+            LocalEulerAngles = Vector3.zero,
+            LocalScale = Vector3.one,
+        };
+
+        binder.Bindings = new[] { weaponBinding, plateBinding, faceBinding, leftHandBinding, rightHandBinding, helmetBinding, jacketBinding, backpackBinding };
     }
 
     static AnimationClip LoadClip(string assetPath)
@@ -470,6 +523,40 @@ public static class MixamoBasicShooterInstaller
         AddSphere(rightHand.transform, "SkinRightPalm", Vector3.zero, new Vector3(0.055f, 0.045f, 0.075f), skin);
     }
 
+    static void BuildUniformOverlay(Transform parent, bool playerOwned)
+    {
+        Material jacket = LoadUniformMaterial(
+            playerOwned ? "InfantryUniform_PlayerJacket" : "InfantryUniform_EnemyJacket",
+            playerOwned ? new Color(0.31f, 0.50f, 0.27f) : new Color(0.58f, 0.44f, 0.23f),
+            0.06f,
+            0.36f);
+        Material helmet = LoadUniformMaterial(
+            playerOwned ? "InfantryUniform_PlayerHelmet" : "InfantryUniform_EnemyHelmet",
+            playerOwned ? new Color(0.19f, 0.36f, 0.19f) : new Color(0.42f, 0.32f, 0.17f),
+            0.18f,
+            0.42f);
+        Material webbing = LoadUniformMaterial("InfantryUniform_Webbing", new Color(0.52f, 0.36f, 0.17f), 0.02f, 0.28f);
+        Material bedroll = LoadUniformMaterial("InfantryUniform_Bedroll", new Color(0.34f, 0.40f, 0.26f), 0.04f, 0.24f);
+
+        GameObject helmetRoot = new GameObject("InfantryUniformHelmet");
+        helmetRoot.transform.SetParent(parent, false);
+        AddSphere(helmetRoot.transform, "InfantryUniformHelmetDome", new Vector3(0f, 0.035f, 0f), new Vector3(0.16f, 0.075f, 0.16f), helmet);
+        AddCylinder(helmetRoot.transform, "InfantryUniformHelmetBrim", new Vector3(0f, -0.008f, 0.012f), new Vector3(0.20f, 0.018f, 0.20f), Vector3.zero, helmet);
+        AddCube(helmetRoot.transform, "InfantryUniformHelmetLip", new Vector3(0f, -0.006f, 0.15f), new Vector3(0.17f, 0.018f, 0.04f), helmet);
+
+        GameObject jacketRoot = new GameObject("InfantryUniformJacket");
+        jacketRoot.transform.SetParent(parent, false);
+        AddCube(jacketRoot.transform, "InfantryUniformCoat", new Vector3(0f, 0f, 0.02f), new Vector3(0.25f, 0.32f, 0.09f), jacket);
+        AddCube(jacketRoot.transform, "InfantryUniformChestBand", new Vector3(0f, 0.025f, 0.075f), new Vector3(0.29f, 0.045f, 0.035f), webbing);
+        AddCube(jacketRoot.transform, "InfantryUniformStrapL", new Vector3(-0.095f, 0f, 0.08f), new Vector3(0.035f, 0.34f, 0.035f), webbing);
+        AddCube(jacketRoot.transform, "InfantryUniformStrapR", new Vector3(0.095f, 0f, 0.08f), new Vector3(0.035f, 0.34f, 0.035f), webbing);
+
+        GameObject backpackRoot = new GameObject("InfantryUniformBackpack");
+        backpackRoot.transform.SetParent(parent, false);
+        AddCube(backpackRoot.transform, "InfantryUniformPackBody", new Vector3(0f, -0.02f, 0f), new Vector3(0.22f, 0.30f, 0.10f), webbing);
+        AddCylinder(backpackRoot.transform, "InfantryUniformBedroll", new Vector3(0f, 0.16f, -0.02f), new Vector3(0.10f, 0.24f, 0.10f), new Vector3(0f, 0f, 90f), bedroll);
+    }
+
     static void AddCube(Transform parent, string name, Vector3 localPosition, Vector3 localScale, Material material)
     {
         GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -538,6 +625,26 @@ public static class MixamoBasicShooterInstaller
         }
 
         RendererColorUtil.TrySetColor(mat, color);
+        return mat;
+    }
+
+    static Material LoadUniformMaterial(string name, Color color, float metallic, float glossiness)
+    {
+        string folder = "Assets/Resources/Materials/InfantryUniforms";
+        EnsureDirectory(folder);
+        string path = folder + "/" + name + ".mat";
+        Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (mat == null)
+        {
+            Shader shader = Shader.Find("Standard") ?? Shader.Find("Universal Render Pipeline/Lit");
+            mat = new Material(shader);
+            AssetDatabase.CreateAsset(mat, path);
+        }
+
+        RendererColorUtil.TrySetColor(mat, color);
+        if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", metallic);
+        if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", glossiness);
+        EditorUtility.SetDirty(mat);
         return mat;
     }
 

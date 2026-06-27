@@ -100,6 +100,7 @@
         <ui:Button name="task-claim-button-1" class="hit hit-task1" text="" />
         <ui:Button name="task-claim-button-2" class="hit hit-task2" text="" />
         <ui:Button name="all-tasks-button" class="hit hit-allTasks" text="" />
+        <ui:Button name="tech-panel-button" class="hit hit-techPanel" text="" />
         <ui:Button name="tech-gear-button" class="hit hit-techGear" text="" />
         <ui:Button name="tech-speed-button" class="hit hit-techSpeed" text="" />
         <ui:Button name="tech-tree-button" class="hit hit-techTree" text="" />
@@ -194,6 +195,17 @@
             <ui:VisualElement name="warehouse-detail-card" class="warehouse-detail-card">
                 <ui:Label name="warehouse-detail-title" class="warehouse-detail-title" text="&#x6218;&#x5907;&#x660E;&#x7EC6;" />
                 <ui:Label name="warehouse-detail-body" class="warehouse-detail-body" text="&#x9009;&#x62E9;&#x4E00;&#x9879;&#x7269;&#x8D44;&#x67E5;&#x770B;&#x7528;&#x9014;&#x3002;" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement name="rank-popup" class="modal-popup rank-popup">
+            <ui:Label name="rank-popup-title" class="panel-title" text="&#x6392;&#x884C;&#x699C;" />
+            <ui:Button name="rank-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
+            <ui:Label name="rank-season-label" class="rank-season-label" text="&#x8D5B;&#x5B63;&#x52A0;&#x8F7D;&#x4E2D;..." />
+            <ui:Label name="rank-reset-label" class="rank-reset-label" text="" />
+            <ui:ScrollView name="rank-popup-list" class="rank-popup-list" />
+            <ui:VisualElement name="rank-detail-card" class="rank-detail-card">
+                <ui:Label name="rank-detail-title" class="rank-detail-title" text="&#x6307;&#x6325;&#x5B98;&#x60C5;&#x62A5;" />
+                <ui:Label name="rank-detail-body" class="rank-detail-body" text="&#x9009;&#x62E9;&#x4E00;&#x540D;&#x6307;&#x6325;&#x5B98;&#x67E5;&#x770B;&#x8D5B;&#x5B63;&#x6218;&#x7EE9;&#x3002;" />
             </ui:VisualElement>
         </ui:VisualElement>
         <ui:VisualElement name="room-popup" class="modal-popup room-popup">
@@ -293,7 +305,11 @@
             <ui:Label name="notify-popup-title" class="panel-title" text="&#x901A;&#x77E5;&#x4E2D;&#x5FC3;" />
             <ui:Button name="notify-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
             <ui:Label name="notify-popup-subtitle" class="panel-subtitle" text="&#x6218;&#x573A;&#x5FEB;&#x62A5;" />
-            <ui:Label name="notify-popup-body" class="panel-body" text="&#x6682;&#x65E0;&#x65B0;&#x6D88;&#x606F;&#x3002;" />
+            <ui:ScrollView name="notify-popup-list" class="notify-popup-list" />
+            <ui:VisualElement name="notify-detail-card" class="notify-detail-card">
+                <ui:Label name="notify-detail-title" class="notify-detail-title" text="&#x6D88;&#x606F;&#x8BE6;&#x60C5;" />
+                <ui:Label name="notify-popup-body" class="panel-body notify-detail-body" text="&#x6682;&#x65E0;&#x65B0;&#x6D88;&#x606F;&#x3002;" />
+            </ui:VisualElement>
             <ui:Button name="notify-popup-action" class="panel-action panel-action-wide" text="&#x77E5;&#x9053;&#x4E86;" />
         </ui:VisualElement>
         <ui:VisualElement name="settings-popup" class="modal-popup settings-popup">

@@ -82,6 +82,8 @@ public class AutoSetup
         MakeUnit<Infantry>   ("Infantry_Enemy",    Color.red,                   new Vector3(0.5f,1f,0.5f),    false);
         MakeUnit<Artillery>  ("Artillery_Player",  Color.cyan,                  new Vector3(0.6f,0.8f,0.6f),  true);
         MakeUnit<Artillery>  ("Artillery_Enemy",   new Color(1f,0.5f,0f),       new Vector3(0.6f,0.8f,0.6f),  false);
+        MakeUnit<AntiAirGun> ("AntiAirGun_Player", new Color(0.35f,0.75f,1f),   new Vector3(1.6f,1.0f,2.4f),  true);
+        MakeUnit<AntiAirGun> ("AntiAirGun_Enemy",  new Color(1f,0.45f,0.2f),    new Vector3(1.6f,1.0f,2.4f),  false);
         MakeUnit<Flamethrower>("Flame_Player",     Color.yellow,                new Vector3(0.5f,1.1f,0.5f),  true);
         MakeUnit<Flamethrower>("Flame_Enemy",      new Color(1f,0.3f,0.3f),     new Vector3(0.5f,1.1f,0.5f),  false);
         MakeUnit<Tank>       ("Tank_Player",       Color.blue,                  new Vector3(1.6f,1.0f,2.4f),  true);
@@ -100,6 +102,8 @@ public class AutoSetup
         MakeBld<AirFactory>  ("AirFactory_Enemy",  new Color(0.9f,0.3f,0.3f),   new Vector3(4f,1.2f,3f),  false);
         MakeBld<TankFactory> ("TankFactory_Player",new Color(0.1f,0.5f,0.9f),   new Vector3(3.5f,1.4f,3f),true);
         MakeBld<TankFactory> ("TankFactory_Enemy", new Color(0.9f,0.2f,0.2f),   new Vector3(3.5f,1.4f,3f),false);
+        MakeBld<ArmorFactory>("ArmorFactory_Player",new Color(0.42f,0.44f,0.16f),new Vector3(3.5f,1.4f,3f),true);
+        MakeBld<ArmorFactory>("ArmorFactory_Enemy", new Color(0.7f,0.34f,0.12f), new Vector3(3.5f,1.4f,3f),false);
         MakeBld<PowerPlant>  ("PowerPlant_Player", Color.yellow,                new Vector3(2.5f,2f,2.5f),true);
         MakeBld<PowerPlant>  ("PowerPlant_Enemy",  new Color(0.9f,0.7f,0f),     new Vector3(2.5f,2f,2.5f),false);
         MakeBld<GoldMine>    ("GoldMine_Player",   new Color(1f,0.85f,0f),      new Vector3(2f,1.2f,2f),  true);
@@ -339,12 +343,12 @@ public class AutoSetup
         Text alertTxt = MakeTxt(hudGO.transform,"AlertText","",new Vector2(0.5f,0.91f),new Vector2(600,38),18,new Color(1f,0.4f,0.4f),font).GetComponent<Text>();
 
         // 右下角：单位面板
-        GameObject up = MakePanel(hudGO.transform,"UnitInfoPanel",Vector2.zero,new Vector2(280,175));
-        SetAnchorBottomRight(up, new Vector2(-8,8), new Vector2(280,175));
+        GameObject up = MakePanel(hudGO.transform,"UnitInfoPanel",Vector2.zero,new Vector2(248,150));
+        SetAnchorBottomRight(up, new Vector2(-12,34), new Vector2(248,150));
         up.SetActive(false);
-        Text unTxt  = MakeTxt(up.transform,"UnitNameText","单位名",new Vector2(0.5f,0.88f),new Vector2(250,34),20,Color.white,font).GetComponent<Text>();
-        Slider uhBar = MakeSlider(up.transform,"UnitHPBar",new Vector2(0.5f,0.68f),new Vector2(250,18),Color.green);
-        Text uhTxt  = MakeTxt(up.transform,"UnitHPText","HP",new Vector2(0.5f,0.5f),new Vector2(200,24),15,Color.white,font).GetComponent<Text>();
+        Text unTxt  = MakeTxt(up.transform,"UnitNameText","单位名",new Vector2(0.5f,0.91f),new Vector2(220,28),18,Color.white,font).GetComponent<Text>();
+        Slider uhBar = MakeSlider(up.transform,"UnitHPBar",new Vector2(0.5f,0.59f),new Vector2(220,14),Color.green);
+        Text uhTxt  = MakeTxt(up.transform,"UnitHPText","HP",new Vector2(0.5f,0.35f),new Vector2(220,58),12,Color.white,font).GetComponent<Text>();
         Button skillBtn = MakeBtn(up.transform,"SkillButton","穿甲弹",new Vector2(0.5f,0.22f),new Vector2(150,38),new Color(0.8f,0.4f,0f),font).GetComponent<Button>();
 
         // 右下角：建筑面板

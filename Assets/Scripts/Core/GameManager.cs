@@ -349,7 +349,49 @@ public class GameManager : MonoBehaviour
         EnemyPeakGold = Mathf.Max(EnemyPeakGold, EnemyGold);
     }
 
+    public struct BattleReportRow
+    {
+        public string Label;
+        public string PlayerValue;
+        public string EnemyValue;
+
+        public BattleReportRow(string label, string playerValue, string enemyValue)
+        {
+            Label = label;
+            PlayerValue = playerValue;
+            EnemyValue = enemyValue;
+        }
+    }
+
+    public struct BattleReportData
+    {
+        public string TeamLine;
+        public string PlayerHeader;
+        public string EnemyHeader;
+        public string DurationText;
+        public BattleReportRow[] Rows;
+    }
+
     public string BuildBattleReport(int kills, int seconds)
+    {
+        BattleReportData report = BuildBattleReportData(kills, seconds);
+        var sb = new System.Text.StringBuilder();
+        sb.Append(report.TeamLine).Append("    用时 ").Append(report.DurationText);
+        if (report.Rows != null)
+        {
+            for (int i = 0; i < report.Rows.Length; i++)
+            {
+                BattleReportRow row = report.Rows[i];
+                sb.Append('\n')
+                    .Append(row.Label).Append("：")
+                    .Append("我方 ").Append(row.PlayerValue)
+                    .Append(" | 敌方 ").Append(row.EnemyValue);
+            }
+        }
+        return sb.ToString();
+    }
+
+    public BattleReportData BuildBattleReportData(int kills, int seconds)
     {
         var ps = RTSPlayerState.Instance;
         int m = seconds / 60, s = seconds % 60;
@@ -369,15 +411,24 @@ public class GameManager : MonoBehaviour
         string teamLine = IsNetworkGame
             ? $"{(IsHost ? "我方HOST" : "我方GUEST")}  VS  对手"
             : "我方部队  VS  AI敌军";
-        return $"{teamLine}    用时 {m:00}:{s:00}\n" +
-               $"战果：我方 摧毁{kills}({PlayerUnitKills}兵/{PlayerBuildingKills}建) | 敌方 摧毁{PlayerUnitsLost + PlayerBuildingsLost}({PlayerUnitsLost}兵/{PlayerBuildingsLost}建)\n" +
-               $"兵力：我方 {player.Units}兵/{player.Buildings}建 | 敌方 {enemy.Units}兵/{enemy.Buildings}建\n" +
-               $"生产：我方 出兵{PlayerUnitsProduced} 建造{PlayerBuildingsConstructed} | 敌方 出兵{EnemyUnitsProduced} 建造{EnemyBuildingsConstructed}\n" +
-               $"人口：我方 {player.PopUsed}/{player.PopCap} 峰{PlayerPeakPopUsed} | 敌方 {enemy.PopUsed}/{enemy.PopCap} 峰{EnemyPeakPopUsed}\n" +
-               $"伤害：我方 出{PlayerDamageDealt:N0} 承{PlayerDamageTaken:N0} | 敌方 出{EnemyDamageDealt:N0} 承{EnemyDamageTaken:N0}\n" +
-               $"经济：我方 金{player.Gold:N0} 收{PlayerGoldIncome:N0} 耗{PlayerGoldSpent:N0} | 敌方 金{enemy.Gold:N0} 收{EnemyGoldIncome:N0} 耗{EnemyGoldSpent:N0}\n" +
-               $"电力：我方 {player.PowerUsed}/{player.PowerCap} | 敌方 {enemy.PowerUsed}/{enemy.PowerCap}\n" +
-               $"主基：我方 {GetPlayerBaseSummaryText()} | 敌方 {GetEnemyBaseSummaryText()}";
+        return new BattleReportData
+        {
+            TeamLine = teamLine,
+            PlayerHeader = IsNetworkGame ? (IsHost ? "我方 HOST" : "我方 GUEST") : "我方",
+            EnemyHeader = IsNetworkGame ? "对手" : "敌方",
+            DurationText = $"{m:00}:{s:00}",
+            Rows = new BattleReportRow[]
+            {
+                new BattleReportRow("战果", $"摧毁{kills}({PlayerUnitKills}兵/{PlayerBuildingKills}建)", $"摧毁{PlayerUnitsLost + PlayerBuildingsLost}({PlayerUnitsLost}兵/{PlayerBuildingsLost}建)"),
+                new BattleReportRow("兵力", $"{player.Units}兵/{player.Buildings}建", $"{enemy.Units}兵/{enemy.Buildings}建"),
+                new BattleReportRow("生产", $"出兵{PlayerUnitsProduced} 建造{PlayerBuildingsConstructed}", $"出兵{EnemyUnitsProduced} 建造{EnemyBuildingsConstructed}"),
+                new BattleReportRow("人口", $"{player.PopUsed}/{player.PopCap} 峰{PlayerPeakPopUsed}", $"{enemy.PopUsed}/{enemy.PopCap} 峰{EnemyPeakPopUsed}"),
+                new BattleReportRow("伤害", $"出{PlayerDamageDealt:N0} 承{PlayerDamageTaken:N0}", $"出{EnemyDamageDealt:N0} 承{EnemyDamageTaken:N0}"),
+                new BattleReportRow("经济", $"金{player.Gold:N0} 收{PlayerGoldIncome:N0} 耗{PlayerGoldSpent:N0}", $"金{enemy.Gold:N0} 收{EnemyGoldIncome:N0} 耗{EnemyGoldSpent:N0}"),
+                new BattleReportRow("电力", $"{player.PowerUsed}/{player.PowerCap}", $"{enemy.PowerUsed}/{enemy.PowerCap}"),
+                new BattleReportRow("主基", GetPlayerBaseSummaryText(), GetEnemyBaseSummaryText())
+            }
+        };
     }
 
     struct BattleSideSnapshot

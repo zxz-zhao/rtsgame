@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const fs      = require('fs');
 const path    = require('path');
 const mysql   = require('mysql2/promise');
+const packageInfo = require('./package.json');
 
 loadEnvFile(path.join(__dirname, '.env'));
 
@@ -14,6 +15,9 @@ const PORT   = Number(process.env.PORT || 8080);
 const SECRET = process.env.JWT_SECRET || process.env.SECRET || 'dev-only-change-me';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const WS_PORT = Number(process.env.WS_PORT || 8081);
+const APP_VERSION = packageInfo.version || '0.0.0';
+const BUILD_REVISION = process.env.BUILD_REVISION || process.env.GIT_COMMIT || 'local';
+const STARTED_AT = new Date();
 const DB_DIR = path.join(__dirname, 'data');
 const DB_BACKEND = (process.env.DB_BACKEND || 'mysql').toLowerCase();
 const USE_MYSQL = DB_BACKEND !== 'json';
@@ -64,9 +68,13 @@ app.use(express.json());
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
+    version: APP_VERSION,
+    revision: BUILD_REVISION,
     storage: USE_MYSQL ? 'mysql' : 'json',
     httpPort: PORT,
     wsPort: WS_PORT,
+    pid: process.pid,
+    startedAt: STARTED_AT.toISOString(),
     uptimeSec: Math.round(process.uptime())
   });
 });
@@ -443,6 +451,56 @@ app.get('/api/friends', authMiddleware, (req, res) => {
   res.json({ success: true, friends: myList });
 });
 
+app.get('/api/leaderboard', authMiddleware, (req, res) => {
+  const users = loadDB('users');
+  const currentUserId = req.user.userId;
+  const scoreFor = u => {
+    ensureUserDefaults(u);
+    const wins = u.wins || 0;
+    const losses = u.losses || 0;
+    const level = u.level || 1;
+    const kills = u.stats && u.stats.kills ? u.stats.kills : 0;
+    return wins * 30 + Math.max(0, level) * 8 + kills - losses * 6;
+  };
+
+  const ranked = Object.values(users)
+    .filter(u => u && u.id && u.username)
+    .map(u => {
+      ensureUserDefaults(u);
+      return {
+        id: u.id,
+        username: u.username,
+        level: u.level || 1,
+        wins: u.wins || 0,
+        losses: u.losses || 0,
+        score: scoreFor(u),
+        rankTitle: rankTitleFrom(u),
+        status: friendStatus(u.id)
+      };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      return a.username.localeCompare(b.username);
+    })
+    .map((u, index) => ({ ...u, place: index + 1, isCurrent: u.id === currentUserId }));
+
+  let mine = ranked.find(u => u.id === currentUserId) || null;
+  let leaderboard = ranked.slice(0, 20);
+  if (mine && !leaderboard.some(u => u.id === mine.id)) {
+    leaderboard = leaderboard.slice(0, 19);
+    leaderboard.push(mine);
+  }
+
+  res.json({
+    success: true,
+    season: 'S3 东线军演赛季',
+    resetText: '每周一 05:00 结算军功与战绩',
+    leaderboard,
+    current: mine
+  });
+});
+
 app.post('/api/friends/add', authMiddleware, (req, res) => {
   const { friendName } = req.body;
   const users   = loadDB('users');
@@ -645,11 +703,17 @@ app.post('/api/result', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+let httpServer = null;
+
 function startHttpServer() {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`HTTP server listening: http://0.0.0.0:${PORT}`);
-    console.log(`Local address: http://127.0.0.1:${PORT}`);
-    console.log(`LAN address: use ipconfig to find your IP, port ${PORT}`);
+  return new Promise((resolve, reject) => {
+    httpServer = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`HTTP server listening: http://0.0.0.0:${PORT}`);
+      console.log(`Local address: http://127.0.0.1:${PORT}`);
+      console.log(`LAN address: use ipconfig to find your IP, port ${PORT}`);
+      resolve();
+    });
+    httpServer.once('error', reject);
   });
 }
 
@@ -665,9 +729,15 @@ let wss = null;
 const gameRooms = {};
 
 function startWebSocketServer() {
-wss = new WebSocketServer({ port: WS_PORT });
+  return new Promise((resolve, reject) => {
+    wss = new WebSocketServer({ port: WS_PORT });
+    wss.once('listening', () => {
+      console.log(`WebSocket relay listening: ws://0.0.0.0:${WS_PORT}`);
+      resolve();
+    });
+    wss.once('error', reject);
 
-wss.on('connection', ws => {
+    wss.on('connection', ws => {
   let userId = null, roomId = null, role = null;
 
   function send(target, obj) {
@@ -730,19 +800,79 @@ wss.on('connection', ws => {
   });
 
   ws.on('error', err => console.error('[WS] Error:', err.message));
-});
-
-console.log(`WebSocket relay listening: ws://0.0.0.0:${WS_PORT}`);
- 
+    });
+  });
 }
 
-initStorage()
-  .then(() => {
-    startHttpServer();
-    startWebSocketServer();
-  })
-  .catch(err => {
-    console.error('[DB] Failed to initialize storage:', err.message);
+let shuttingDown = false;
+
+function closeHttpServer() {
+  if (!httpServer) return Promise.resolve();
+  return new Promise(resolve => {
+    httpServer.close(err => {
+      if (err) console.error('[Lifecycle] HTTP close failed:', err.message);
+      resolve();
+    });
+  });
+}
+
+function closeWebSocketServer(signal) {
+  if (!wss) return Promise.resolve();
+  const restartMessage = JSON.stringify({ type: 'server_restarting', signal });
+  for (const client of wss.clients) {
+    try {
+      if (client.readyState === 1) client.send(restartMessage);
+      client.close(1012, 'Service restart');
+    } catch (err) {
+      console.error('[Lifecycle] WS client close failed:', err.message);
+    }
+  }
+  return new Promise(resolve => {
+    wss.close(err => {
+      if (err) console.error('[Lifecycle] WS close failed:', err.message);
+      resolve();
+    });
+  });
+}
+
+async function closeStorage() {
+  if (!mysqlPool) return;
+  await mysqlPool.end();
+}
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Lifecycle] ${signal} received, shutting down gracefully...`);
+  const forceExit = setTimeout(() => {
+    console.error('[Lifecycle] Graceful shutdown timed out.');
+    process.exit(1);
+  }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 10000));
+  forceExit.unref();
+
+  await Promise.allSettled([
+    closeWebSocketServer(signal),
+    closeHttpServer(),
+    closeStorage()
+  ]);
+  clearTimeout(forceExit);
+  console.log('[Lifecycle] Shutdown complete.');
+  process.exit(0);
+}
+
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+async function main() {
+  try {
+    await initStorage();
+    await Promise.all([startHttpServer(), startWebSocketServer()]);
+    if (typeof process.send === 'function') process.send('ready');
+  } catch (err) {
+    console.error('[Startup] Failed to start server:', err.message);
     console.error('[DB] Check MYSQL_HOST / MYSQL_PORT / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE, or set DB_BACKEND=json temporarily.');
     process.exit(1);
-  });
+  }
+}
+
+main();

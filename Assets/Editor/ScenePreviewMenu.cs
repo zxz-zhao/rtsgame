@@ -88,7 +88,7 @@ public static class ScenePreviewMenu
         if (string.IsNullOrEmpty(n)) return false;
         // 建筑（保留 _P/_E/_Player/_Enemy 后缀的根 prefab 实例）
         string[] bldKeys = {
-            "MainBase", "Barracks", "AirFactory", "TankFactory",
+            "MainBase", "Barracks", "AirFactory", "TankFactory", "ArmorFactory",
             "PowerPlant", "GoldMine", "Turret"
         };
         foreach (var k in bldKeys) if (n.StartsWith(k)) return true;

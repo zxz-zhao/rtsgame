@@ -1,5 +1,8 @@
 using UnityEngine;
 
+/// <summary>
+/// Shared aircraft behavior covering fuel, parking, return-to-base logic, and simplified airborne combat.
+/// </summary>
 public class AirUnit : RTSUnit
 {
     public float FlyHeight = 8f;
@@ -26,6 +29,11 @@ public class AirUnit : RTSUnit
     private bool _returningToRefuel = false;
     private bool _warnedLowFuel = false;
     private bool _warnedNoAirfield = false;
+    private bool _factoryTransferActive = false;
+    private bool _factoryTransferClimbComplete = false;
+    private Vector3 _factoryTransferClimbPoint;
+    private bool _pendingMoveAfterFactoryTransfer = false;
+    private Vector3 _pendingMoveAfterFactoryTransferDestination;
 
     public Airfield HomeAirfield { get; private set; }
     public float CurrentFuel { get; private set; }
@@ -36,6 +44,9 @@ public class AirUnit : RTSUnit
     public bool CanParkAtAirfield => RequiresAirfieldSlot && !_parked && !_returningToRefuel && CurrentHP > 0 && EnsureUsableHomeAirfield();
     public bool CanReturnToAirfield => CanParkAtAirfield;
 
+    /// <summary>
+    /// Marks the unit as airborne, upgrades its selection collider, and disables NavMesh steering.
+    /// </summary>
     protected override void Awake()
     {
         base.Awake();
@@ -44,6 +55,9 @@ public class AirUnit : RTSUnit
         if (Agent != null) { Agent.enabled = false; }
     }
 
+    /// <summary>
+    /// Enlarges or creates a collider suitable for selecting aircraft from a top-down camera.
+    /// </summary>
     void EnsureAirSelectionCollider()
     {
         var capsule = GetComponent<CapsuleCollider>();
@@ -63,6 +77,9 @@ public class AirUnit : RTSUnit
         sphere.radius = Mathf.Max(sphere.radius, 2.2f);
     }
 
+    /// <summary>
+    /// Normalizes fuel state, creates aircraft helper visuals, and binds or parks at a home airfield if needed.
+    /// </summary>
     protected override void Start()
     {
         base.Start();
@@ -87,12 +104,18 @@ public class AirUnit : RTSUnit
         if (HomeAirfield == null)
             TryBindNearestAirfield();
 
+        if (_factoryTransferActive)
+            return;
+
         if (HomeAirfield != null)
             ParkAtHomeAirfield(true);
         else
             SetAirborneHeight(true);
     }
 
+    /// <summary>
+    /// Fixes imported aircraft visuals that spawn rotated 180 degrees around Y.
+    /// </summary>
     void NormalizeAircraftVisualForward()
     {
         Transform visualRoot = transform.Find("Model");
@@ -106,6 +129,9 @@ public class AirUnit : RTSUnit
             aircraft.localRotation = Quaternion.Euler(euler.x, 0f, euler.z);
     }
 
+    /// <summary>
+    /// Adds simple faction-colored stripes to aircraft models that do not have readable markings.
+    /// </summary>
     void CreateAircraftMarkings()
     {
         Transform visualRoot = transform.Find("Model");
@@ -118,6 +144,9 @@ public class AirUnit : RTSUnit
         CreateMarkingCube(visualRoot, "FactionStripeR", new Vector3(0.56f, 0.38f, 0.04f), new Vector3(0.30f, 0.035f, 0.13f), faction);
     }
 
+    /// <summary>
+    /// Creates one lightweight colored cube used as a procedural aircraft marking.
+    /// </summary>
     void CreateMarkingCube(Transform parent, string name, Vector3 localPosition, Vector3 localScale, Color color)
     {
         GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -141,6 +170,9 @@ public class AirUnit : RTSUnit
         }
     }
 
+    /// <summary>
+    /// Recursively searches for a named child transform within the supplied hierarchy.
+    /// </summary>
     static Transform FindChildRecursive(Transform root, string targetName)
     {
         if (root == null || string.IsNullOrEmpty(targetName)) return null;
@@ -153,6 +185,9 @@ public class AirUnit : RTSUnit
         return null;
     }
 
+    /// <summary>
+    /// Creates the trail renderer used as the aircraft contrail effect while airborne.
+    /// </summary>
     void CreateContrail()
     {
         var go = new GameObject("Contrail");
@@ -172,6 +207,9 @@ public class AirUnit : RTSUnit
         _trail.enabled = !_parked;
     }
 
+    /// <summary>
+    /// Creates the soft-disc shadow projected beneath the aircraft.
+    /// </summary>
     void CreateGroundShadow()
     {
         _shadowDisc = FxResources.MakeGroundDisc(null, "AirShadow", 1.2f,
@@ -179,6 +217,9 @@ public class AirUnit : RTSUnit
         _shadowMaterial = _shadowDisc.GetComponent<Renderer>().sharedMaterial;
     }
 
+    /// <summary>
+    /// Refreshes airborne-only helper visuals such as contrails and the ground shadow after movement is resolved.
+    /// </summary>
     void LateUpdate()
     {
         if (_trail != null)
@@ -206,6 +247,9 @@ public class AirUnit : RTSUnit
         }
     }
 
+    /// <summary>
+    /// Releases the home-airfield slot and destroys runtime helper visuals when the aircraft is removed.
+    /// </summary>
     void OnDestroy()
     {
         if (HomeAirfield != null)
@@ -214,6 +258,9 @@ public class AirUnit : RTSUnit
             Object.Destroy(_shadowDisc);
     }
 
+    /// <summary>
+    /// Reassigns the aircraft to a new home airfield, releasing any previous slot reservation.
+    /// </summary>
     public void SetHomeAirfieldFromAirport(Airfield airfield)
     {
         if (!RequiresAirfieldSlot)
@@ -231,6 +278,9 @@ public class AirUnit : RTSUnit
             CurrentFuel = MaxFuelSeconds;
     }
 
+    /// <summary>
+    /// Clears the home-airfield binding when that airfield is destroyed and lifts parked aircraft back into the air.
+    /// </summary>
     public void NotifyHomeAirfieldDestroyed(Airfield airfield)
     {
         if (HomeAirfield != airfield) return;
@@ -243,8 +293,18 @@ public class AirUnit : RTSUnit
         }
     }
 
+    /// <summary>
+    /// Converts a move order into an airborne target point and breaks the unit out of parking state if needed.
+    /// </summary>
     public override void ApplyMoveCommand(Vector3 dest)
     {
+        if (_factoryTransferActive)
+        {
+            _pendingMoveAfterFactoryTransfer = true;
+            _pendingMoveAfterFactoryTransferDestination = dest;
+            return;
+        }
+
         BeginFlightFromParking();
         flyTarget = new Vector3(dest.x, FlyHeight, dest.z);
         hasTarget = true;
@@ -253,8 +313,17 @@ public class AirUnit : RTSUnit
         buildingTarget = null;
     }
 
+    /// <summary>
+    /// Executes aircraft-specific movement and combat logic after fuel handling is evaluated.
+    /// </summary>
     protected override void UpdateAI()
     {
+        if (_factoryTransferActive)
+        {
+            UpdateFactoryTransfer();
+            return;
+        }
+
         if (HandleFuelAndReturn()) return;
 
         SetAirborneHeight(false);
@@ -274,7 +343,10 @@ public class AirUnit : RTSUnit
         }
     }
 
-    bool HandleFuelAndReturn()
+    /// <summary>
+    /// Consumes fuel, triggers return-to-base behavior, and handles refueling or crashes when necessary.
+    /// </summary>
+    protected bool HandleFuelAndReturn()
     {
         if (!RequiresAirfieldSlot)
         {
@@ -322,6 +394,44 @@ public class AirUnit : RTSUnit
         return false;
     }
 
+    /// <summary>
+    /// Starts the post-production ferry flight from the factory launch point to the assigned airfield.
+    /// </summary>
+    public bool BeginFactoryTransferToAirfield(Airfield airfield, Vector3 launchPoint, Vector3 climbPoint)
+    {
+        if (!RequiresAirfieldSlot || airfield == null)
+            return false;
+        if (!airfield.TryAcceptAircraft(this))
+            return false;
+
+        _factoryTransferActive = true;
+        _factoryTransferClimbComplete = false;
+        _factoryTransferClimbPoint = new Vector3(climbPoint.x, Mathf.Max(FlyHeight, climbPoint.y), climbPoint.z);
+        _returningToRefuel = false;
+        _parked = false;
+        hasTarget = false;
+        CurrentCommand = CommandType.None;
+        AttackTarget = null;
+        buildingTarget = null;
+        CurrentFuel = MaxFuelSeconds;
+
+        launchPoint.y = Mathf.Max(launchPoint.y, 0.35f);
+        transform.position = launchPoint;
+
+        Vector3 lookDir = _factoryTransferClimbPoint - transform.position;
+        lookDir.y = 0f;
+        if (lookDir.sqrMagnitude > 0.0001f)
+            transform.rotation = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
+
+        if (_trail != null)
+            _trail.Clear();
+
+        return true;
+    }
+
+    /// <summary>
+    /// Predicts whether the current fuel state is low enough that the aircraft should head home now.
+    /// </summary>
     bool ShouldReturnForFuel()
     {
         if (FuelRatio <= LowFuelReturnRatio)
@@ -338,6 +448,9 @@ public class AirUnit : RTSUnit
         return CurrentFuel <= fuelNeededToReturn;
     }
 
+    /// <summary>
+    /// Restores fuel over time while the aircraft is parked at its home airfield.
+    /// </summary>
     void RefuelWhileParked()
     {
         float rate = MaxFuelSeconds / Mathf.Max(2f, RefuelSeconds);
@@ -349,6 +462,9 @@ public class AirUnit : RTSUnit
         }
     }
 
+    /// <summary>
+    /// Requests an immediate return to base for parking and refueling.
+    /// </summary>
     public bool RequestParkAtAirfield()
     {
         if (!RequiresAirfieldSlot)
@@ -360,11 +476,17 @@ public class AirUnit : RTSUnit
         return BeginReturnToRefuel(false);
     }
 
+    /// <summary>
+    /// Alias used by callers that conceptually want a return-to-airfield command.
+    /// </summary>
     public bool RequestReturnToAirfield()
     {
         return RequestParkAtAirfield();
     }
 
+    /// <summary>
+    /// Starts the return-to-airfield flow and raises the appropriate player-facing warning or status alert.
+    /// </summary>
     bool BeginReturnToRefuel(bool lowFuel)
     {
         if (!EnsureUsableHomeAirfield())
@@ -397,6 +519,43 @@ public class AirUnit : RTSUnit
         return true;
     }
 
+    /// <summary>
+    /// Flies a freshly produced aircraft from the factory launch point to its home airfield before normal parking behavior begins.
+    /// </summary>
+    void UpdateFactoryTransfer()
+    {
+        if (!EnsureUsableHomeAirfield())
+        {
+            _factoryTransferActive = false;
+            SetAirborneHeight(true);
+            ReplayPendingFactoryTransferMove();
+            return;
+        }
+
+        if (!_factoryTransferClimbComplete)
+        {
+            MoveTowardAirTarget(_factoryTransferClimbPoint, MoveSpeed);
+            if (Vector3.Distance(transform.position, _factoryTransferClimbPoint) <= 0.35f)
+                _factoryTransferClimbComplete = true;
+            return;
+        }
+
+        Vector3 approach = HomeAirfield.GetAirApproachPoint(this, FlyHeight);
+        MoveTowardAirTarget(approach, MoveSpeed * 1.05f);
+
+        Vector3 flatSelf = new Vector3(transform.position.x, 0f, transform.position.z);
+        Vector3 flatTarget = new Vector3(approach.x, 0f, approach.z);
+        if (Vector3.Distance(flatSelf, flatTarget) > LandingDistance)
+            return;
+
+        _factoryTransferActive = false;
+        ParkAtHomeAirfield(false);
+        ReplayPendingFactoryTransferMove();
+    }
+
+    /// <summary>
+    /// Steers the aircraft back toward its assigned approach point and parks once it reaches landing distance.
+    /// </summary>
     void UpdateReturnToRefuel()
     {
         if (!EnsureUsableHomeAirfield())
@@ -413,6 +572,9 @@ public class AirUnit : RTSUnit
             ParkAtHomeAirfield(false);
     }
 
+    /// <summary>
+    /// Validates the current home airfield or tries to bind a new compatible one if the old assignment is unusable.
+    /// </summary>
     bool EnsureUsableHomeAirfield()
     {
         if (!RequiresAirfieldSlot)
@@ -423,6 +585,9 @@ public class AirUnit : RTSUnit
         return TryBindNearestAirfield();
     }
 
+    /// <summary>
+    /// Searches for the nearest friendly airfield that can accept this aircraft and binds it.
+    /// </summary>
     bool TryBindNearestAirfield()
     {
         if (!RequiresAirfieldSlot)
@@ -450,6 +615,9 @@ public class AirUnit : RTSUnit
         return best != null && best.TryAcceptAircraft(this);
     }
 
+    /// <summary>
+    /// Returns whether an airfield is alive, completed, and owned by the same faction as this aircraft.
+    /// </summary>
     bool IsUsableAirfield(Airfield airfield)
     {
         return airfield != null
@@ -458,7 +626,10 @@ public class AirUnit : RTSUnit
             && airfield.bPlayerOwned == bPlayerOwned;
     }
 
-    void BeginFlightFromParking()
+    /// <summary>
+    /// Lifts a parked aircraft back into active flight and clears any stale contrail segment.
+    /// </summary>
+    protected void BeginFlightFromParking()
     {
         if (!_parked) return;
         _parked = false;
@@ -467,13 +638,19 @@ public class AirUnit : RTSUnit
         if (_trail != null) _trail.Clear();
     }
 
-    void SetAirborneHeight(bool snap)
+    /// <summary>
+    /// Moves the aircraft toward its configured cruise height, optionally snapping instantly.
+    /// </summary>
+    protected void SetAirborneHeight(bool snap)
     {
         Vector3 p = transform.position;
         p.y = snap ? FlyHeight : Mathf.MoveTowards(p.y, FlyHeight, Time.deltaTime * 5f);
         transform.position = p;
     }
 
+    /// <summary>
+    /// Finalizes the landing flow by parking the aircraft, clearing combat state, and optionally refilling fuel.
+    /// </summary>
     void ParkAtHomeAirfield(bool initial)
     {
         if (!RequiresAirfieldSlot)
@@ -491,6 +668,9 @@ public class AirUnit : RTSUnit
             CurrentFuel = MaxFuelSeconds;
     }
 
+    /// <summary>
+    /// Places the aircraft exactly on its assigned parking spot and aligns it with the airfield forward direction.
+    /// </summary>
     void SnapToParkingSpot()
     {
         if (HomeAirfield == null) return;
@@ -501,6 +681,9 @@ public class AirUnit : RTSUnit
             transform.rotation = Quaternion.LookRotation(fwd.normalized, Vector3.up);
     }
 
+    /// <summary>
+    /// Handles the fatal fuel-depletion case, including the optional HUD alert for player-owned aircraft.
+    /// </summary>
     void CrashFromFuelLoss()
     {
         if (CurrentHP <= 0) return;
@@ -511,12 +694,18 @@ public class AirUnit : RTSUnit
         OnDeath();
     }
 
+    /// <summary>
+    /// Releases any airfield reservation before falling back to the shared unit death handling.
+    /// </summary>
     protected override void OnDeath()
     {
         ClearHomeAirfield();
         base.OnDeath();
     }
 
+    /// <summary>
+    /// Releases the current home-airfield reservation without attempting to bind a replacement.
+    /// </summary>
     void ClearHomeAirfield()
     {
         if (HomeAirfield != null)
@@ -526,13 +715,29 @@ public class AirUnit : RTSUnit
         }
     }
 
-    void MoveTowardAirTarget(Vector3 target, float speed)
+    void ReplayPendingFactoryTransferMove()
+    {
+        if (!_pendingMoveAfterFactoryTransfer)
+            return;
+
+        Vector3 dest = _pendingMoveAfterFactoryTransferDestination;
+        _pendingMoveAfterFactoryTransfer = false;
+        ApplyMoveCommand(dest);
+    }
+
+    /// <summary>
+    /// Rotates toward and advances toward an airborne target position at the supplied speed.
+    /// </summary>
+    protected void MoveTowardAirTarget(Vector3 target, float speed)
     {
         Vector3 delta = target - transform.position;
         FaceAirDirection(delta);
         transform.position = Vector3.MoveTowards(transform.position, target, speed * Time.deltaTime);
     }
 
+    /// <summary>
+    /// Smoothly yaws the aircraft toward a planar travel or attack direction.
+    /// </summary>
     void FaceAirDirection(Vector3 worldDelta)
     {
         worldDelta.y = 0f;
@@ -542,6 +747,9 @@ public class AirUnit : RTSUnit
         transform.rotation = Quaternion.Slerp(transform.rotation, desired, Time.deltaTime * AirTurnSpeed);
     }
 
+    /// <summary>
+    /// Runs the simplified aircraft attack loop, including unit scanning, building fallback, and attack-move behavior.
+    /// </summary>
     void UpdateAirAttack()
     {
         if (AttackTarget == null || AttackTarget.IsDead())
@@ -576,15 +784,8 @@ public class AirUnit : RTSUnit
                         MoveTowardAirTarget(bPos, MoveSpeed * AttackRunSpeedMultiplier);
                         if (AttackTimer <= 0f)
                         {
-                            var sync = GameNetworkSync.Instance;
-                            if (sync == null || !sync.IsNetworkGame || sync.IsHost)
-                            {
-                                int prevHP = buildingTarget.GetHP();
-                                buildingTarget.TakeDamage(AttackDamage);
-                                if (prevHP > 0 && buildingTarget.GetHP() <= 0) AddKill();
-                            }
-                            PlayAttackVisuals(buildingTarget.transform.position);
-                            AttackTimer = AttackInterval;
+                            DoAttackBuilding(buildingTarget);
+                            AttackTimer = ConsumeAttackCooldown();
                         }
                     }
                     else
@@ -619,7 +820,7 @@ public class AirUnit : RTSUnit
             if (AttackTimer <= 0f)
             {
                 DoAttack(AttackTarget);
-                AttackTimer = AttackInterval;
+                AttackTimer = ConsumeAttackCooldown();
             }
         }
         else

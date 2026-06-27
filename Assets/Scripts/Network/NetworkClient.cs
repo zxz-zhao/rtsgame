@@ -307,6 +307,9 @@ public class NetworkClient : MonoBehaviour
     //  澶у巺锛堣揣甯?/ 浠诲姟 / 绉戞妧锛?    // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
     public void GetLobby(Action<SimpleJson> cb) => StartCoroutine(GetLobbyCo(cb));
 
+    public void GetLeaderboard(Action<SimpleJson> cb)
+        => StartCoroutine(Get("/api/leaderboard", cb));
+
     IEnumerator GetLobbyCo(Action<SimpleJson> cb)
     {
         var req = UnityWebRequest.Get(ServerUrl + "/api/lobby");
@@ -415,8 +418,16 @@ public class SimpleJson
     public string title;
     public string rank;
     public string status;
+    public string season;
+    public string resetText;
+    public string body;
+    public string action;
     public int?   cur;
     public int?   max;
+    public int?   place;
+    public int?   score;
+    public int?   kills;
+    public bool   isCurrentBool;
     public bool   claimedBool;
     public bool   canClaimBool;
     public string techId;
@@ -425,6 +436,8 @@ public class SimpleJson
     public long?  techEndAtMs;
     public int?   techTotalSec;
     public System.Collections.Generic.List<SimpleJson> tasks;
+    public System.Collections.Generic.List<SimpleJson> leaderboard;
+    public SimpleJson current;
 
     public static SimpleJson Parse(string json)
     {
@@ -449,8 +462,16 @@ public class SimpleJson
         obj.title    = GetStr(json, "title");
         obj.rank     = GetStr(json, "rank");
         obj.status   = GetStr(json, "status");
+        obj.season   = GetStr(json, "season");
+        obj.resetText = GetStr(json, "resetText");
+        obj.body     = GetStr(json, "body");
+        obj.action   = GetStr(json, "action");
         obj.cur      = GetInt(json, "cur");
         obj.max      = GetInt(json, "max");
+        obj.place    = GetInt(json, "place");
+        obj.score    = GetInt(json, "score");
+        obj.kills    = GetInt(json, "kills");
+        obj.isCurrentBool = GetStr(json, "isCurrent") == "true";
         obj.claimedBool = GetStr(json, "claimed") == "true";
         obj.canClaimBool = GetStr(json, "canClaim") == "true";
         obj.techId   = GetStr(json, "techId");
@@ -469,6 +490,8 @@ public class SimpleJson
         obj.rooms    = ParseArray(json, "rooms");
         obj.invites  = ParseArray(json, "invites");
         obj.tasks    = ParseArray(json, "tasks");
+        obj.leaderboard = ParseArray(json, "leaderboard");
+        obj.current  = ParseObject(json, "current");
         obj.from     = GetStr(json, "from");
         obj.fromId   = GetStr(json, "fromId");
         obj.inviteId = GetStr(json, "inviteId");
@@ -553,6 +576,46 @@ public class SimpleJson
             else if (json[i] == ']') { if (depth == 1) break; depth--; }
         }
         return list;
+    }
+
+    static SimpleJson ParseObject(string json, string key)
+    {
+        var pattern = $"\"{key}\"";
+        int idx = json.IndexOf(pattern);
+        if (idx < 0) return null;
+        int start = json.IndexOf('{', idx);
+        if (start < 0) return null;
+
+        int depth = 0;
+        bool inString = false;
+        bool escaping = false;
+        for (int i = start; i < json.Length; i++)
+        {
+            char c = json[i];
+            if (inString)
+            {
+                if (escaping) escaping = false;
+                else if (c == '\\') escaping = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '{') depth++;
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0)
+                    return Parse(json.Substring(start, i - start + 1));
+            }
+        }
+
+        return null;
     }
 }
 

@@ -42,6 +42,8 @@ cd Server
 npm start
 ```
 
+For cloud deployment and server hot updates, see `Server/DEPLOY.md`.
+
 5. In Unity, use the RTS editor menus to regenerate prefabs/scenes if needed:
 
 ```text

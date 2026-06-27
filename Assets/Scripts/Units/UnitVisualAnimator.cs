@@ -17,6 +17,14 @@ public class UnitVisualAnimator : MonoBehaviour
     public float BobAmplitude = 0.04f;
     public float WheelSpinSpeed = 520f;
     public float PropellerSpinSpeed = 980f;
+    public bool PreferPropellerGroupNodes = false;
+    public bool ForcePropellerLocalAxis = false;
+    public Vector3 ForcedPropellerLocalAxis = Vector3.forward;
+    public bool ForcePropellerWorldAxis = false;
+    public Vector3 ForcedPropellerWorldAxis = Vector3.up;
+    public bool UseHelicopterRotorAxes = false;
+    public Vector3 HelicopterTailRotorLocalAxis = Vector3.right;
+    public float HelicopterTailRotorSpeedMultiplier = 1.8f;
 
     NavMeshAgent agent;
     Animator animator;
@@ -39,10 +47,13 @@ public class UnitVisualAnimator : MonoBehaviour
 
     Transform[] wheels = new Transform[0];
     Transform[] propellers = new Transform[0];
+    Vector3[] propellerSpinAxes = new Vector3[0];
     Transform[] arms = new Transform[0];
     Transform[] legs = new Transform[0];
     Transform weaponRoot;
     BasicShooterRifleHandBinder rifleHandBinder;
+    bool isAircraftLike;
+    bool disableAircraftBob;
     Quaternion[] armBaseRotations = new Quaternion[0];
     Quaternion[] legBaseRotations = new Quaternion[0];
     Quaternion weaponBaseLocalRotation;
@@ -67,6 +78,8 @@ public class UnitVisualAnimator : MonoBehaviour
             baseRootLocalPosition = VisualRoot.localPosition;
             baseRootLocalRotation = VisualRoot.localRotation;
         }
+        isAircraftLike = Style == VisualStyle.Aircraft || GetComponent<AirUnit>() != null;
+        disableAircraftBob = GetComponent<ScoutPlane>() != null;
 
         speedHash = Animator.StringToHash("Speed");
         fireHash = Animator.StringToHash("Fire");
@@ -74,7 +87,10 @@ public class UnitVisualAnimator : MonoBehaviour
         CacheAnimatorParameters();
 
         wheels = FindParts("Wheel");
-        propellers = FindParts("Propeller", "Rotor");
+        propellers = PreferPropellerGroupNodes ? FindPropellerGroupParts() : FindParts("Propeller", "Rotor");
+        if (propellers.Length == 0 && isAircraftLike)
+            propellers = FindAircraftRotorCandidates();
+        propellerSpinAxes = GetPropellerSpinAxes(propellers);
         arms = FindParts("Arm");
         legs = FindParts("Leg");
         rifleHandBinder = GetComponent<BasicShooterRifleHandBinder>();
@@ -87,6 +103,18 @@ public class UnitVisualAnimator : MonoBehaviour
             weaponBaseLocalPosition = weaponRoot.localPosition;
         }
         lastPosition = transform.position;
+    }
+
+    public void RebindVisualRootBasePose()
+    {
+        if (VisualRoot == null)
+            VisualRoot = transform.Find("Model");
+
+        if (VisualRoot == null)
+            return;
+
+        baseRootLocalPosition = VisualRoot.localPosition;
+        baseRootLocalRotation = VisualRoot.localRotation;
     }
 
     void UseGeneratedInfantryFallbackIfNeeded()
@@ -322,7 +350,7 @@ public class UnitVisualAnimator : MonoBehaviour
             float bob = 0f;
             if (Style == VisualStyle.Infantry && moving && animator == null)
                 bob = Mathf.Abs(Mathf.Sin(clock * 2f)) * BobAmplitude;
-            else if (Style == VisualStyle.Aircraft)
+            else if (Style == VisualStyle.Aircraft && !disableAircraftBob)
                 bob = Mathf.Sin(clock * 1.4f) * BobAmplitude * 1.6f;
 
             Vector3 hitOffset = hitKick > 0f
@@ -348,8 +376,33 @@ public class UnitVisualAnimator : MonoBehaviour
         }
 
         for (int i = 0; i < propellers.Length; i++)
-            if (propellers[i] != null)
-                propellers[i].Rotate(Vector3.forward, PropellerSpinSpeed * dt, Space.Self);
+        {
+            if (propellers[i] == null)
+                continue;
+
+            if (UseHelicopterRotorAxes)
+            {
+                bool tailRotor = LooksLikeTailRotorPart(propellers[i]);
+                Vector3 axis = tailRotor
+                    ? transform.TransformDirection(HelicopterTailRotorLocalAxis)
+                    : ForcedPropellerWorldAxis;
+                if (axis.sqrMagnitude < 0.0001f)
+                    axis = tailRotor ? transform.right : Vector3.up;
+                float speedMultiplier = tailRotor ? Mathf.Max(0.1f, HelicopterTailRotorSpeedMultiplier) : 1f;
+                propellers[i].Rotate(axis.normalized, PropellerSpinSpeed * speedMultiplier * dt, Space.World);
+            }
+            else if (ForcePropellerWorldAxis)
+            {
+                Vector3 worldAxis = ForcedPropellerWorldAxis;
+                if (worldAxis.sqrMagnitude < 0.0001f)
+                    worldAxis = Vector3.up;
+                propellers[i].Rotate(worldAxis.normalized, PropellerSpinSpeed * dt, Space.World);
+            }
+            else
+            {
+                propellers[i].Rotate(GetPropellerSpinAxis(i), PropellerSpinSpeed * dt, Space.Self);
+            }
+        }
 
         if (Style == VisualStyle.Infantry && animator == null)
             AnimateInfantry(moving);
@@ -498,6 +551,410 @@ public class UnitVisualAnimator : MonoBehaviour
     {
         var matches = FindParts(tokens);
         return matches.Length > 0 ? matches[0] : null;
+    }
+
+    Transform[] FindPropellerGroupParts()
+    {
+        if (VisualRoot == null)
+            return new Transform[0];
+
+        var exact = new System.Collections.Generic.List<Transform>();
+        var named = new System.Collections.Generic.List<Transform>();
+        foreach (Transform child in VisualRoot.GetComponentsInChildren<Transform>(true))
+        {
+            if (child == VisualRoot || !child.gameObject.activeInHierarchy)
+                continue;
+
+            string name = child.name;
+            if (name.Equals("Blades", System.StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Blades_end", System.StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Rotor", System.StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Propeller", System.StringComparison.OrdinalIgnoreCase))
+            {
+                exact.Add(child);
+                continue;
+            }
+
+            if (name.IndexOf("Rotor", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Propeller", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                named.Add(child);
+        }
+
+        if (exact.Count > 0)
+            return exact.ToArray();
+
+        return RemoveNestedPropellerParts(named.ToArray());
+    }
+
+    static bool LooksLikeTailRotorPart(Transform part)
+    {
+        if (part == null)
+            return false;
+
+        string name = part.name;
+        return name.IndexOf("Tail", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Rear", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Back", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.EndsWith("_end", System.StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("End", System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    static Transform[] RemoveNestedPropellerParts(Transform[] parts)
+    {
+        if (parts == null || parts.Length <= 1)
+            return parts ?? new Transform[0];
+
+        var result = new System.Collections.Generic.List<Transform>();
+        for (int i = 0; i < parts.Length; i++)
+        {
+            Transform candidate = parts[i];
+            if (candidate == null)
+                continue;
+
+            bool nestedUnderOther = false;
+            for (int j = 0; j < parts.Length; j++)
+            {
+                Transform other = parts[j];
+                if (other == null || other == candidate)
+                    continue;
+                if (candidate.IsChildOf(other))
+                {
+                    nestedUnderOther = true;
+                    break;
+                }
+            }
+
+            if (!nestedUnderOther)
+                result.Add(candidate);
+        }
+
+        return result.ToArray();
+    }
+
+    Transform[] FindAircraftRotorCandidates()
+    {
+        Transform aircraftRoot = FindFirstPart("KenneyAircraft", "Aircraft");
+        if (aircraftRoot == null)
+            return new Transform[0];
+
+        Transform meshRoot = FindImportedMeshRoot(aircraftRoot);
+        if (meshRoot == null)
+        {
+            if (!LooksLikeGenericImportedAircraft(aircraftRoot))
+                return new Transform[0];
+            meshRoot = aircraftRoot;
+        }
+
+        if (!TryGetBoundsInSpace(meshRoot, meshRoot, out Bounds aircraftBounds))
+            return new Transform[0];
+
+        var scored = new System.Collections.Generic.List<ScoredTransform>();
+        int longAxis = GetLargestAxis(aircraftBounds.size);
+        int upAxis = GetSmallestAxis(aircraftBounds.size);
+        float overallLargestSpan = Mathf.Max(aircraftBounds.size[longAxis], 0.01f);
+        float longitudinalCenter = aircraftBounds.center[longAxis];
+        foreach (Transform child in EnumerateAircraftMeshParts(meshRoot))
+        {
+            if (child == meshRoot || !child.gameObject.activeInHierarchy)
+                continue;
+            if (!TryGetBoundsInSpace(child, meshRoot, out Bounds modelBounds))
+                continue;
+            if (!TryGetBoundsInSpace(child, child, out Bounds localBounds))
+                continue;
+
+            Vector3 localSize = localBounds.size;
+            int vertexCount = CountMeshVertices(child);
+            if (vertexCount > 4500)
+                continue;
+
+            IndexedSize[] sorted = GetSortedAxes(localSize);
+            float small = sorted[0].Size;
+            float middle = sorted[1].Size;
+            float large = sorted[2].Size;
+            float coverage = large / overallLargestSpan;
+            if (coverage < 0.015f)
+                continue;
+
+            float thinness = large / Mathf.Max(small, 0.001f);
+            float flatness = middle / Mathf.Max(small, 0.001f);
+            float heightRatio = Mathf.InverseLerp(aircraftBounds.min[upAxis], aircraftBounds.max[upAxis], modelBounds.center[upAxis]);
+            float edgeRatio = Mathf.Abs(modelBounds.center[longAxis] - longitudinalCenter) / Mathf.Max(aircraftBounds.extents[longAxis], 0.001f);
+            float complexity = Mathf.Clamp01(1f - (vertexCount / 2500f));
+            bool planarRotor = small <= middle * 0.45f && small <= large * 0.18f;
+            bool compactTailRotor = coverage <= 0.08f && vertexCount > 0 && vertexCount <= 180 && edgeRatio >= 0.65f;
+            if (!planarRotor && !compactTailRotor)
+                continue;
+
+            float score = thinness * 0.4f
+                + flatness * 0.25f
+                + coverage * 1.5f
+                + heightRatio * 0.8f
+                + edgeRatio * 0.6f
+                + complexity * 1.8f;
+            if (planarRotor)
+                score += 2.5f;
+            if (compactTailRotor)
+                score += 1.5f;
+            if (LooksLikeRotorByName(child.name))
+                score += 6f;
+            scored.Add(new ScoredTransform { Transform = child, Score = score });
+        }
+
+        scored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        var result = new System.Collections.Generic.List<Transform>();
+        for (int i = 0; i < scored.Count; i++)
+        {
+            Transform candidate = scored[i].Transform;
+            bool related = false;
+            for (int j = 0; j < result.Count; j++)
+            {
+                if (candidate.IsChildOf(result[j]) || result[j].IsChildOf(candidate))
+                {
+                    related = true;
+                    break;
+                }
+            }
+
+            if (related)
+                continue;
+
+            result.Add(candidate);
+            if (result.Count >= 3)
+                break;
+        }
+
+        return result.ToArray();
+    }
+
+    Transform FindImportedMeshRoot(Transform aircraftRoot)
+    {
+        if (aircraftRoot == null)
+            return null;
+
+        Transform best = null;
+        int bestChildCount = 0;
+        foreach (Transform current in aircraftRoot.GetComponentsInChildren<Transform>(true))
+        {
+            int objectChildCount = 0;
+            for (int i = 0; i < current.childCount; i++)
+            {
+                Transform child = current.GetChild(i);
+                if (child != null && child.name.StartsWith("Object_", System.StringComparison.OrdinalIgnoreCase))
+                    objectChildCount++;
+            }
+
+            if (objectChildCount > bestChildCount)
+            {
+                bestChildCount = objectChildCount;
+                best = current;
+            }
+        }
+
+        return bestChildCount >= 3 ? best : null;
+    }
+
+    Transform[] EnumerateAircraftMeshParts(Transform meshRoot)
+    {
+        if (meshRoot == null)
+            return new Transform[0];
+
+        var directChildren = new System.Collections.Generic.List<Transform>();
+        for (int i = 0; i < meshRoot.childCount; i++)
+        {
+            Transform child = meshRoot.GetChild(i);
+            if (child != null && child.gameObject.activeInHierarchy && TryGetBoundsInSpace(child, child, out _))
+                directChildren.Add(child);
+        }
+
+        if (directChildren.Count > 0)
+            return directChildren.ToArray();
+
+        var descendants = new System.Collections.Generic.List<Transform>();
+        foreach (Transform child in meshRoot.GetComponentsInChildren<Transform>(true))
+        {
+            if (child == meshRoot || !child.gameObject.activeInHierarchy)
+                continue;
+            if (TryGetBoundsInSpace(child, child, out _))
+                descendants.Add(child);
+        }
+        return descendants.ToArray();
+    }
+
+    static bool LooksLikeGenericImportedAircraft(Transform aircraftRoot)
+    {
+        if (aircraftRoot == null)
+            return false;
+
+        int genericChildCount = 0;
+        foreach (Transform child in aircraftRoot.GetComponentsInChildren<Transform>(true))
+        {
+            if (child == aircraftRoot)
+                continue;
+            if (!child.name.StartsWith("Object_", System.StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            genericChildCount++;
+            if (genericChildCount >= 3)
+                return true;
+        }
+
+        return false;
+    }
+
+    Vector3[] GetPropellerSpinAxes(Transform[] parts)
+    {
+        var axes = new Vector3[parts.Length];
+        for (int i = 0; i < parts.Length; i++)
+            axes[i] = GuessSpinAxis(parts[i]);
+        return axes;
+    }
+
+    Vector3 GetPropellerSpinAxis(int index)
+    {
+        if (index < 0 || index >= propellerSpinAxes.Length)
+            return Vector3.forward;
+
+        Vector3 axis = propellerSpinAxes[index];
+        return axis.sqrMagnitude > 0.0001f ? axis : Vector3.forward;
+    }
+
+    Vector3 GuessSpinAxis(Transform part)
+    {
+        if (ForcePropellerLocalAxis)
+        {
+            Vector3 forcedAxis = ForcedPropellerLocalAxis;
+            return forcedAxis.sqrMagnitude > 0.0001f ? forcedAxis.normalized : Vector3.forward;
+        }
+
+        if (part == null || !TryGetBoundsInSpace(part, part, out Bounds localBounds))
+            return Vector3.forward;
+
+        int axis = GetSmallestAxis(localBounds.size);
+        if (axis == 0) return Vector3.right;
+        if (axis == 1) return Vector3.up;
+        return Vector3.forward;
+    }
+
+    static bool LooksLikeRotorByName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+
+        return name.IndexOf("propeller", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("rotor", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("blade", System.StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    static int CountMeshVertices(Transform root)
+    {
+        if (root == null)
+            return 0;
+
+        int total = 0;
+        MeshFilter[] meshFilters = root.GetComponentsInChildren<MeshFilter>(true);
+        for (int i = 0; i < meshFilters.Length; i++)
+        {
+            Mesh sharedMesh = meshFilters[i] != null ? meshFilters[i].sharedMesh : null;
+            if (sharedMesh != null)
+                total += sharedMesh.vertexCount;
+        }
+
+        SkinnedMeshRenderer[] skinnedMeshes = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        for (int i = 0; i < skinnedMeshes.Length; i++)
+        {
+            Mesh sharedMesh = skinnedMeshes[i] != null ? skinnedMeshes[i].sharedMesh : null;
+            if (sharedMesh != null)
+                total += sharedMesh.vertexCount;
+        }
+
+        return total;
+    }
+
+    static IndexedSize[] GetSortedAxes(Vector3 size)
+    {
+        var axes = new[]
+        {
+            new IndexedSize(0, size.x),
+            new IndexedSize(1, size.y),
+            new IndexedSize(2, size.z),
+        };
+        System.Array.Sort(axes, (a, b) => a.Size.CompareTo(b.Size));
+        return axes;
+    }
+
+    static int GetSmallestAxis(Vector3 size)
+    {
+        return GetSortedAxes(size)[0].Axis;
+    }
+
+    static int GetLargestAxis(Vector3 size)
+    {
+        return GetSortedAxes(size)[2].Axis;
+    }
+
+    static bool TryGetBoundsInSpace(Transform source, Transform space, out Bounds bounds)
+    {
+        bounds = new Bounds();
+        if (source == null || space == null)
+            return false;
+
+        Renderer[] renderers = source.GetComponentsInChildren<Renderer>(true);
+        bool hasBounds = false;
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null)
+                continue;
+
+            Bounds worldBounds = renderer.bounds;
+            Vector3 min = worldBounds.min;
+            Vector3 max = worldBounds.max;
+            Vector3[] corners =
+            {
+                new Vector3(min.x, min.y, min.z),
+                new Vector3(min.x, min.y, max.z),
+                new Vector3(min.x, max.y, min.z),
+                new Vector3(min.x, max.y, max.z),
+                new Vector3(max.x, min.y, min.z),
+                new Vector3(max.x, min.y, max.z),
+                new Vector3(max.x, max.y, min.z),
+                new Vector3(max.x, max.y, max.z),
+            };
+
+            for (int c = 0; c < corners.Length; c++)
+            {
+                Vector3 local = space.InverseTransformPoint(corners[c]);
+                if (!hasBounds)
+                {
+                    bounds = new Bounds(local, Vector3.zero);
+                    hasBounds = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(local);
+                }
+            }
+        }
+
+        return hasBounds;
+    }
+
+    struct ScoredTransform
+    {
+        public Transform Transform;
+        public float Score;
+    }
+
+    struct IndexedSize
+    {
+        public readonly int Axis;
+        public readonly float Size;
+
+        public IndexedSize(int axis, float size)
+        {
+            Axis = axis;
+            Size = size;
+        }
     }
 
     static Quaternion[] GetRotations(Transform[] transforms)

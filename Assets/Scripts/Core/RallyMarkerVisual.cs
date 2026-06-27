@@ -13,6 +13,7 @@ public class RallyMarkerVisual : MonoBehaviour
 
     private RTSBuilding _owner;
     private LineRenderer _line;
+    private Transform _flagVisualRoot;
     private GameObject _flagPole;
     private GameObject _flagCloth;
     private float _bounceTimer = 0f;
@@ -45,6 +46,9 @@ public class RallyMarkerVisual : MonoBehaviour
 
     void BuildVisual()
     {
+        _flagVisualRoot = new GameObject("FlagVisualRoot").transform;
+        _flagVisualRoot.SetParent(transform, false);
+        _flagVisualRoot.localPosition = Vector3.zero;
         // 优先用 Kenney CastleKit 旗模型（OBJ）；失败回退到程序化几何
         var kenney = FxResources.TryInstantiateKenneyObj(
             "Assets/External/Kenney/CastleKit/Models/OBJ format/flag-banner-short.obj",
@@ -52,9 +56,9 @@ public class RallyMarkerVisual : MonoBehaviour
         if (kenney != null)
         {
             kenney.name = "RallyFlagModel";
-            kenney.transform.SetParent(transform, false);
+            kenney.transform.SetParent(_flagVisualRoot, false);
             kenney.transform.localPosition = Vector3.zero;
-            kenney.transform.localScale = Vector3.one * 4.5f;
+            kenney.transform.localScale = new Vector3(4.25f, 6.0f, 2.35f);
             _flagPole = kenney;
             _flagCloth = null;
         }
@@ -64,9 +68,9 @@ public class RallyMarkerVisual : MonoBehaviour
             _flagPole = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             _flagPole.name = "FlagPole";
             Destroy(_flagPole.GetComponent<Collider>());
-            _flagPole.transform.SetParent(transform, false);
-            _flagPole.transform.localPosition = new Vector3(0f, 1.2f, 0f);
-            _flagPole.transform.localScale = new Vector3(0.08f, 1.2f, 0.08f);
+            _flagPole.transform.SetParent(_flagVisualRoot, false);
+            _flagPole.transform.localPosition = new Vector3(0f, 1.45f, 0f);
+            _flagPole.transform.localScale = new Vector3(0.07f, 1.45f, 0.07f);
             var poleRD = _flagPole.GetComponent<Renderer>();
             var poleMat = new Material(Shader.Find("Unlit/Color") ?? Shader.Find("Standard"));
             poleMat.color = new Color(0.30f, 0.22f, 0.12f);
@@ -76,9 +80,9 @@ public class RallyMarkerVisual : MonoBehaviour
             _flagCloth = GameObject.CreatePrimitive(PrimitiveType.Quad);
             _flagCloth.name = "FlagCloth";
             Destroy(_flagCloth.GetComponent<Collider>());
-            _flagCloth.transform.SetParent(transform, false);
-            _flagCloth.transform.localPosition = new Vector3(0.55f, 2.05f, 0f);
-            _flagCloth.transform.localScale = new Vector3(1.0f, 0.55f, 1f);
+            _flagCloth.transform.SetParent(_flagVisualRoot, false);
+            _flagCloth.transform.localPosition = new Vector3(0f, 2.08f, 0.30f);
+            _flagCloth.transform.localScale = new Vector3(0.42f, 1.28f, 1f);
             _flagCloth.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
             var clothRD = _flagCloth.GetComponent<Renderer>();
             var clothMat = new Material(Shader.Find("Unlit/Color") ?? Shader.Find("Standard"));
@@ -131,10 +135,29 @@ public class RallyMarkerVisual : MonoBehaviour
         if (_line != null)
         {
             Vector3 a = _owner.transform.position + Vector3.up * 0.6f;
-            Vector3 b = transform.position + Vector3.up * 1.0f;
+            Vector3 b = transform.position + Vector3.up * 1.35f;
             _line.SetPosition(0, a);
             _line.SetPosition(1, b);
         }
+    }
+
+    void LateUpdate()
+    {
+        FaceFlagToCamera();
+    }
+
+    void FaceFlagToCamera()
+    {
+        if (_flagVisualRoot == null) return;
+        var cam = Camera.main;
+        if (cam == null) return;
+
+        Vector3 awayFromCamera = _flagVisualRoot.position - cam.transform.position;
+        awayFromCamera.y = 0f;
+        if (awayFromCamera.sqrMagnitude < 0.0001f) return;
+
+        Quaternion faceCamera = Quaternion.LookRotation(awayFromCamera.normalized, Vector3.up);
+        _flagVisualRoot.rotation = faceCamera * Quaternion.Euler(0f, -90f, 0f);
     }
 
     void OnDestroy()

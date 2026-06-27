@@ -1,5 +1,8 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 
+[Serializable]
 public struct TerrainStripSpec
 {
     public string Name;
@@ -7,6 +10,9 @@ public struct TerrainStripSpec
     public Vector2 Size;
     public float Angle;
 
+    /// <summary>
+    /// Packs the rectangular strip data used by roads, rivers, and other linear terrain features.
+    /// </summary>
     public TerrainStripSpec(string name, Vector3 center, Vector2 size, float angle)
     {
         Name = name;
@@ -16,6 +22,7 @@ public struct TerrainStripSpec
     }
 }
 
+[Serializable]
 public struct TerrainPatchSpec
 {
     public string Name;
@@ -24,6 +31,9 @@ public struct TerrainPatchSpec
     public float Angle;
     public int PaletteIndex;
 
+    /// <summary>
+    /// Packs one rectangular terrain patch description plus the palette slot used to color it.
+    /// </summary>
     public TerrainPatchSpec(string name, Vector3 center, Vector2 size, float angle, int paletteIndex)
     {
         Name = name;
@@ -34,12 +44,16 @@ public struct TerrainPatchSpec
     }
 }
 
+[Serializable]
 public struct RuinWallSpec
 {
     public Vector3 Center;
     public float Angle;
     public int Segments;
 
+    /// <summary>
+    /// Describes one ruined-wall run by center point, facing angle, and segment count.
+    /// </summary>
     public RuinWallSpec(Vector3 center, float angle, int segments)
     {
         Center = center;
@@ -48,6 +62,7 @@ public struct RuinWallSpec
     }
 }
 
+[Serializable]
 public struct SandbagRingSpec
 {
     public Vector3 Center;
@@ -55,6 +70,9 @@ public struct SandbagRingSpec
     public int Count;
     public bool IsEnemy;
 
+    /// <summary>
+    /// Describes one circular sandbag emplacement around a base or objective.
+    /// </summary>
     public SandbagRingSpec(Vector3 center, float radius, int count, bool isEnemy)
     {
         Center = center;
@@ -64,6 +82,45 @@ public struct SandbagRingSpec
     }
 }
 
+[Serializable]
+public struct SpawnPointSpec
+{
+    public string Name;
+    public Vector3 Position;
+    public float Yaw;
+    public bool IsPlayer;
+    public int TeamIndex;
+    public SpawnPointSpec(string name, Vector3 position, float yaw, bool isPlayer, int teamIndex)
+    {
+        Name = name;
+        Position = position;
+        Yaw = yaw;
+        IsPlayer = isPlayer;
+        TeamIndex = teamIndex;
+    }
+}
+
+[Serializable]
+public struct MapPropSpec
+{
+    public string Name;
+    public string ResourcePath;
+    public Vector3 Position;
+    public float Yaw;
+    public float Scale;
+    public bool BlocksNavigation;
+
+    public MapPropSpec(string name, string resourcePath, Vector3 position, float yaw, float scale, bool blocksNavigation)
+    {
+        Name = name;
+        ResourcePath = resourcePath;
+        Position = position;
+        Yaw = yaw;
+        Scale = scale;
+        BlocksNavigation = blocksNavigation;
+    }
+}
+[Serializable]
 public class BattleMapDefinition
 {
     public string Name;
@@ -94,12 +151,17 @@ public class BattleMapDefinition
 
     public Vector3[] RockClusters;
     public Vector3[] TreePositions;
+    public SpawnPointSpec[] SpawnPoints;
+    public MapPropSpec[] Props;
     public RuinWallSpec[] RuinWalls;
     public SandbagRingSpec[] SandbagRings;
     public TerrainStripSpec[] Roads;
     public TerrainStripSpec[] Waters;
     public TerrainPatchSpec[] Patches;
 
+    /// <summary>
+    /// Resolves the terrain tint associated with one patch palette index.
+    /// </summary>
     public Color GetPatchColor(int paletteIndex)
     {
         switch (paletteIndex)
@@ -121,22 +183,29 @@ public static class BattleMapCatalog
     public const string SeaChartName = "海图群岛";
     public const string GlobalConquestName = "全球争霸";
     public const float MapHalfSize = 200f;
+    public const string CustomMapResourcesPath = "MapAssets";
 
+    /// <summary>
+    /// Returns the subset of maps intended for normal skirmish selection.
+    /// </summary>
     public static string[] GetPlayableMapNames()
     {
-        return new[]
+        return AppendCustomMapNames(new[]
         {
             DefaultMapName,
             IceFortressName,
             JungleName,
             CityRuinsName,
             SeaChartName,
-        };
+        });
     }
 
+    /// <summary>
+    /// Returns every map definition name, including special or alternate modes.
+    /// </summary>
     public static string[] GetAllMapNames()
     {
-        return new[]
+        return AppendCustomMapNames(new[]
         {
             DefaultMapName,
             IceFortressName,
@@ -144,11 +213,17 @@ public static class BattleMapCatalog
             CityRuinsName,
             SeaChartName,
             GlobalConquestName,
-        };
+        });
     }
 
+    /// <summary>
+    /// Builds a fresh battle-map definition for the requested map name.
+    /// </summary>
     public static BattleMapDefinition Get(string mapName)
     {
+        if (TryGetCustomMap(mapName, out BattleMapDefinition customMap))
+            return customMap;
+
         switch (mapName)
         {
             case IceFortressName:
@@ -166,6 +241,70 @@ public static class BattleMapCatalog
         }
     }
 
+    public static bool TryGetCustomMap(string mapName, out BattleMapDefinition map)
+    {
+        map = null;
+        if (string.IsNullOrWhiteSpace(mapName))
+            return false;
+
+        BattleMapAsset[] assets = Resources.LoadAll<BattleMapAsset>(CustomMapResourcesPath);
+        for (int i = 0; i < assets.Length; i++)
+        {
+            BattleMapAsset asset = assets[i];
+            if (asset == null)
+                continue;
+
+            BattleMapDefinition definition = asset.ToDefinition();
+            if (definition == null)
+                continue;
+
+            if (string.Equals(definition.Name, mapName, StringComparison.Ordinal)
+                || string.Equals(asset.name, mapName, StringComparison.Ordinal))
+            {
+                map = definition;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static string[] AppendCustomMapNames(string[] builtInNames)
+    {
+        List<string> names = new List<string>(builtInNames);
+        BattleMapAsset[] assets = Resources.LoadAll<BattleMapAsset>(CustomMapResourcesPath);
+        for (int i = 0; i < assets.Length; i++)
+        {
+            BattleMapAsset asset = assets[i];
+            if (asset == null)
+                continue;
+
+            BattleMapDefinition definition = asset.ToDefinition();
+            string name = definition != null && !string.IsNullOrWhiteSpace(definition.Name)
+                ? definition.Name
+                : asset.name;
+
+            if (!ContainsName(names, name))
+                names.Add(name);
+        }
+
+        return names.ToArray();
+    }
+
+    static bool ContainsName(List<string> names, string name)
+    {
+        for (int i = 0; i < names.Count; i++)
+        {
+            if (string.Equals(names[i], name, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Creates the common baseline geometry layout that each themed map variant customizes.
+    /// </summary>
     static BattleMapDefinition CreateBase(string name, int seed)
     {
         return new BattleMapDefinition
@@ -193,6 +332,9 @@ public static class BattleMapCatalog
                 new Vector3(-170, 0, 0),    new Vector3(170, 0, 0),
                 new Vector3(0, 0, 170),     new Vector3(0, 0, -170),
             },
+
+            SpawnPoints = BattleMapDefinitionUtility.CreateDefaultSpawnPoints(),
+            Props = Array.Empty<MapPropSpec>(),
 
             RuinWalls = new[]
             {
@@ -235,6 +377,9 @@ public static class BattleMapCatalog
         };
     }
 
+    /// <summary>
+    /// Creates the default desert-oasis skirmish map.
+    /// </summary>
     static BattleMapDefinition CreateSandOasis()
     {
         var map = CreateBase(DefaultMapName, 7601);
@@ -242,26 +387,29 @@ public static class BattleMapCatalog
         return map;
     }
 
+    /// <summary>
+    /// Applies the shared clean-land/ocean presentation used by the default land-focused map style.
+    /// </summary>
     static void ApplyCleanLandForestOceanStyle(BattleMapDefinition map)
     {
-        map.GroundColor = new Color(0.30f, 0.46f, 0.23f);
-        map.RoadColor = new Color(0.42f, 0.36f, 0.24f);
-        map.RoadEdgeColor = new Color(0.50f, 0.47f, 0.32f);
+        map.GroundColor = new Color(0.25f, 0.36f, 0.22f);
+        map.RoadColor = new Color(0.19f, 0.20f, 0.20f);
+        map.RoadEdgeColor = new Color(0.40f, 0.38f, 0.31f);
         map.WaterColor = new Color(0.02f, 0.24f, 0.48f);
-        map.PatchAColor = new Color(0.05f, 0.24f, 0.08f);
-        map.PatchBColor = new Color(0.39f, 0.53f, 0.27f);
-        map.PlayerBasePadColor = new Color(0.27f, 0.36f, 0.27f);
-        map.EnemyBasePadColor = new Color(0.32f, 0.30f, 0.25f);
-        map.RockColor = new Color(0.42f, 0.43f, 0.37f);
-        map.FoliageColor = new Color(0.08f, 0.42f, 0.12f);
+        map.PatchAColor = new Color(0.18f, 0.28f, 0.16f);
+        map.PatchBColor = new Color(0.32f, 0.35f, 0.24f);
+        map.PlayerBasePadColor = new Color(0.43f, 0.45f, 0.46f);
+        map.EnemyBasePadColor = new Color(0.42f, 0.41f, 0.39f);
+        map.RockColor = new Color(0.42f, 0.43f, 0.40f);
+        map.FoliageColor = new Color(0.10f, 0.34f, 0.13f);
         map.TrunkColor = new Color(0.24f, 0.15f, 0.08f);
         map.WallColor = new Color(0.30f, 0.36f, 0.30f);
-        map.RuinColor = new Color(0.42f, 0.40f, 0.34f);
-        map.SkyColor = new Color(0.50f, 0.67f, 0.78f);
-        map.FogColor = new Color(0.60f, 0.72f, 0.68f);
-        map.AmbientSkyColor = new Color(0.62f, 0.70f, 0.62f);
-        map.AmbientEquatorColor = new Color(0.40f, 0.48f, 0.34f);
-        map.AmbientGroundColor = new Color(0.20f, 0.24f, 0.16f);
+        map.RuinColor = new Color(0.46f, 0.42f, 0.35f);
+        map.SkyColor = new Color(0.56f, 0.71f, 0.78f);
+        map.FogColor = new Color(0.58f, 0.67f, 0.64f);
+        map.AmbientSkyColor = new Color(0.61f, 0.68f, 0.64f);
+        map.AmbientEquatorColor = new Color(0.38f, 0.43f, 0.34f);
+        map.AmbientGroundColor = new Color(0.19f, 0.21f, 0.17f);
         map.FogStart = 220f;
         map.FogEnd = 520f;
 
@@ -277,6 +425,9 @@ public static class BattleMapCatalog
             new TerrainStripSpec("EastOcean", new Vector3(180f, 0f, 0f), new Vector2(64f, 400f), 0f),
             new TerrainStripSpec("NorthBay", new Vector3(0f, 0f, 180f), new Vector2(238f, 44f), 0f),
             new TerrainStripSpec("SouthBay", new Vector3(0f, 0f, -180f), new Vector2(238f, 44f), 0f),
+            new TerrainStripSpec("InlandRiverWest", new Vector3(-74f, 0f, 64f), new Vector2(18f, 132f), 66f),
+            new TerrainStripSpec("InlandRiverEast", new Vector3(74f, 0f, -64f), new Vector2(18f, 132f), 66f),
+            new TerrainStripSpec("CentralCreek", new Vector3(0f, 0f, 0f), new Vector2(14f, 52f), -42f),
         };
 
         map.Patches = new[]
@@ -297,6 +448,9 @@ public static class BattleMapCatalog
             new Vector3(-70,0,142), new Vector3(-24,0,148), new Vector3(26,0,142), new Vector3(76,0,132),
             new Vector3(70,0,-142), new Vector3(24,0,-148), new Vector3(-26,0,-142), new Vector3(-76,0,-132),
             new Vector3(-172,0,128), new Vector3(172,0,-128), new Vector3(-172,0,-128), new Vector3(172,0,128),
+            new Vector3(-154,0,102), new Vector3(-118,0,96), new Vector3(-138,0,-92), new Vector3(-96,0,-106),
+            new Vector3(154,0,-102), new Vector3(118,0,-96), new Vector3(138,0,92), new Vector3(96,0,106),
+            new Vector3(-34,0,170), new Vector3(34,0,-170), new Vector3(-168,0,42), new Vector3(168,0,-42),
         };
 
         map.RockClusters = new[]
@@ -310,6 +464,9 @@ public static class BattleMapCatalog
         map.SandbagRings = new SandbagRingSpec[0];
     }
 
+    /// <summary>
+    /// Creates the snow-and-fortification themed map variant.
+    /// </summary>
     static BattleMapDefinition CreateIceFortress()
     {
         var map = CreateBase(IceFortressName, 8612);
@@ -368,6 +525,9 @@ public static class BattleMapCatalog
         return map;
     }
 
+    /// <summary>
+    /// Creates the dense jungle map variant with rivers and short-visibility flavor.
+    /// </summary>
     static BattleMapDefinition CreateJungle()
     {
         var map = CreateBase(JungleName, 9144);
@@ -426,6 +586,9 @@ public static class BattleMapCatalog
         return map;
     }
 
+    /// <summary>
+    /// Creates the urban-ruins map variant with wider roads and heavier central cover.
+    /// </summary>
     static BattleMapDefinition CreateCityRuins()
     {
         var map = CreateBase(CityRuinsName, 10220);
@@ -493,6 +656,9 @@ public static class BattleMapCatalog
         return map;
     }
 
+    /// <summary>
+    /// Creates the global-conquest variant by tweaking the default land map's presentation distances.
+    /// </summary>
     static BattleMapDefinition CreateGlobalConquest()
     {
         var map = CreateSandOasis();
@@ -503,6 +669,9 @@ public static class BattleMapCatalog
         return map;
     }
 
+    /// <summary>
+    /// Creates the island-heavy naval map variant used by sea-chart battles.
+    /// </summary>
     static BattleMapDefinition CreateSeaChartIslands()
     {
         var map = CreateBase(SeaChartName, 12077);
@@ -586,3 +755,4 @@ public static class BattleMapCatalog
         return map;
     }
 }
+

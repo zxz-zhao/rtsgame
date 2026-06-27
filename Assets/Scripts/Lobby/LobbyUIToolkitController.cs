@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
@@ -16,11 +17,30 @@ public class LobbyUIToolkitController : MonoBehaviour
     Label friendsPopupStatusLabel;
     Label friendsPopupDetailTitle;
     Label friendsPopupDetailBody;
+    ScrollView rankPopupList;
+    Label rankSeasonLabel;
+    Label rankResetLabel;
+    Label rankDetailTitle;
+    Label rankDetailBody;
+    ScrollView notifyPopupList;
+    Label notifyDetailTitle;
+    Label notifyDetailBody;
+    string[] warehouseItemNames = new string[0];
+    string[] warehouseItemDescs = new string[0];
+    int[] warehouseItemCounts = new int[0];
+    int warehouseSelectedIndex = -1;
     readonly List<VisualElement> friendPopupRows = new List<VisualElement>();
     readonly List<SimpleJson> friendPopupData = new List<SimpleJson>();
+    readonly List<VisualElement> rankPopupRows = new List<VisualElement>();
+    readonly List<SimpleJson> rankPopupData = new List<SimpleJson>();
+    readonly List<VisualElement> notifyPopupRows = new List<VisualElement>();
+    readonly List<SimpleJson> notifyPopupData = new List<SimpleJson>();
     int friendPopupSelectedIndex = -1;
+    int rankPopupSelectedIndex = -1;
+    int notifyPopupSelectedIndex = -1;
 
     const int MatchMapButtonCount = 5;
+    const int WarehouseItemCount = 6;
     const string SelectedClass = "selected";
 
     void Awake()
@@ -43,10 +63,13 @@ public class LobbyUIToolkitController : MonoBehaviour
         root = document.rootVisualElement;
         backdrop = root.Q<VisualElement>("modal-backdrop-button");
 
-        HideAllPopups();
+        if (!bound)
+            HideAllPopups();
         RefreshMapButtons();
         RefreshSettingsRuntimeState();
         CacheFriendsPopupElements();
+        CacheRankPopupElements();
+        CacheNotifyPopupElements();
 
         if (bound)
             return;
@@ -58,6 +81,7 @@ public class LobbyUIToolkitController : MonoBehaviour
         RegisterClose("tech-popup-close");
         RegisterClose("match-popup-close");
         RegisterClose("warehouse-popup-close");
+        RegisterClose("rank-popup-close");
         RegisterClose("room-popup-close");
         RegisterClose("invite-popup-close");
         RegisterClose("friends-popup-close");
@@ -68,12 +92,24 @@ public class LobbyUIToolkitController : MonoBehaviour
         RegisterOpen("notify-button", OpenToolkitNotifyPanel);
         RegisterOpen("gold-plus-button", OpenToolkitShopPanel);
         RegisterOpen("gem-plus-button", OpenToolkitGemStorePanel);
+        RegisterOpen("shop-nav-button", OpenToolkitShopPanel);
+        RegisterOpen("warehouse-nav-button", OpenToolkitWarehousePanel);
+        RegisterOpen("campaign-nav-button", OpenMatchPopup);
         RegisterOpen("rank-nav-button", OpenToolkitRankPanel);
         RegisterOpen("mail-nav-button", OpenToolkitMailPanel);
         RegisterOpen("global-conquest-button", OpenToolkitGlobalConquestPanel);
         RegisterOpen("friends-button", OpenFriendsPopup);
+        RegisterOpen("tech-panel-button", OpenTechPopup);
         RegisterOpen("tech-gear-button", OpenTechPopup);
         RegisterOpen("tech-tree-button", OpenTechPopup);
+
+        var techPopupStart = root.Q<Button>("tech-popup-start");
+        if (techPopupStart != null)
+            techPopupStart.clicked += StartTechResearchFromPopup;
+
+        var techSpeedButton = root.Q<Button>("tech-speed-button");
+        if (techSpeedButton != null)
+            techSpeedButton.clicked += SpeedUpTechFromHall;
 
         for (int i = 0; i < MatchMapButtonCount; i++)
         {
@@ -81,6 +117,14 @@ public class LobbyUIToolkitController : MonoBehaviour
             var mapButton = root.Q<Button>("match-map-button-" + i);
             if (mapButton != null)
                 mapButton.clicked += () => SelectMatchMap(mapIndex);
+        }
+
+        for (int i = 0; i < WarehouseItemCount; i++)
+        {
+            int warehouseIndex = i;
+            var detailButton = root.Q<Button>("warehouse-detail-button-" + i);
+            if (detailButton != null)
+                detailButton.clicked += () => SelectWarehouseEntry(warehouseIndex);
         }
 
         var startButton = root.Q<Button>("match-start-button");
@@ -94,6 +138,10 @@ public class LobbyUIToolkitController : MonoBehaviour
         var returnBattleButton = root.Q<Button>("settings-return-battle-button");
         if (returnBattleButton != null)
             returnBattleButton.clicked += ReturnToBattle;
+
+        var notifyAction = root.Q<Button>("notify-popup-action");
+        if (notifyAction != null)
+            notifyAction.clicked += HandleNotifyPopupAction;
     }
 
     void Update()
@@ -188,7 +236,12 @@ public class LobbyUIToolkitController : MonoBehaviour
 
         SetLabel("notify-popup-title", title);
         SetLabel("notify-popup-subtitle", subtitle);
+        SetLabel("notify-detail-title", string.IsNullOrEmpty(subtitle) ? title : subtitle);
         SetLabel("notify-popup-body", body);
+        ShowNotifyList(false);
+        notifyPopupRows.Clear();
+        notifyPopupData.Clear();
+        notifyPopupSelectedIndex = -1;
 
         var action = root.Q<Button>("notify-popup-action");
         if (action != null)
@@ -208,9 +261,27 @@ public class LobbyUIToolkitController : MonoBehaviour
         if (root == null)
             return;
 
-        SetLabel("tech-popup-title", "Tech Center");
-        SetLabel("tech-popup-subtitle", "Research queue");
+        SetLabel("tech-popup-title", "科技中心");
+        SetLabel("tech-popup-subtitle", "研究队列");
         OpenPopup("tech-popup");
+    }
+
+    public void OpenToolkitTechPanel()
+    {
+        OpenTechPopup();
+    }
+
+    void StartTechResearchFromPopup()
+    {
+        bool started = LobbyManager.Instance != null && LobbyManager.Instance.UiToolkitTechStart();
+        SetLabel("tech-popup-subtitle", started ? "研究指令已发送" : "需要先登录指挥账号");
+    }
+
+    void SpeedUpTechFromHall()
+    {
+        bool started = LobbyManager.Instance != null && LobbyManager.Instance.UiToolkitTechSpeedUp();
+        OpenTechPopup();
+        SetLabel("tech-popup-subtitle", started ? "加速指令已发送" : "需要先登录指挥账号");
     }
 
     void OpenSettingsPopup()
@@ -398,15 +469,78 @@ public class LobbyUIToolkitController : MonoBehaviour
 
     public void OpenToolkitNotifyPanel()
     {
-        string body = LobbyManager.Instance != null
-            ? LobbyManager.Instance.UiToolkitBuildNotificationSummary()
-            : "暂无新消息，指挥部一切正常。";
-        OpenNotificationPopup("战场快报", body);
+        OpenToolkitNotifyPanel("");
+    }
+
+    void OpenToolkitNotifyPanel(string subtitleOverride)
+    {
+        BindIfNeeded();
+        if (root == null)
+            return;
+
+        CacheNotifyPopupElements();
+        OpenPopup("notify-popup");
+        SetLabel("notify-popup-title", "通知中心");
+        SetLabel("notify-popup-subtitle", string.IsNullOrEmpty(subtitleOverride) ? "战场快报" : subtitleOverride);
+        ShowNotifyList(true);
+
+        var rows = LobbyManager.Instance != null
+            ? LobbyManager.Instance.UiToolkitBuildNotifications()
+            : new List<SimpleJson>
+            {
+                new SimpleJson
+                {
+                    title = "指挥部",
+                    body = "暂无新消息，指挥部一切正常。",
+                    status = "正常",
+                    action = "知道了"
+                }
+            };
+
+        PopulateNotifyPopup(rows);
     }
 
     public void OpenToolkitShopPanel()
     {
         OpenInfoPopup("Supply Shop", "Coin supplies", "The supply shop is being connected. For now, earn resources through battles.");
+    }
+
+    public void OpenToolkitWarehousePanel()
+    {
+        BindIfNeeded();
+        if (root == null)
+            return;
+
+        LobbyManager.Instance?.UiToolkitOpenWarehouse();
+        OpenPopup("warehouse-popup");
+        SetLabel("warehouse-status-label", "Syncing supplies...");
+        SetWarehouseDetail("Supply Details", "Select an item to inspect.");
+
+        if (LobbyManager.Instance != null)
+        {
+            LobbyManager.Instance.UiToolkitLoadWarehouse((status, names, descs, counts) =>
+            {
+                if (root == null)
+                    return;
+
+                PopulateWarehousePopup(status, names, descs, counts);
+            });
+            return;
+        }
+
+        PopulateWarehousePopup(
+            "Supplies loaded",
+            new[] { "Armor Crate", "Energy Core", "Vehicle Parts", "Command Chip", "Alloy Steel", "Boost Module" },
+            new[]
+            {
+                "Rapid resupply for armored units on the front line.",
+                "Powers base facilities and advanced research.",
+                "Keeps tanks, artillery, and vehicle lines operational.",
+                "Improves command routing and tactical response.",
+                "Used for fortifications and armor upgrades.",
+                "Shortens some research and training timers."
+            },
+            new[] { 12, 19, 26, 33, 40, 47 });
     }
 
     public void OpenToolkitGemStorePanel()
@@ -416,18 +550,370 @@ public class LobbyUIToolkitController : MonoBehaviour
 
     public void OpenToolkitRankPanel()
     {
-        OpenInfoPopup("Rankings", "Season records", "Season rankings are syncing.");
+        BindIfNeeded();
+        if (root == null)
+            return;
+
+        CacheRankPopupElements();
+        OpenPopup("rank-popup");
+        SetRankHeader("S3 东线军演赛季", "排行榜同步中...");
+        SetRankDetail("指挥官情报", "正在同步赛季军功榜...");
+        PopulateRankLoadingState("正在加载排行榜...");
+
+        if (LobbyManager.Instance != null)
+        {
+            LobbyManager.Instance.UiToolkitLoadLeaderboard((season, resetText, rows, current, status) =>
+            {
+                if (root == null)
+                    return;
+
+                PopulateRankPopup(season, resetText, rows, current, status);
+            });
+            return;
+        }
+
+        PopulateRankPopup(
+            "S3 东线军演赛季",
+            "离线模式榜单",
+            new List<SimpleJson>(),
+            null,
+            "排行榜服务暂不可用");
     }
 
     public void OpenToolkitMailPanel()
     {
         LobbyManager.Instance?.UiToolkitRememberInboxSyncNotification();
-        OpenNotificationPopup("邮件同步", LobbyManager.InboxSyncNotificationMessage);
+        OpenToolkitNotifyPanel("邮件同步");
     }
 
     public void OpenToolkitGlobalConquestPanel()
     {
         OpenInfoPopup("Global Conquest", "Strategic map", "Global conquest is under construction and will use sea charts and island zones later.");
+    }
+
+    void CacheRankPopupElements()
+    {
+        if (root == null)
+            return;
+
+        rankPopupList = root.Q<ScrollView>("rank-popup-list");
+        rankSeasonLabel = root.Q<Label>("rank-season-label");
+        rankResetLabel = root.Q<Label>("rank-reset-label");
+        rankDetailTitle = root.Q<Label>("rank-detail-title");
+        rankDetailBody = root.Q<Label>("rank-detail-body");
+
+        if (rankPopupList != null)
+        {
+            rankPopupList.verticalScrollerVisibility = ScrollerVisibility.Auto;
+            rankPopupList.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            rankPopupList.contentContainer.style.flexDirection = FlexDirection.Column;
+            rankPopupList.contentContainer.style.alignItems = Align.Stretch;
+        }
+    }
+
+    void CacheNotifyPopupElements()
+    {
+        if (root == null)
+            return;
+
+        notifyPopupList = root.Q<ScrollView>("notify-popup-list");
+        notifyDetailTitle = root.Q<Label>("notify-detail-title");
+        notifyDetailBody = root.Q<Label>("notify-popup-body");
+
+        if (notifyPopupList != null)
+        {
+            notifyPopupList.verticalScrollerVisibility = ScrollerVisibility.Auto;
+            notifyPopupList.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            notifyPopupList.contentContainer.style.flexDirection = FlexDirection.Column;
+            notifyPopupList.contentContainer.style.alignItems = Align.Stretch;
+        }
+    }
+
+    void ShowNotifyList(bool visible)
+    {
+        CacheNotifyPopupElements();
+        SetVisible(notifyPopupList, visible);
+    }
+
+    void PopulateRankLoadingState(string text)
+    {
+        CacheRankPopupElements();
+        rankPopupRows.Clear();
+        rankPopupData.Clear();
+        rankPopupSelectedIndex = -1;
+        if (rankPopupList == null)
+            return;
+
+        rankPopupList.contentContainer.Clear();
+        AddScrollEmptyState(rankPopupList, text);
+    }
+
+    void PopulateRankPopup(string season, string resetText, List<SimpleJson> rows, SimpleJson current, string status)
+    {
+        CacheRankPopupElements();
+        SetRankHeader(season, string.IsNullOrEmpty(status) ? resetText : resetText + " · " + status);
+        SetRankDetail("指挥官情报", "选择一名指挥官查看赛季战绩。");
+
+        rankPopupRows.Clear();
+        rankPopupData.Clear();
+        rankPopupSelectedIndex = -1;
+
+        if (rankPopupList == null)
+            return;
+
+        rankPopupList.contentContainer.Clear();
+        if (rows == null || rows.Count == 0)
+        {
+            AddScrollEmptyState(rankPopupList, string.IsNullOrEmpty(status) ? "暂无排行数据" : status);
+            return;
+        }
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var rowData = rows[i];
+            rankPopupData.Add(rowData);
+            var row = CreateRankPopupRow(rowData, i);
+            rankPopupRows.Add(row);
+            rankPopupList.contentContainer.Add(row);
+        }
+
+        int selected = FindRankSelectionIndex(rows, current);
+        SelectRankPopupEntry(selected >= 0 ? selected : 0);
+    }
+
+    int FindRankSelectionIndex(List<SimpleJson> rows, SimpleJson current)
+    {
+        if (rows == null)
+            return -1;
+
+        string currentId = current != null ? (current.id ?? current.userId) : "";
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row == null)
+                continue;
+            if (row.isCurrentBool)
+                return i;
+            string rowId = row.id ?? row.userId;
+            if (!string.IsNullOrEmpty(currentId) && rowId == currentId)
+                return i;
+        }
+
+        return -1;
+    }
+
+    VisualElement CreateRankPopupRow(SimpleJson rowData, int index)
+    {
+        var row = new VisualElement();
+        row.AddToClassList("rank-row");
+        row.style.width = Length.Percent(100f);
+        row.style.flexShrink = 0f;
+        row.RegisterCallback<ClickEvent>(_ => SelectRankPopupEntry(index));
+
+        var place = new Label("#" + Mathf.Max(1, rowData != null && rowData.place.HasValue ? rowData.place.Value : index + 1));
+        place.AddToClassList("rank-row-place");
+
+        var copy = new VisualElement();
+        copy.AddToClassList("rank-row-copy");
+
+        string name = GetLeaderboardName(rowData);
+        var nameLabel = new Label(rowData != null && rowData.isCurrentBool ? name + "  ·  我" : name);
+        nameLabel.AddToClassList("rank-row-name");
+
+        int level = rowData != null && rowData.level.HasValue ? Mathf.Max(1, rowData.level.Value) : 1;
+        string meta = "Lv." + level + " · " + GetLeaderboardRank(rowData)
+            + " · " + Mathf.Max(0, rowData != null && rowData.wins.HasValue ? rowData.wins.Value : 0) + "胜/"
+            + Mathf.Max(0, rowData != null && rowData.losses.HasValue ? rowData.losses.Value : 0) + "负";
+        var metaLabel = new Label(meta);
+        metaLabel.AddToClassList("rank-row-meta");
+
+        copy.Add(nameLabel);
+        copy.Add(metaLabel);
+
+        var score = new Label(Mathf.Max(0, rowData != null && rowData.score.HasValue ? rowData.score.Value : 0).ToString());
+        score.AddToClassList("rank-row-score");
+
+        row.Add(place);
+        row.Add(copy);
+        row.Add(score);
+        return row;
+    }
+
+    void SelectRankPopupEntry(int index)
+    {
+        if (index < 0 || index >= rankPopupData.Count)
+            return;
+
+        rankPopupSelectedIndex = index;
+        for (int i = 0; i < rankPopupRows.Count; i++)
+        {
+            if (rankPopupRows[i] != null)
+                rankPopupRows[i].EnableInClassList(SelectedClass, i == index);
+        }
+
+        var row = rankPopupData[index];
+        SetRankDetail(GetLeaderboardName(row), BuildRankDetailBody(row));
+    }
+
+    void SetRankHeader(string season, string resetText)
+    {
+        if (rankSeasonLabel != null)
+            rankSeasonLabel.text = string.IsNullOrEmpty(season) ? "S3 东线军演赛季" : season;
+        if (rankResetLabel != null)
+            rankResetLabel.text = resetText ?? "";
+    }
+
+    void SetRankDetail(string title, string body)
+    {
+        if (rankDetailTitle != null)
+            rankDetailTitle.text = title ?? "";
+        if (rankDetailBody != null)
+            rankDetailBody.text = body ?? "";
+    }
+
+    static string BuildRankDetailBody(SimpleJson row)
+    {
+        int place = Mathf.Max(1, row != null && row.place.HasValue ? row.place.Value : 1);
+        int wins = Mathf.Max(0, row != null && row.wins.HasValue ? row.wins.Value : 0);
+        int losses = Mathf.Max(0, row != null && row.losses.HasValue ? row.losses.Value : 0);
+        int score = Mathf.Max(0, row != null && row.score.HasValue ? row.score.Value : 0);
+        string status = row != null && !string.IsNullOrWhiteSpace(row.status) ? row.status : "赛季活跃";
+        return "第 " + place + " 名 · " + GetLeaderboardRank(row)
+            + "\n战绩：" + wins + " 胜 / " + losses + " 负"
+            + "\n军功：" + score + " · " + status;
+    }
+
+    static string GetLeaderboardName(SimpleJson row)
+    {
+        return row != null && !string.IsNullOrWhiteSpace(row.username) ? row.username : "未知指挥官";
+    }
+
+    static string GetLeaderboardRank(SimpleJson row)
+    {
+        if (row == null)
+            return "列兵";
+        if (!string.IsNullOrWhiteSpace(row.rankTitle))
+            return row.rankTitle;
+        if (!string.IsNullOrWhiteSpace(row.rank))
+            return row.rank;
+        return "列兵";
+    }
+
+    void PopulateNotifyPopup(List<SimpleJson> rows)
+    {
+        CacheNotifyPopupElements();
+        ShowNotifyList(true);
+
+        notifyPopupRows.Clear();
+        notifyPopupData.Clear();
+        notifyPopupSelectedIndex = -1;
+
+        if (notifyPopupList == null)
+            return;
+
+        notifyPopupList.contentContainer.Clear();
+        if (rows == null || rows.Count == 0)
+        {
+            AddScrollEmptyState(notifyPopupList, "暂无新消息，指挥部一切正常。");
+            SetNotifyDetail("指挥部", "暂无新消息，指挥部一切正常。", "知道了");
+            return;
+        }
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var item = rows[i];
+            notifyPopupData.Add(item);
+            var row = CreateNotifyPopupRow(item, i);
+            notifyPopupRows.Add(row);
+            notifyPopupList.contentContainer.Add(row);
+        }
+
+        SelectNotifyPopupEntry(0);
+    }
+
+    VisualElement CreateNotifyPopupRow(SimpleJson item, int index)
+    {
+        var row = new VisualElement();
+        row.AddToClassList("notify-row");
+        row.style.width = Length.Percent(100f);
+        row.style.flexShrink = 0f;
+        row.RegisterCallback<ClickEvent>(_ => SelectNotifyPopupEntry(index));
+
+        var copy = new VisualElement();
+        copy.AddToClassList("notify-row-copy");
+
+        var title = new Label(!string.IsNullOrWhiteSpace(item?.title) ? item.title : "通知");
+        title.AddToClassList("notify-row-title");
+
+        var body = new Label(!string.IsNullOrWhiteSpace(item?.body) ? item.body : "暂无详情");
+        body.AddToClassList("notify-row-body");
+
+        copy.Add(title);
+        copy.Add(body);
+
+        var status = new Label(!string.IsNullOrWhiteSpace(item?.status) ? item.status : "未读");
+        status.AddToClassList("notify-row-status");
+
+        row.Add(copy);
+        row.Add(status);
+        return row;
+    }
+
+    void SelectNotifyPopupEntry(int index)
+    {
+        if (index < 0 || index >= notifyPopupData.Count)
+            return;
+
+        notifyPopupSelectedIndex = index;
+        for (int i = 0; i < notifyPopupRows.Count; i++)
+        {
+            if (notifyPopupRows[i] != null)
+                notifyPopupRows[i].EnableInClassList(SelectedClass, i == index);
+        }
+
+        var item = notifyPopupData[index];
+        SetNotifyDetail(
+            !string.IsNullOrWhiteSpace(item?.title) ? item.title : "通知",
+            !string.IsNullOrWhiteSpace(item?.body) ? item.body : "暂无详情",
+            !string.IsNullOrWhiteSpace(item?.action) ? item.action : "知道了");
+    }
+
+    void SetNotifyDetail(string title, string body, string actionText)
+    {
+        if (notifyDetailTitle != null)
+            notifyDetailTitle.text = title ?? "";
+        if (notifyDetailBody != null)
+            notifyDetailBody.text = body ?? "";
+        var action = root?.Q<Button>("notify-popup-action");
+        if (action != null)
+            action.text = string.IsNullOrEmpty(actionText) ? "知道了" : actionText;
+    }
+
+    void HandleNotifyPopupAction()
+    {
+        if (notifyPopupSelectedIndex < 0 || notifyPopupSelectedIndex >= notifyPopupData.Count)
+            return;
+
+        var item = notifyPopupData[notifyPopupSelectedIndex];
+        string action = item != null ? item.action ?? "" : "";
+        string title = item != null ? item.title ?? "" : "";
+        if ((action.Contains("房间") || title.Contains("邀请")) && LobbyManager.Instance != null && LobbyManager.Instance.UiToolkitHasPendingInvite())
+            LobbyManager.Instance.UiToolkitOpenPendingInviteRoomList();
+    }
+
+    void AddScrollEmptyState(ScrollView list, string text)
+    {
+        if (list == null)
+            return;
+
+        var empty = new Label(text ?? "");
+        empty.AddToClassList("friends-popup-empty");
+        empty.style.marginTop = 12f;
+        empty.style.flexGrow = 1f;
+        empty.style.minHeight = 56f;
+        empty.style.unityTextAlign = TextAnchor.MiddleCenter;
+        empty.style.whiteSpace = WhiteSpace.Normal;
+        list.contentContainer.Add(empty);
     }
 
     public void OpenFriendsPopup()
@@ -693,5 +1179,79 @@ public class LobbyUIToolkitController : MonoBehaviour
         SetLabel("tech-timer", timerText);
         SetLabel("tech-popup-body", string.IsNullOrEmpty(desc) ? title : title + "\n" + desc + "\n" + timerText);
         SetProgressFill("tech-fill", progress);
+    }
+
+    void PopulateWarehousePopup(string status, string[] names, string[] descs, int[] counts)
+    {
+        warehouseItemNames = names ?? new string[0];
+        warehouseItemDescs = descs ?? new string[0];
+        warehouseItemCounts = counts ?? new int[0];
+        warehouseSelectedIndex = -1;
+
+        SetLabel("warehouse-status-label", string.IsNullOrEmpty(status) ? "Supplies synced" : status);
+
+        for (int i = 0; i < WarehouseItemCount; i++)
+        {
+            bool hasItem = HasWarehouseItem(i);
+            SetVisible(root?.Q<VisualElement>("warehouse-item-" + i), hasItem);
+            SetLabel("warehouse-item-name-" + i, hasItem ? warehouseItemNames[i] : "");
+            SetLabel("warehouse-item-desc-" + i, hasItem ? GetWarehouseDesc(i) : "");
+            SetLabel("warehouse-item-count-" + i, hasItem ? "x" + GetWarehouseCount(i) : "");
+
+            var detailButton = root?.Q<Button>("warehouse-detail-button-" + i);
+            if (detailButton != null)
+                detailButton.SetEnabled(hasItem);
+        }
+
+        if (HasWarehouseItem(0))
+            SelectWarehouseEntry(0);
+        else
+            SetWarehouseDetail("Supply Details", "No supply items are available right now.");
+    }
+
+    void SelectWarehouseEntry(int index)
+    {
+        if (!HasWarehouseItem(index))
+            return;
+
+        warehouseSelectedIndex = index;
+        for (int i = 0; i < WarehouseItemCount; i++)
+        {
+            var row = root?.Q<VisualElement>("warehouse-item-" + i);
+            if (row != null)
+                row.EnableInClassList(SelectedClass, i == warehouseSelectedIndex);
+        }
+
+        string desc = GetWarehouseDesc(index);
+        int count = GetWarehouseCount(index);
+        SetWarehouseDetail(warehouseItemNames[index], desc + "\nStock: " + count);
+    }
+
+    void SetWarehouseDetail(string title, string body)
+    {
+        SetLabel("warehouse-detail-title", title);
+        SetLabel("warehouse-detail-body", body);
+    }
+
+    bool HasWarehouseItem(int index)
+    {
+        return warehouseItemNames != null
+            && index >= 0
+            && index < warehouseItemNames.Length
+            && !string.IsNullOrEmpty(warehouseItemNames[index]);
+    }
+
+    string GetWarehouseDesc(int index)
+    {
+        return warehouseItemDescs != null && index >= 0 && index < warehouseItemDescs.Length
+            ? warehouseItemDescs[index] ?? ""
+            : "";
+    }
+
+    int GetWarehouseCount(int index)
+    {
+        return warehouseItemCounts != null && index >= 0 && index < warehouseItemCounts.Length
+            ? Mathf.Max(0, warehouseItemCounts[index])
+            : 0;
     }
 }

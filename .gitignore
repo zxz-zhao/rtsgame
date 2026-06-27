@@ -54,10 +54,12 @@ hs_err_pid*.log
 Server/node_modules/
 Server/.env
 Server/*.log
+Server/logs/
 Server/data/*.json
 
 # Local tool output
 LobbyExport/
+ExternalRawAssets/
 *.zip
 
 # OS/editor files

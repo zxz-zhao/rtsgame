@@ -9,8 +9,8 @@ public class PrefabBuilder
     static string PrefabPath    = "Assets/Prefabs";
     static string ResPrefabPath = "Assets/Resources/Prefabs";
 
-    enum UnitType { Infantry, Artillery, Flamethrower, Tank, Fighter, Bomber, ScoutPlane }
-    enum BldType  { MainBase, Barracks, AirFactory, TankFactory, PowerPlant, GoldMine, Turret }
+    enum UnitType { Infantry, Artillery, AntiAirGun, Flamethrower, Tank, Fighter, Bomber, ScoutPlane, PatrolBoat, DestroyerShip, TransportShip }
+    enum BldType  { MainBase, Barracks, AirFactory, TankFactory, ArmorFactory, PowerPlant, GoldMine, Turret, NavalYard }
 
     const string KenneyBlockyFbxPath  = "Assets/External/Kenney/BlockyCharacters/Models/FBX format/";
     const string KenneyBlasterFbxPath = "Assets/External/Kenney/BlasterKit/Models/FBX format/";
@@ -25,10 +25,19 @@ public class PrefabBuilder
     const string KenneyCastleFbxPath     = "Assets/External/Kenney/CastleKit/Models/FBX format/";
     const string KenneyTrainFbxPath      = "Assets/External/Kenney/TrainKit/Models/FBX format/";
     const string KenneyPirateFbxPath     = "Assets/External/MilitaryModels/Kenney/Extracted/Models/FBX format/";
+    const string KenneyWatercraftFbxPath = "Assets/External/MilitaryModels/Kenney/Extracted/WatercraftKit/Models/FBX format/";
     const string KenneySpaceFbxPath      = "Assets/External/Kenney/SpaceKit/Models/FBX format/";
     const string DownloadCityIndustrialFbxPath = "Assets/External/Downloads/city-industrial/Models/FBX format/";
     const string DownloadFactoryKitFbxPath = "Assets/External/Downloads/factory-kit/Models/FBX format/";
     const string SurvivorAnimatorControllerPath = "Assets/Resources/Animations/Generated/SurvivorLocomotion_v2.controller";
+    static readonly string[] LowPolyWarshipSearchFolders =
+    {
+        "Assets/External/MilitaryModels/LowPolyWarshipPackage",
+        "Assets/External/MilitaryModels/LowPolyWarships",
+        "Assets/External/MilitaryModels/WarshipPackage",
+        "Assets/External/MilitaryModels",
+        "Assets"
+    };
 
     // ── 阵营配色 ──────────────────────────────────────────────────────────────
     static readonly Color P_BLUE   = new Color(0.20f, 0.44f, 0.82f);   // 玩家主色
@@ -50,35 +59,47 @@ public class PrefabBuilder
         // 场地单位 ─ 玩家
         MakeUnit<Infantry>   ("Infantry_Player",   P_BLUE,   new Vector3(0.5f,1f,0.5f),    true,  UnitType.Infantry);
         MakeUnit<Artillery>  ("Artillery_Player",  P_CYAN,   new Vector3(0.6f,0.8f,0.6f),  true,  UnitType.Artillery);
+        MakeUnit<AntiAirGun> ("AntiAirGun_Player", P_CYAN,   new Vector3(1.6f,1.0f,2.4f),  true,  UnitType.AntiAirGun);
         MakeUnit<Flamethrower>("Flame_Player",     P_YELLOW, new Vector3(0.9f,0.9f,1.35f), true,  UnitType.Flamethrower);
         MakeUnit<Tank>       ("Tank_Player",       P_BLUE,   new Vector3(1.6f,1.0f,2.4f),  true,  UnitType.Tank);
         MakeUnit<Fighter>    ("Fighter_Player",    P_CYAN,   new Vector3(1.8f,0.4f,1.2f),  true,  UnitType.Fighter);
         MakeUnit<Bomber>     ("Bomber_Player",     P_BLUE,   new Vector3(2.5f,0.5f,1.5f),  true,  UnitType.Bomber);
         MakeUnit<ScoutPlane> ("Scout_Player",      P_WHITE,  new Vector3(1.5f,0.3f,1f),    true,  UnitType.ScoutPlane);
+        MakeUnit<PatrolBoat> ("PatrolBoat_Player", P_CYAN,   new Vector3(2.0f,0.7f,3.2f),  true,  UnitType.PatrolBoat);
+        MakeUnit<DestroyerShip>("DestroyerShip_Player", P_BLUE, new Vector3(2.8f,1.0f,5.2f), true, UnitType.DestroyerShip);
+        MakeUnit<TransportShip>("TransportShip_Player", P_GREEN, new Vector3(3.6f,1.2f,6.7f), true, UnitType.TransportShip);
         // 场地单位 ─ 敌方
         MakeUnit<Infantry>   ("Infantry_Enemy",    E_RED,    new Vector3(0.5f,1f,0.5f),    false, UnitType.Infantry);
         MakeUnit<Artillery>  ("Artillery_Enemy",   E_ORANGE, new Vector3(0.6f,0.8f,0.6f),  false, UnitType.Artillery);
+        MakeUnit<AntiAirGun> ("AntiAirGun_Enemy",  E_ORANGE, new Vector3(1.6f,1.0f,2.4f),  false, UnitType.AntiAirGun);
         MakeUnit<Flamethrower>("Flame_Enemy",      E_ORANGE, new Vector3(0.9f,0.9f,1.35f), false, UnitType.Flamethrower);
         MakeUnit<Tank>       ("Tank_Enemy",        E_RED,    new Vector3(1.6f,1.0f,2.4f),  false, UnitType.Tank);
         MakeUnit<Fighter>    ("Fighter_Enemy",     E_RED,    new Vector3(1.8f,0.4f,1.2f),  false, UnitType.Fighter);
         MakeUnit<Bomber>     ("Bomber_Enemy",      E_ORANGE, new Vector3(2.5f,0.5f,1.5f),  false, UnitType.Bomber);
         MakeUnit<ScoutPlane> ("Scout_Enemy",       E_GRAY,   new Vector3(1.5f,0.3f,1f),    false, UnitType.ScoutPlane);
+        MakeUnit<PatrolBoat> ("PatrolBoat_Enemy",  E_RED,    new Vector3(2.0f,0.7f,3.2f),  false, UnitType.PatrolBoat);
+        MakeUnit<DestroyerShip>("DestroyerShip_Enemy", E_ORANGE, new Vector3(2.8f,1.0f,5.2f), false, UnitType.DestroyerShip);
+        MakeUnit<TransportShip>("TransportShip_Enemy", E_GOLD, new Vector3(3.6f,1.2f,6.7f), false, UnitType.TransportShip);
         // 建筑 ─ 玩家
         MakeBld<MainBase>   ("MainBase_Player",    P_BLUE,   new Vector3(4f,2f,4f),        true,  BldType.MainBase);
         MakeBld<Barracks>   ("Barracks_Player",    P_BLUE,   new Vector3(3f,1.5f,2.5f),    true,  BldType.Barracks);
         MakeBld<AirFactory> ("AirFactory_Player",  P_CYAN,   new Vector3(4f,1.2f,3f),      true,  BldType.AirFactory);
         MakeBld<TankFactory>("TankFactory_Player", P_BLUE,   new Vector3(3.5f,1.4f,3f),    true,  BldType.TankFactory);
+        MakeBld<ArmorFactory>("ArmorFactory_Player", new Color(0.42f,0.44f,0.16f), new Vector3(3.5f,1.4f,3f), true, BldType.ArmorFactory);
         MakeBld<PowerPlant> ("PowerPlant_Player",  P_YELLOW, new Vector3(2.5f,2f,2.5f),    true,  BldType.PowerPlant);
         MakeBld<GoldMine>   ("GoldMine_Player",    new Color(0.95f,0.78f,0f), new Vector3(2f,1.2f,2f), true, BldType.GoldMine);
         MakeBld<Turret>     ("Turret_Player",      P_GREEN,  new Vector3(1.5f,2.5f,1.5f),  true,  BldType.Turret);
+        MakeBld<NavalYard>  ("NavalYard_Player",   P_CYAN,   new Vector3(5.4f,1.5f,7.0f),  true,  BldType.NavalYard);
         // 建筑 ─ 敌方
         MakeBld<MainBase>   ("MainBase_Enemy",     E_RED,    new Vector3(4f,2f,4f),        false, BldType.MainBase);
         MakeBld<Barracks>   ("Barracks_Enemy",     E_RED,    new Vector3(3f,1.5f,2.5f),    false, BldType.Barracks);
         MakeBld<AirFactory> ("AirFactory_Enemy",   E_ORANGE, new Vector3(4f,1.2f,3f),      false, BldType.AirFactory);
         MakeBld<TankFactory>("TankFactory_Enemy",  E_RED,    new Vector3(3.5f,1.4f,3f),    false, BldType.TankFactory);
+        MakeBld<ArmorFactory>("ArmorFactory_Enemy",  new Color(0.62f,0.28f,0.06f), new Vector3(3.5f,1.4f,3f), false, BldType.ArmorFactory);
         MakeBld<PowerPlant> ("PowerPlant_Enemy",   E_GOLD,   new Vector3(2.5f,2f,2.5f),    false, BldType.PowerPlant);
         MakeBld<GoldMine>   ("GoldMine_Enemy",     new Color(0.78f,0.60f,0f), new Vector3(2f,1.2f,2f), false, BldType.GoldMine);
         MakeBld<Turret>     ("Turret_Enemy",       E_ORANGE, new Vector3(1.5f,2.5f,1.5f),  false, BldType.Turret);
+        MakeBld<NavalYard>  ("NavalYard_Enemy",    E_RED,    new Vector3(5.4f,1.5f,7.0f),  false, BldType.NavalYard);
 
         // 历史场景/预览工具可能还会按 Prefabs/*_Player 或 *_Enemy 从 Resources 读取。
         // 这里把刚生成的下载模型版本同步过去，避免旧手工方块 prefab 再混进运行时。
@@ -88,49 +109,66 @@ public class PrefabBuilder
         System.IO.Directory.CreateDirectory(System.IO.Path.Combine(Application.dataPath, "Resources", "Prefabs"));
         MakeUnitRes<Infantry>   ("Infantry",    E_RED,    new Vector3(0.5f,1f,0.5f),    false, UnitType.Infantry);
         MakeUnitRes<Artillery>  ("Artillery",   E_ORANGE, new Vector3(0.6f,0.8f,0.6f),  false, UnitType.Artillery);
+        MakeUnitRes<AntiAirGun> ("AntiAirGun",  E_ORANGE, new Vector3(1.6f,1.0f,2.4f),  false, UnitType.AntiAirGun);
         MakeUnitRes<Flamethrower>("Flamethrower",E_ORANGE,new Vector3(0.9f,0.9f,1.35f), false, UnitType.Flamethrower);
         MakeUnitRes<Tank>       ("Tank",        E_RED,    new Vector3(1.6f,1.0f,2.4f),  false, UnitType.Tank);
         MakeUnitRes<Fighter>    ("Fighter",     E_RED,    new Vector3(1.8f,0.4f,1.2f),  false, UnitType.Fighter);
         MakeUnitRes<Bomber>     ("Bomber",      E_ORANGE, new Vector3(2.5f,0.5f,1.5f),  false, UnitType.Bomber);
         MakeUnitRes<ScoutPlane> ("ScoutPlane",  E_GRAY,   new Vector3(1.5f,0.3f,1f),    false, UnitType.ScoutPlane);
+        MakeUnitRes<PatrolBoat> ("PatrolBoat",  E_RED,    new Vector3(2.0f,0.7f,3.2f),  false, UnitType.PatrolBoat);
+        MakeUnitRes<DestroyerShip>("DestroyerShip", E_ORANGE, new Vector3(2.8f,1.0f,5.2f), false, UnitType.DestroyerShip);
+        MakeUnitRes<TransportShip>("TransportShip", E_GOLD, new Vector3(3.6f,1.2f,6.7f), false, UnitType.TransportShip);
         // Resources 版 ─ 玩家单位
         MakeUnitRes<Infantry>   ("Infantry_P",    P_BLUE,   new Vector3(0.5f,1f,0.5f),    true, UnitType.Infantry);
         MakeUnitRes<Artillery>  ("Artillery_P",   P_CYAN,   new Vector3(0.6f,0.8f,0.6f),  true, UnitType.Artillery);
+        MakeUnitRes<AntiAirGun> ("AntiAirGun_P",  P_CYAN,   new Vector3(1.6f,1.0f,2.4f),  true, UnitType.AntiAirGun);
         MakeUnitRes<Tank>       ("Tank_P",         P_BLUE,   new Vector3(1.6f,1.0f,2.4f),  true, UnitType.Tank);
         MakeUnitRes<Flamethrower>("Flamethrower_P",P_YELLOW, new Vector3(0.9f,0.9f,1.35f), true, UnitType.Flamethrower);
         MakeUnitRes<Fighter>    ("Fighter_P",     P_CYAN,   new Vector3(1.8f,0.4f,1.2f),  true, UnitType.Fighter);
         MakeUnitRes<Bomber>     ("Bomber_P",      P_BLUE,   new Vector3(2.5f,0.5f,1.5f),  true, UnitType.Bomber);
         MakeUnitRes<ScoutPlane> ("ScoutPlane_P",  P_WHITE,  new Vector3(1.5f,0.3f,1f),    true, UnitType.ScoutPlane);
+        MakeUnitRes<PatrolBoat> ("PatrolBoat_P",  P_CYAN,   new Vector3(2.0f,0.7f,3.2f),  true, UnitType.PatrolBoat);
+        MakeUnitRes<DestroyerShip>("DestroyerShip_P", P_BLUE, new Vector3(2.8f,1.0f,5.2f), true, UnitType.DestroyerShip);
+        MakeUnitRes<TransportShip>("TransportShip_P", P_GREEN, new Vector3(3.6f,1.2f,6.7f), true, UnitType.TransportShip);
         // Resources 版 ─ 玩家建筑
         MakeBldRes<MainBase>   ("MainBase_P",    P_BLUE,   new Vector3(4f,2f,4f),        BldType.MainBase);
         MakeBldRes<Barracks>   ("Barracks_P",    P_GREEN,  new Vector3(3f,1.5f,2.5f),    BldType.Barracks);
         MakeBldRes<AirFactory> ("AirFactory_P",  P_CYAN,   new Vector3(4f,1.2f,3f),      BldType.AirFactory);
         MakeBldRes<TankFactory>("TankFactory_P", new Color(0.38f,0.28f,0.10f), new Vector3(3.5f,1.4f,3f), BldType.TankFactory);
+        MakeBldRes<ArmorFactory>("ArmorFactory_P", new Color(0.42f,0.44f,0.16f), new Vector3(3.5f,1.4f,3f), BldType.ArmorFactory);
         MakeBldRes<Turret>     ("Turret_P",      P_GREEN,  new Vector3(1.5f,2.5f,1.5f),  BldType.Turret);
         MakeBldRes<GoldMine>   ("GoldMine_P",    new Color(0.92f,0.72f,0.05f), new Vector3(2f,1.2f,2f), BldType.GoldMine);
         MakeBldRes<PowerPlant> ("PowerPlant_P",  P_YELLOW, new Vector3(2.5f,2f,2.5f),    BldType.PowerPlant);
+        MakeBldRes<NavalYard>  ("NavalYard_P",   P_CYAN,   new Vector3(5.4f,1.5f,7.0f),  BldType.NavalYard);
         // Resources 版 ─ 敌方单位（_E 后缀，联机 RemoteSpawnUnit 加载）
         MakeUnitRes<Infantry>   ("Infantry_E",    E_RED,    new Vector3(0.5f,1f,0.5f),    false, UnitType.Infantry);
         MakeUnitRes<Artillery>  ("Artillery_E",   E_ORANGE, new Vector3(0.6f,0.8f,0.6f),  false, UnitType.Artillery);
+        MakeUnitRes<AntiAirGun> ("AntiAirGun_E",  E_ORANGE, new Vector3(1.6f,1.0f,2.4f),  false, UnitType.AntiAirGun);
         MakeUnitRes<Flamethrower>("Flamethrower_E",E_ORANGE,new Vector3(0.9f,0.9f,1.35f), false, UnitType.Flamethrower);
         MakeUnitRes<Tank>       ("Tank_E",        E_RED,    new Vector3(1.6f,1.0f,2.4f),  false, UnitType.Tank);
         MakeUnitRes<Fighter>    ("Fighter_E",     E_RED,    new Vector3(1.8f,0.4f,1.2f),  false, UnitType.Fighter);
         MakeUnitRes<Bomber>     ("Bomber_E",      E_ORANGE, new Vector3(2.5f,0.5f,1.5f),  false, UnitType.Bomber);
         MakeUnitRes<ScoutPlane> ("ScoutPlane_E",  E_GRAY,   new Vector3(1.5f,0.3f,1f),    false, UnitType.ScoutPlane);
+        MakeUnitRes<PatrolBoat> ("PatrolBoat_E",  E_RED,    new Vector3(2.0f,0.7f,3.2f),  false, UnitType.PatrolBoat);
+        MakeUnitRes<DestroyerShip>("DestroyerShip_E", E_ORANGE, new Vector3(2.8f,1.0f,5.2f), false, UnitType.DestroyerShip);
+        MakeUnitRes<TransportShip>("TransportShip_E", E_GOLD, new Vector3(3.6f,1.2f,6.7f), false, UnitType.TransportShip);
         // Resources 版 ─ 敌方建筑（_E 后缀）
         MakeBldRes<MainBase>   ("MainBase_E",    E_RED,    new Vector3(4f,2f,4f),        BldType.MainBase,    false);
         MakeBldRes<Barracks>   ("Barracks_E",    E_RED,    new Vector3(3f,1.5f,2.5f),    BldType.Barracks,    false);
         MakeBldRes<AirFactory> ("AirFactory_E",  E_ORANGE, new Vector3(4f,1.2f,3f),      BldType.AirFactory,  false);
         MakeBldRes<TankFactory>("TankFactory_E", E_RED,    new Vector3(3.5f,1.4f,3f),    BldType.TankFactory, false);
+        MakeBldRes<ArmorFactory>("ArmorFactory_E", new Color(0.62f,0.28f,0.06f), new Vector3(3.5f,1.4f,3f), BldType.ArmorFactory, false);
         MakeBldRes<PowerPlant> ("PowerPlant_E",  E_GOLD,   new Vector3(2.5f,2f,2.5f),    BldType.PowerPlant,  false);
         MakeBldRes<GoldMine>   ("GoldMine_E",    new Color(0.78f,0.60f,0f), new Vector3(2f,1.2f,2f), BldType.GoldMine, false);
         MakeBldRes<Turret>     ("Turret_E",      E_ORANGE, new Vector3(1.5f,2.5f,1.5f),  BldType.Turret,      false);
+        MakeBldRes<NavalYard>  ("NavalYard_E",   E_RED,    new Vector3(5.4f,1.5f,7.0f),  BldType.NavalYard,   false);
 
         BuildBattleMapTilePrefabs();
         BuildBattlefieldPropPrefabs();
         BuildProjectilePrefabs();
         BuildAirModelPrefabs();
         InstallIntegratedInfantryModelIfAvailable();
+        WW2MaterialSkinInstaller.InstallSkins();
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -182,18 +220,24 @@ public class PrefabBuilder
         {
             "Infantry_Player", "Infantry_Enemy",
             "Artillery_Player", "Artillery_Enemy",
+            "AntiAirGun_Player", "AntiAirGun_Enemy",
             "Flame_Player", "Flame_Enemy",
             "Tank_Player", "Tank_Enemy",
             "Fighter_Player", "Fighter_Enemy",
             "Bomber_Player", "Bomber_Enemy",
             "Scout_Player", "Scout_Enemy",
+            "PatrolBoat_Player", "PatrolBoat_Enemy",
+            "DestroyerShip_Player", "DestroyerShip_Enemy",
+            "TransportShip_Player", "TransportShip_Enemy",
             "MainBase_Player", "MainBase_Enemy",
             "Barracks_Player", "Barracks_Enemy",
             "AirFactory_Player", "AirFactory_Enemy",
             "TankFactory_Player", "TankFactory_Enemy",
+            "ArmorFactory_Player", "ArmorFactory_Enemy",
             "PowerPlant_Player", "PowerPlant_Enemy",
             "GoldMine_Player", "GoldMine_Enemy",
             "Turret_Player", "Turret_Enemy",
+            "NavalYard_Player", "NavalYard_Enemy",
         };
 
         for (int i = 0; i < names.Length; i++)
@@ -368,6 +412,8 @@ public class PrefabBuilder
             return KenneyTrainFbxPath + "Textures/colormap.png";
         if (assetPath.StartsWith(KenneyPirateFbxPath))
             return KenneyPirateFbxPath + "Textures/colormap.png";
+        if (assetPath.StartsWith(KenneyWatercraftFbxPath))
+            return KenneyWatercraftFbxPath + "Textures/colormap.png";
         if (assetPath.StartsWith(KenneySpaceFbxPath))
             return KenneySpaceFbxPath + "Textures/colormap.png";
         if (assetPath.StartsWith(KenneyAnimSurvivorPath))
@@ -524,6 +570,7 @@ public class PrefabBuilder
                 InfantryLimbs(root, s, artilleryCloth, new Color(0.08f,0.075f,0.06f));
                 AddWW2ShoulderCannon(root, "ShoulderCannon", V(s.x*0.32f,s.y*0.78f,s.z*0.28f), V(2f,88f,-7f), V3(1.06f));
                 break;
+            case UnitType.AntiAirGun:
             case UnitType.Tank:
                 Color tankCol = WW2Tint(col, player);
                 Color tankDk = Dk(tankCol);
@@ -590,6 +637,24 @@ public class PrefabBuilder
                 prop.transform.localRotation = Quaternion.Euler(0f,0f,0f);
                 P(PrimitiveType.Cylinder,root,"RadarPod",V(0,-s.y*0.28f,-s.z*0.16f),V(s.x*0.18f,s.z*0.20f,s.x*0.18f),METAL,0.60f,0.82f).transform.localRotation = Quaternion.Euler(90f,0f,0f);
                 break;
+            case UnitType.PatrolBoat:
+                P(PrimitiveType.Cube, root, "Hull", V(0f,s.y*0.22f,0f), V(s.x,s.y*0.42f,s.z), col, 0.20f,0.48f);
+                P(PrimitiveType.Cube, root, "Cabin", V(0f,s.y*0.70f,-s.z*0.08f), V(s.x*0.55f,s.y*0.46f,s.z*0.34f), Lt(col), 0.10f,0.52f);
+                P(PrimitiveType.Cylinder, root, "Gun", V(0f,s.y*0.82f,s.z*0.42f), V(0.08f,s.z*0.28f,0.08f), METAL, 0.55f,0.70f).transform.localRotation = Quaternion.Euler(90f,0f,0f);
+                break;
+            case UnitType.DestroyerShip:
+                P(PrimitiveType.Cube, root, "Hull", V(0f,s.y*0.25f,0f), V(s.x,s.y*0.46f,s.z), col, 0.28f,0.52f);
+                P(PrimitiveType.Cube, root, "Bridge", V(0f,s.y*0.86f,-s.z*0.06f), V(s.x*0.58f,s.y*0.58f,s.z*0.30f), Lt(col), 0.18f,0.58f);
+                var dg=P(PrimitiveType.Cylinder, root, "Barrel", V(0f,s.y*0.95f,s.z*0.46f), V(0.10f,s.z*0.34f,0.10f), METAL, 0.65f,0.78f);
+                dg.transform.localRotation = Quaternion.Euler(90f,0f,0f);
+                P(PrimitiveType.Cylinder, root, "Radar", V(0f,s.y*1.35f,-s.z*0.12f), V(0.24f,0.04f,0.24f), METAL, 0.45f,0.68f);
+                break;
+            case UnitType.TransportShip:
+                P(PrimitiveType.Cube, root, "Hull", V(0f,s.y*0.22f,0f), V(s.x,s.y*0.44f,s.z), col, 0.22f,0.44f);
+                P(PrimitiveType.Cube, root, "CargoA", V(-s.x*0.20f,s.y*0.72f,0f), V(s.x*0.36f,s.y*0.42f,s.z*0.42f), WW2_WOOD, 0.05f,0.30f);
+                P(PrimitiveType.Cube, root, "CargoB", V(s.x*0.25f,s.y*0.78f,-s.z*0.22f), V(s.x*0.32f,s.y*0.36f,s.z*0.34f), METAL, 0.30f,0.48f);
+                P(PrimitiveType.Cube, root, "Cabin", V(0f,s.y*0.88f,s.z*0.34f), V(s.x*0.44f,s.y*0.48f,s.z*0.22f), Lt(col), 0.14f,0.48f);
+                break;
         }
         if (!TryApplyExternalUnitVisual(root, col, t, player))
         {
@@ -633,6 +698,7 @@ public class PrefabBuilder
                     AddWW2FlameVehicleKit(modelRoot, tint, factionColor, player);
                 }
                 break;
+            case UnitType.AntiAirGun:
             case UnitType.Tank:
                 if (AddImportedModel(modelRoot, KenneySpaceFbxPath + "rover.fbx", "KenneyVehicleBase", V(0f,0.03f,0f), V(0f,180f,0f), V3(0.58f), tint, true) != null)
                 {
@@ -709,6 +775,47 @@ public class PrefabBuilder
                     AddFactionMarker(modelRoot, V(0f,0.44f,-0.10f), V(0f,180f,0f), V3(0.18f), factionColor);
                 }
                 break;
+            case UnitType.PatrolBoat:
+                GameObject patrol = TryAddLowPolyWarshipModel(modelRoot, UnitType.PatrolBoat, tint);
+                if (patrol == null)
+                    patrol = AddImportedModel(modelRoot, KenneyWatercraftFbxPath + "boat-speed-e.fbx", "KenneyWatercraft", V(0f,0.02f,0f), V(0f,0f,0f), V3(0.70f), tint, true);
+                if (patrol != null)
+                {
+                    ok = true;
+                    RemoveGeneratedChildren(modelRoot);
+                    AddNavalMuzzle(modelRoot, "PatrolBowGun", V(0f,0.44f,0.84f), V3(0.18f), factionColor);
+                    AddNavalFactionStripe(modelRoot, factionColor, 0.45f, 0.66f);
+                }
+                break;
+            case UnitType.DestroyerShip:
+                GameObject destroyer = TryAddLowPolyWarshipModel(modelRoot, UnitType.DestroyerShip, tint);
+                if (destroyer == null)
+                    destroyer = AddImportedModel(modelRoot, KenneyWatercraftFbxPath + "ship-large.fbx", "KenneyWatercraft", V(0f,0.02f,0f), V(0f,0f,0f), V3(0.72f), tint, true);
+                if (destroyer != null)
+                {
+                    ok = true;
+                    RemoveGeneratedChildren(modelRoot);
+                    AddNavalCannon(modelRoot, "DestroyerMainGun", V(0f,0.70f,1.05f), V3(0.72f), factionColor);
+                    AddImportedModel(modelRoot, KenneyWatercraftFbxPath + "buoy-flag.fbx", "DestroyerSignalMast", V(-0.34f,0.65f,-0.62f), V(0f,0f,0f), V3(0.24f), factionColor, true);
+                    AddNavalFactionStripe(modelRoot, factionColor, 0.62f, 0.86f);
+                }
+                break;
+            case UnitType.TransportShip:
+                GameObject battleship = TryAddLowPolyWarshipModel(modelRoot, UnitType.TransportShip, tint);
+                if (battleship == null)
+                    battleship = AddImportedModel(modelRoot, KenneyWatercraftFbxPath + "ship-large.fbx", "KenneyWatercraft", V(0f,0.02f,0f), V(0f,0f,0f), V3(0.88f), tint, true);
+                if (battleship != null)
+                {
+                    ok = true;
+                    RemoveGeneratedChildren(modelRoot);
+                    AddNavalCannon(modelRoot, "BattleshipForwardGun", V(0f,0.82f,1.18f), V3(0.86f), factionColor);
+                    GameObject aftGun = AddNavalCannon(modelRoot, "BattleshipAftGun", V(0f,0.78f,-0.92f), V3(0.76f), factionColor);
+                    if (aftGun != null)
+                        aftGun.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                    AddImportedModel(modelRoot, KenneyWatercraftFbxPath + "buoy-flag.fbx", "BattleshipSignalMast", V(-0.38f,0.82f,-0.30f), V(0f,0f,0f), V3(0.28f), factionColor, true);
+                    AddNavalFactionStripe(modelRoot, factionColor, 0.76f, 0.98f);
+                }
+                break;
         }
         return ok;
     }
@@ -735,6 +842,176 @@ public class PrefabBuilder
         P(PrimitiveType.Cube, modelRoot, "AircraftForwardStripe", V(0f, topY + 0.04f, 0.52f), V(0.18f, 0.035f, 0.30f), noseColor, 0.03f, 0.42f);
         P(PrimitiveType.Cube, modelRoot, "FactionStripeL", V(-wingX, topY, 0.04f), V(wingWidth, 0.035f, 0.13f), factionColor, 0.03f, 0.42f);
         P(PrimitiveType.Cube, modelRoot, "FactionStripeR", V( wingX, topY, 0.04f), V(wingWidth, 0.035f, 0.13f), factionColor, 0.03f, 0.42f);
+    }
+
+    static GameObject AddNavalMuzzle(GameObject modelRoot, string name, Vector3 localPosition, Vector3 localScale, Color factionColor)
+    {
+        GameObject gun = PartGroup(modelRoot, name, localPosition, V(0f,0f,0f), V3(1f));
+        P(PrimitiveType.Cube, gun, "TurretBase", V(0f,0f,0f), localScale, Dk(factionColor, 0.78f), 0.22f,0.45f);
+        var barrel = P(PrimitiveType.Cylinder, gun, "Barrel", V(0f,0.03f,0.19f), V(localScale.x * 0.26f, localScale.z * 1.05f, localScale.x * 0.26f), WW2_METAL, 0.62f,0.78f);
+        barrel.transform.localRotation = Quaternion.Euler(90f,0f,0f);
+
+        var muzzle = new GameObject("Muzzle");
+        muzzle.transform.SetParent(gun.transform, false);
+        muzzle.transform.localPosition = V(0f,0.03f,0.42f);
+        muzzle.transform.localRotation = Quaternion.identity;
+        muzzle.transform.localScale = Vector3.one;
+        return gun;
+    }
+
+    static GameObject AddNavalCannon(GameObject modelRoot, string name, Vector3 localPosition, Vector3 localScale, Color factionColor)
+    {
+        GameObject gun = PartGroup(modelRoot, name, localPosition, V(0f,0f,0f), V3(1f));
+        P(PrimitiveType.Cube, gun, "TurretBase", V(0f,0f,0f), V(localScale.x * 0.46f, localScale.y * 0.26f, localScale.z * 0.38f), Dk(factionColor, 0.70f), 0.28f,0.52f);
+        var barrel = P(PrimitiveType.Cylinder, gun, "Barrel", V(0f,0.06f,0.36f), V(localScale.x * 0.07f, localScale.z * 0.60f, localScale.x * 0.07f), WW2_METAL, 0.66f,0.82f);
+        barrel.transform.localRotation = Quaternion.Euler(90f,0f,0f);
+
+        var muzzle = new GameObject("Muzzle");
+        muzzle.transform.SetParent(gun.transform, false);
+        muzzle.transform.localPosition = V(0f,0.06f,0.74f);
+        muzzle.transform.localRotation = Quaternion.identity;
+        muzzle.transform.localScale = Vector3.one;
+        return gun;
+    }
+
+    static void AddNavalFactionStripe(GameObject modelRoot, Color factionColor, float y, float z)
+    {
+        Color stripe = Color.Lerp(factionColor, Color.white, 0.22f);
+        P(PrimitiveType.Cube, modelRoot, "NavalFactionStripeL", V(-0.58f,y,z), V(0.48f,0.045f,0.12f), stripe, 0.04f,0.42f);
+        P(PrimitiveType.Cube, modelRoot, "NavalFactionStripeR", V( 0.58f,y,z), V(0.48f,0.045f,0.12f), stripe, 0.04f,0.42f);
+    }
+
+    static GameObject TryAddLowPolyWarshipModel(GameObject modelRoot, UnitType type, Color tint)
+    {
+        string assetPath = FindLowPolyWarshipAsset(type);
+        if (string.IsNullOrEmpty(assetPath))
+            return null;
+
+        Vector3 scale = type == UnitType.PatrolBoat
+            ? V3(0.74f)
+            : type == UnitType.DestroyerShip
+                ? V3(0.82f)
+                : V3(0.92f);
+
+        Debug.Log("[PrefabBuilder] Using Low-poly Warship Package model for " + type + ": " + assetPath);
+        return AddImportedModel(modelRoot, assetPath, "KenneyWatercraft", V(0f,0.02f,0f), V(0f,0f,0f), scale, tint, true);
+    }
+
+    static string FindLowPolyWarshipAsset(UnitType type)
+    {
+        string[] searchFolders = ExistingWarshipSearchFolders();
+        string[] queries = LowPolyWarshipQueries(type);
+        var seen = new System.Collections.Generic.HashSet<string>();
+        string bestPath = null;
+        int bestScore = int.MinValue;
+
+        for (int q = 0; q < queries.Length; q++)
+        {
+            string[] guids = AssetDatabase.FindAssets(queries[q], searchFolders);
+            for (int i = 0; i < guids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                if (!seen.Add(path))
+                    continue;
+
+                int score = ScoreLowPolyWarshipAsset(path, type);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestPath = path;
+                }
+            }
+        }
+
+        return bestScore >= 12 ? bestPath : null;
+    }
+
+    static string[] ExistingWarshipSearchFolders()
+    {
+        var folders = new System.Collections.Generic.List<string>();
+        for (int i = 0; i < LowPolyWarshipSearchFolders.Length; i++)
+        {
+            string folder = LowPolyWarshipSearchFolders[i];
+            if (AssetDatabase.IsValidFolder(folder))
+                folders.Add(folder);
+        }
+
+        if (folders.Count == 0)
+            folders.Add("Assets");
+        return folders.ToArray();
+    }
+
+    static string[] LowPolyWarshipQueries(UnitType type)
+    {
+        switch (type)
+        {
+            case UnitType.PatrolBoat:
+                return new[] { "patrol", "boat", "torpedo", "corvette", "warship" };
+            case UnitType.DestroyerShip:
+                return new[] { "destroyer", "warship" };
+            case UnitType.TransportShip:
+                return new[] { "battleship", "battle ship", "battle", "warship" };
+            default:
+                return new[] { "warship" };
+        }
+    }
+
+    static int ScoreLowPolyWarshipAsset(string assetPath, UnitType type)
+    {
+        if (string.IsNullOrEmpty(assetPath))
+            return int.MinValue;
+
+        string lower = assetPath.Replace('\\', '/').ToLowerInvariant();
+        if (!IsModelAssetPath(lower))
+            return int.MinValue;
+
+        int packageScore = 0;
+        if (lower.Contains("warship")) packageScore += 8;
+        if (lower.Contains("warships")) packageScore += 8;
+        if (lower.Contains("low") && lower.Contains("poly")) packageScore += 5;
+        if (lower.Contains("polygrunt")) packageScore += 6;
+        if (lower.Contains("militarymodels")) packageScore += 2;
+        if (packageScore < 8)
+            return int.MinValue;
+
+        int roleScore = ScoreWarshipRole(lower, type);
+        if (roleScore <= 0)
+            return int.MinValue;
+
+        int formatScore = lower.EndsWith(".prefab") ? 3 : lower.EndsWith(".fbx") ? 2 : 1;
+        return packageScore + roleScore + formatScore;
+    }
+
+    static bool IsModelAssetPath(string lowerPath)
+    {
+        return lowerPath.EndsWith(".fbx")
+            || lowerPath.EndsWith(".obj")
+            || lowerPath.EndsWith(".prefab")
+            || lowerPath.EndsWith(".glb")
+            || lowerPath.EndsWith(".gltf");
+    }
+
+    static int ScoreWarshipRole(string lowerPath, UnitType type)
+    {
+        switch (type)
+        {
+            case UnitType.PatrolBoat:
+                if (lowerPath.Contains("patrol")) return 28;
+                if (lowerPath.Contains("torpedo")) return 24;
+                if (lowerPath.Contains("corvette")) return 20;
+                if (lowerPath.Contains("boat") && lowerPath.Contains("small")) return 18;
+                if (lowerPath.Contains("boat")) return 12;
+                return 0;
+            case UnitType.DestroyerShip:
+                return lowerPath.Contains("destroyer") ? 30 : 0;
+            case UnitType.TransportShip:
+                if (lowerPath.Contains("battleship")) return 32;
+                if (lowerPath.Contains("battle") && lowerPath.Contains("ship")) return 30;
+                if (lowerPath.Contains("battle_ship")) return 30;
+                return 0;
+            default:
+                return 0;
+        }
     }
 
     static GameObject PartGroup(GameObject parent, string name, Vector3 localPosition, Vector3 localRotation, Vector3 localScale)
@@ -1546,6 +1823,14 @@ public class PrefabBuilder
                 P(PrimitiveType.Cylinder,visualRoot,"Chimney2",V( s.x*0.28f,s.y*1.30f,s.z*0.20f),V(0.16f,s.y*0.35f,0.16f),new Color(0.26f,0.26f,0.28f),0.50f,0.60f);
                 P(PrimitiveType.Cube,    visualRoot,"Bay",     V(0,s.y*0.30f,-s.z*0.52f),V(s.x*0.55f,s.y*0.58f,0.10f),new Color(0.10f,0.10f,0.10f),0.20f,0.30f);
                 break;
+            case BldType.ArmorFactory:
+                P(PrimitiveType.Cube,    visualRoot,"Body",     V(0,s.y*0.5f,0),  s,                                  col, 0.35f,0.50f);
+                P(PrimitiveType.Cube,    visualRoot,"Roof",     V(0,s.y*1.02f,0), V(s.x*1.06f,s.y*0.10f,s.z*1.06f),  dk,  0.40f,0.50f);
+                P(PrimitiveType.Cylinder,visualRoot,"StackA",   V(-s.x*0.30f,s.y*1.45f,s.z*0.18f),V(0.19f,s.y*0.45f,0.19f),new Color(0.26f,0.26f,0.28f),0.50f,0.60f);
+                P(PrimitiveType.Cylinder,visualRoot,"StackB",   V( s.x*0.30f,s.y*1.28f,s.z*0.18f),V(0.16f,s.y*0.35f,0.16f),new Color(0.26f,0.26f,0.28f),0.50f,0.60f);
+                P(PrimitiveType.Cube,    visualRoot,"FrontBay", V(0,s.y*0.30f,-s.z*0.52f),V(s.x*0.55f,s.y*0.58f,0.10f),new Color(0.10f,0.10f,0.10f),0.20f,0.30f);
+                P(PrimitiveType.Cube,    visualRoot,"TankHull", V(s.x*0.28f,s.y*0.16f,-s.z*0.18f),V(s.x*0.40f,s.y*0.18f,s.z*0.44f),Dk(WW2_METAL, 0.86f),0.55f,0.72f);
+                break;
             case BldType.PowerPlant:
                 P(PrimitiveType.Cube,    visualRoot,"Body",    V(0,s.y*0.5f,0),  s,                                  col, 0.40f,0.60f);
                 P(PrimitiveType.Sphere,  visualRoot,"Dome",    V(0,s.y*1.10f,0), V(s.x*0.68f,s.y*0.34f,s.z*0.68f),  lt,  0.30f,0.65f);
@@ -1569,6 +1854,14 @@ public class PrefabBuilder
                 var bR=P(PrimitiveType.Cylinder,visualRoot,"BarrelR",V( s.x*0.18f,s.y*0.72f,s.z*0.65f),V(0.13f,s.z*0.55f,0.13f),METAL,0.75f,0.88f);
                 bR.transform.localRotation=Quaternion.Euler(90f,0,0);
                 P(PrimitiveType.Sphere,  visualRoot,"Radar",   V(0,s.y*1.05f,-s.z*0.18f),V(0.33f,0.19f,0.33f),      METAL,0.80f,0.92f);
+                break;
+            case BldType.NavalYard:
+                P(PrimitiveType.Cube, visualRoot, "DockDeck", V(0f,0.14f,0f), V(s.x,s.y*0.16f,s.z), WW2_WOOD, 0.08f,0.28f);
+                P(PrimitiveType.Cube, visualRoot, "LeftPier", V(-s.x*0.44f,0.30f,0f), V(s.x*0.16f,s.y*0.25f,s.z*0.95f), dk, 0.12f,0.32f);
+                P(PrimitiveType.Cube, visualRoot, "RightPier", V(s.x*0.44f,0.30f,0f), V(s.x*0.16f,s.y*0.25f,s.z*0.95f), dk, 0.12f,0.32f);
+                P(PrimitiveType.Cube, visualRoot, "Workshop", V(0f,s.y*0.62f,-s.z*0.30f), V(s.x*0.42f,s.y*0.78f,s.z*0.28f), col, 0.28f,0.50f);
+                P(PrimitiveType.Cylinder, visualRoot, "SignalMast", V(s.x*0.32f,s.y*1.20f,-s.z*0.12f), V(0.08f,s.y*0.70f,0.08f), METAL, 0.60f,0.80f);
+                P(PrimitiveType.Cube, visualRoot, "SignalFlag", V(s.x*0.50f,s.y*1.78f,-s.z*0.12f), V(s.x*0.24f,s.y*0.16f,0.08f), flag, 0.06f,0.34f);
                 break;
         }
         if (!TryApplyExternalBuildingVisual(visualRoot, col, t, player))
@@ -1645,6 +1938,13 @@ public class PrefabBuilder
                 // 油桶
                 ok |= AddImportedModel(root, KenneySurvivalFbxPath + "barrel.fbx", "WW2FactoryBarrel", V(0.50f,0f,1.05f), V(0f,0f,0f), V3(0.55f), WW2_METAL, true) != null;
                 break;
+            case BldType.ArmorFactory:
+                ok |= AddImportedModel(root, KenneyModBldFbxPath + "building-sample-house-b.fbx", "WW2ArmorFactoryBldg", V(0f,0f,0f), V(0f,180f,0f), V3(0.95f), tint, true) != null;
+                ok |= AddImportedModel(root, KenneySpaceFbxPath + "rover.fbx", "WW2ArmorFactoryLightTank", V(1.02f,0.05f,-0.42f), V(0f,132f,0f), V3(0.38f), tint, true) != null;
+                ok |= AddImportedModel(root, KenneySpaceFbxPath + "rover.fbx", "WW2ArmorFactoryHeavyTank", V(0.26f,0.05f,0.92f), V(0f,-24f,0f), V3(0.48f), Dk(tint, 0.88f), true) != null;
+                ok |= AddImportedModel(root, KenneySurvivalFbxPath + "box-large.fbx", "WW2ArmorFactoryCrate", V(-1.08f,0f,0.82f), V(0f,15f,0f), V3(0.82f), WW2_WOOD, true) != null;
+                ok |= AddImportedModel(root, KenneySurvivalFbxPath + "barrel.fbx", "WW2ArmorFactoryBarrel", V(0.72f,0f,1.08f), V(0f,0f,0f), V3(0.55f), WW2_METAL, true) != null;
+                break;
             case BldType.PowerPlant:
                 // Industrial power plant: shed, stacks, tanks, pipes, and sandbags.
                 ok |= AddImportedModel(root, DownloadCityIndustrialFbxPath + "building-c.fbx", "WW2PowerPlantShed", V(-0.10f,0f,-0.05f), V(0f,180f,0f), V3(0.72f), tint, true) != null;
@@ -1684,6 +1984,15 @@ public class PrefabBuilder
                 ok |= AddImportedModel(root, KenneySurvivalFbxPath + "fence-fortified.fbx", "WW2TurretSandbagN", V(0f,0f,0.95f), V(0f,0f,0f), V3(0.75f), WW2_WOOD, true) != null;
                 ok |= AddImportedModel(root, KenneySurvivalFbxPath + "fence-fortified.fbx", "WW2TurretSandbagS", V(0f,0f,-0.95f), V(0f,180f,0f), V3(0.75f), WW2_WOOD, true) != null;
                 break;
+            case BldType.NavalYard:
+                ok |= AddImportedModel(root, KenneyWatercraftFbxPath + "ramp-wide.fbx", "WW2NavalYardRamp", V(0f,0f,0.78f), V(0f,180f,0f), V3(1.20f), WW2_WOOD, true) != null;
+                ok |= AddImportedModel(root, KenneyWatercraftFbxPath + "gate.fbx", "WW2NavalYardCraneGate", V(0f,0f,-0.45f), V(0f,180f,0f), V3(1.05f), tint, true) != null;
+                ok |= AddImportedModel(root, KenneyWatercraftFbxPath + "cargo-container-a.fbx", "WW2NavalYardCargoA", V(-1.28f,0f,-0.65f), V(0f,90f,0f), V3(0.54f), player ? P_CYAN : E_RED, true) != null;
+                ok |= AddImportedModel(root, KenneyWatercraftFbxPath + "cargo-container-b.fbx", "WW2NavalYardCargoB", V(1.20f,0f,-0.58f), V(0f,90f,0f), V3(0.50f), WW2_WOOD, true) != null;
+                ok |= AddImportedModel(root, KenneyWatercraftFbxPath + "cargo-pile-a.fbx", "WW2NavalYardSupplies", V(0.90f,0f,0.68f), V(0f,-20f,0f), V3(0.58f), WW2_WOOD, true) != null;
+                ok |= AddImportedModel(root, KenneyWatercraftFbxPath + "buoy-flag.fbx", "WW2NavalYardBuoyFlag", V(-1.35f,0f,0.76f), V(0f,0f,0f), V3(0.62f), player ? P_CYAN : E_RED, true) != null;
+                ok |= AddImportedModel(root, KenneyWatercraftFbxPath + "boat-speed-a.fbx", "WW2NavalYardBoatPreview", V(0f,0f,1.45f), V(0f,0f,0f), V3(0.45f), tint, true) != null;
+                break;
         }
 
         if (!ok) return false;
@@ -1704,12 +2013,27 @@ public class PrefabBuilder
         cc.height = s.y; cc.radius = Mathf.Max(s.x,s.z)*0.5f;
         var unit = root.AddComponent<T>();
         unit.bPlayerOwned = player;
+        ApplyAircraftFuelProfile(unit, type);
         ApplyProjectileProfile(unit, type);
         var anim = root.AddComponent<UnitVisualAnimator>();
         anim.VisualRoot = root.transform.Find("Model");
         anim.Style = UnitVisualStyle(type);
         anim.BobAmplitude = (type == UnitType.Infantry || type == UnitType.Artillery) ? 0.06f : 0.035f;
         root.layer = LayerMask.NameToLayer("Default");
+    }
+
+    static void ApplyAircraftFuelProfile(RTSUnit unit, UnitType type)
+    {
+        var air = unit as AirUnit;
+        if (air == null) return;
+
+        switch (type)
+        {
+            case UnitType.Bomber:
+                air.MaxFuelSeconds = Bomber.BattleFuelSeconds;
+                air.RefuelSeconds = Bomber.RefuelDurationSeconds;
+                break;
+        }
     }
 
     static void ApplyProjectileProfile(RTSUnit unit, UnitType type)
@@ -1721,6 +2045,12 @@ public class PrefabBuilder
                 unit.ProjectileSpeed = 30f; unit.ProjectileArcHeight = 0f; unit.ProjectileImpactRadius = 1.05f;
                 unit.ProjectileTint = new Color(1f, 0.34f, 0.08f, 1f);
                 unit.TracerDuration = 0.08f;
+                break;
+            case UnitType.AntiAirGun:
+                unit.ProjectilePrefabPath = "Prefabs/Projectiles/BattleProjectile_Bullet";
+                unit.ProjectileSpeed = 110f; unit.ProjectileArcHeight = 0f; unit.ProjectileImpactRadius = 0.52f;
+                unit.ProjectileTint = new Color(0.72f, 0.94f, 1f, 1f);
+                unit.TracerDuration = 0.05f;
                 break;
             case UnitType.Tank:
                 unit.ProjectilePrefabPath = "Prefabs/Projectiles/BattleProjectile_Shell";
@@ -1751,6 +2081,24 @@ public class PrefabBuilder
                 unit.ProjectileSpeed = 96f; unit.ProjectileArcHeight = 0f; unit.ProjectileImpactRadius = 0.42f;
                 unit.ProjectileTint = new Color(0.9f, 0.96f, 1f, 1f);
                 unit.TracerDuration = 0.05f;
+                break;
+            case UnitType.PatrolBoat:
+                unit.ProjectilePrefabPath = "Prefabs/Projectiles/BattleProjectile_Bullet";
+                unit.ProjectileSpeed = 92f; unit.ProjectileArcHeight = 0f; unit.ProjectileImpactRadius = 0.42f;
+                unit.ProjectileTint = new Color(0.68f, 0.95f, 1f, 1f);
+                unit.TracerDuration = 0.04f;
+                break;
+            case UnitType.DestroyerShip:
+                unit.ProjectilePrefabPath = "Prefabs/Projectiles/BattleProjectile_Shell";
+                unit.ProjectileSpeed = 48f; unit.ProjectileArcHeight = 2.1f; unit.ProjectileImpactRadius = 1.2f;
+                unit.ProjectileTint = new Color(1f, 0.62f, 0.22f, 1f);
+                unit.TracerDuration = 0.065f;
+                break;
+            case UnitType.TransportShip:
+                unit.ProjectilePrefabPath = "Prefabs/Projectiles/BattleProjectile_Shell";
+                unit.ProjectileSpeed = 42f; unit.ProjectileArcHeight = 2.8f; unit.ProjectileImpactRadius = 1.55f;
+                unit.ProjectileTint = new Color(1f, 0.58f, 0.18f, 1f);
+                unit.TracerDuration = 0.075f;
                 break;
             default:
                 unit.ProjectilePrefabPath = "Prefabs/Projectiles/BattleProjectile_Bullet";

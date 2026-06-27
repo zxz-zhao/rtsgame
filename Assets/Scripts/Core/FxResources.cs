@@ -24,6 +24,9 @@ public static class FxResources
     static readonly Dictionary<string, GameObject> _objPrototypeCache = new Dictionary<string, GameObject>();
     static Shader _unlitTransparent;
 
+    /// <summary>
+    /// Resolves the best available unlit transparent shader used by runtime helper visuals.
+    /// </summary>
     static Shader GetUnlitTransparentShader()
     {
         if (_unlitTransparent == null)
@@ -36,6 +39,9 @@ public static class FxResources
         return _unlitTransparent;
     }
 
+    /// <summary>
+    /// Returns a cached disc texture for the requested style, generating it on first use.
+    /// </summary>
     public static Texture2D GetDiscTexture(DiscStyle style)
     {
         if (_discTexCache.TryGetValue(style, out var t) && t != null) return t;
@@ -61,6 +67,9 @@ public static class FxResources
         return tex;
     }
 
+    /// <summary>
+    /// Generates a soft-edged disc or ring alpha mask used by runtime helper quads.
+    /// </summary>
     static Texture2D BuildDiscMask(int size, float innerNorm, float outerNorm, float edgeFadeNorm)
     {
         var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
@@ -214,6 +223,9 @@ public static class FxResources
 /// <summary>让带此组件的物体在 LateUpdate 始终面朝主摄像机（Quad 法线 -Z 朝向相机）。</summary>
 internal class _FxBillboard : MonoBehaviour
 {
+    /// <summary>
+    /// Rotates the helper quad toward the main camera after all other transforms have settled for the frame.
+    /// </summary>
     void LateUpdate()
     {
         var cam = Camera.main;

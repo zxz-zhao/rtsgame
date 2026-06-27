@@ -213,17 +213,29 @@ public class GameNetworkSync : MonoBehaviour
     public void SendAttackMove(int netId, Vector3 dest)
         => SendCmd($"{{\"action\":\"amove\",\"id\":{netId},\"x\":{dest.x:F2},\"z\":{dest.z:F2}}}");
 
+    public void SendAttackGround(int netId, Vector3 point)
+        => SendCmd($"{{\"action\":\"aground\",\"id\":{netId},\"x\":{point.x:F2},\"z\":{point.z:F2}}}");
+
     public void SendPatrol(int netId, Vector3 a, Vector3 b)
         => SendCmd($"{{\"action\":\"patrol\",\"id\":{netId},\"ax\":{a.x:F2},\"az\":{a.z:F2},\"bx\":{b.x:F2},\"bz\":{b.z:F2}}}");
 
     public void SendGuard(int netId, int allyNetId)
         => SendCmd($"{{\"action\":\"guard\",\"id\":{netId},\"tid\":{allyNetId}}}");
 
-    public void SendPlace(string btype, Vector3 pos, int netId = 0)
-        => SendCmd($"{{\"action\":\"place\",\"btype\":\"{btype}\",\"x\":{pos.x:F2},\"z\":{pos.z:F2},\"nid\":{netId}}}");
+    public void SendBombingRun(int netId, Vector3 start, Vector3 end)
+        => SendCmd($"{{\"action\":\"bombrun\",\"id\":{netId},\"sx\":{start.x:F2},\"sz\":{start.z:F2},\"ex\":{end.x:F2},\"ez\":{end.z:F2}}}");
+
+    public void SendPlace(string btype, Vector3 pos, int netId = 0, float yaw = 0f)
+        => SendCmd($"{{\"action\":\"place\",\"btype\":\"{btype}\",\"x\":{pos.x:F2},\"z\":{pos.z:F2},\"yaw\":{yaw:F2},\"nid\":{netId}}}");
 
     public void SendProduce(int bldgNetId, int unitIdx)
         => SendCmd($"{{\"action\":\"produce\",\"bid\":{bldgNetId},\"uidx\":{unitIdx}}}");
+
+    public void SendBuildingUpgrade(int buildingNetId, int level)
+        => SendCmd($"{{\"action\":\"building_upgrade\",\"bid\":{buildingNetId},\"level\":{Mathf.Max(1, level)}}}");
+
+    public void SendBaseUpgrade(int buildingNetId, int level)
+        => SendBuildingUpgrade(buildingNetId, level);
 
     public void SendSpawn(int netId, string utype, Vector3 pos, bool isPlayerOwned)
         => SendCmd($"{{\"action\":\"spawn\",\"id\":{netId},\"utype\":\"{utype}\",\"x\":{pos.x:F2},\"z\":{pos.z:F2},\"own\":{(isPlayerOwned?1:0)}}}");
@@ -293,6 +305,13 @@ public class GameNetworkSync : MonoBehaviour
                 NetIdTracker.FindUnit(id)?.ApplyAttackMoveCommand(new Vector3(x, 0, z));
                 break;
             }
+            case "aground":
+            {
+                int id = ParseInt(data, "id");
+                float x = ParseFloat(data, "x"), z = ParseFloat(data, "z");
+                NetIdTracker.FindUnit(id)?.ApplyAttackGroundCommand(new Vector3(x, 0, z));
+                break;
+            }
             case "patrol":
             {
                 int id = ParseInt(data, "id");
@@ -310,12 +329,23 @@ public class GameNetworkSync : MonoBehaviour
                 if (u != null && ally != null) u.ApplyGuardCommand(ally);
                 break;
             }
+            case "bombrun":
+            {
+                int id = ParseInt(data, "id");
+                float sx = ParseFloat(data, "sx"), sz = ParseFloat(data, "sz");
+                float ex = ParseFloat(data, "ex"), ez = ParseFloat(data, "ez");
+                var bomber = NetIdTracker.FindUnit(id) as Bomber;
+                if (bomber != null)
+                    bomber.ApplyBombingRunCommand(new Vector3(sx, 0f, sz), new Vector3(ex, 0f, ez));
+                break;
+            }
             case "place":
             {
                 string btype = ExtractStr(data, "btype");
                 float x = ParseFloat(data, "x"), z = ParseFloat(data, "z");
+                float yaw = ParseFloat(data, "yaw");
                 int nid = ParseInt(data, "nid");
-                RemotePlaceBuilding(btype, new Vector3(x, 0, z), nid);
+                RemotePlaceBuilding(btype, new Vector3(x, 0, z), yaw, nid);
                 break;
             }
             case "produce":
@@ -323,6 +353,13 @@ public class GameNetworkSync : MonoBehaviour
                 int bid  = ParseInt(data, "bid");
                 int uidx = ParseInt(data, "uidx");
                 NetIdTracker.FindBuilding(bid)?.EnqueueUnit(uidx);
+                break;
+            }
+            case "building_upgrade":
+            {
+                int bid = ParseInt(data, "bid");
+                int level = ParseInt(data, "level");
+                NetIdTracker.FindBuilding(bid)?.ForceUpgradeToLevel(level);
                 break;
             }
             case "hp":
@@ -445,12 +482,12 @@ public class GameNetworkSync : MonoBehaviour
         Debug.Log($"[NetGame] 远程单位出生: {baseName}{suffix} netId={netId} own={locallyPlayerOwned}");
     }
 
-    void RemotePlaceBuilding(string btype, Vector3 pos, int netId)
+    void RemotePlaceBuilding(string btype, Vector3 pos, float yaw, int netId)
     {
         string prefabPath = $"Prefabs/{btype}_E"; // 敌方建筑 Prefab
         var prefab = Resources.Load<GameObject>(prefabPath);
         if (prefab == null) { Debug.LogWarning($"[NetGame] 找不到远程建筑Prefab: {prefabPath}"); return; }
-        var go = UnityEngine.Object.Instantiate(prefab, pos, Quaternion.identity);
+        var go = UnityEngine.Object.Instantiate(prefab, pos, Quaternion.Euler(0f, yaw, 0f));
         var b  = go.GetComponent<RTSBuilding>();
         if (b != null)
         {

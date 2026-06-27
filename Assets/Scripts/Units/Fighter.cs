@@ -1,10 +1,16 @@
 ﻿using UnityEngine;
+/// <summary>
+/// Fast interceptor-style aircraft that keeps full attack speed while strafing targets.
+/// </summary>
 public class Fighter : AirUnit
 {
     protected override float DesiredVisualHeight => 1.2f;
     protected override float DesiredVisualFootprint => 2.6f;
     protected override float AttackRunSpeedMultiplier => 1f;
 
+    /// <summary>
+    /// Applies the fighter's agile stat line before the shared aircraft startup runs.
+    /// </summary>
     protected override void Awake()
     {
         DisplayName = "战斗机";

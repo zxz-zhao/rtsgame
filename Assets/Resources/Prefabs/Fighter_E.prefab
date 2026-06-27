@@ -515,7 +515,7 @@ PrefabInstance:
     - target: {fileID: -7511558181221131132, guid: 175039d0e550625439d85f47be0b8d01, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: 2100000, guid: cc5480dd4ce229542950a5b2a6f725de, type: 2}
+      objectReference: {fileID: 2100000, guid: 4f7a154de04e46f88ced436fd6b4d80c, type: 2}
     - target: {fileID: 919132149155446097, guid: 175039d0e550625439d85f47be0b8d01, type: 3}
       propertyPath: m_Name
       value: KenneyNosePod
@@ -749,19 +749,19 @@ PrefabInstance:
     - target: {fileID: -7511558181221131132, guid: 41c02e6da28b8184d94a6801e7873dc9, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: 2100000, guid: 097b3f71d50b62e489ad7bc3aec1e722, type: 2}
+      objectReference: {fileID: 2100000, guid: 1560458a611b42c9be9f9112848432b5, type: 2}
     - target: {fileID: -7511558181221131132, guid: 41c02e6da28b8184d94a6801e7873dc9, type: 3}
       propertyPath: m_Materials.Array.data[1]
       value: 
-      objectReference: {fileID: 2100000, guid: 5f3f9858b3de425478649252bece6048, type: 2}
+      objectReference: {fileID: 2100000, guid: 95696fd733634ea5bf4849b8b2ae63f7, type: 2}
     - target: {fileID: -7511558181221131132, guid: 41c02e6da28b8184d94a6801e7873dc9, type: 3}
       propertyPath: m_Materials.Array.data[2]
       value: 
-      objectReference: {fileID: 2100000, guid: a410df195758beb499aa1b82e49f7453, type: 2}
+      objectReference: {fileID: 2100000, guid: c41d5ceaf95f45d7b7600291ebf3df2b, type: 2}
     - target: {fileID: -7511558181221131132, guid: 41c02e6da28b8184d94a6801e7873dc9, type: 3}
       propertyPath: m_Materials.Array.data[3]
       value: 
-      objectReference: {fileID: 2100000, guid: aaddf1a2bbb930749b7570315e214b97, type: 2}
+      objectReference: {fileID: 2100000, guid: 4f7a154de04e46f88ced436fd6b4d80c, type: 2}
     - target: {fileID: 919132149155446097, guid: 41c02e6da28b8184d94a6801e7873dc9, type: 3}
       propertyPath: m_Name
       value: KenneyAircraft

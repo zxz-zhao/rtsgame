@@ -1,0 +1,29 @@
+Button backdrop icons sourced from Game-icons.net (https://game-icons.net).
+License: Creative Commons Attribution 3.0 Unported (CC BY 3.0).
+Game-icons GitHub: https://github.com/game-icons/icons
+
+Generated PNG backdrops combine the source icons with local UI panel styling.
+
+build_barracks: barracks by delapouite, https://game-icons.net/1x1/delapouite/barracks.html
+build_air_factory: factory-arm by delapouite, https://game-icons.net/1x1/delapouite/factory-arm.html
+build_airfield: radar-cross-section by delapouite, https://game-icons.net/1x1/delapouite/radar-cross-section.html
+build_special_factory: factory by delapouite, https://game-icons.net/1x1/delapouite/factory.html
+build_tank_factory: factory by delapouite, https://game-icons.net/1x1/delapouite/factory.html
+build_turret: tesla-turret by lorc, https://game-icons.net/1x1/lorc/tesla-turret.html
+build_gold_mine: gold-mine by delapouite, https://game-icons.net/1x1/delapouite/gold-mine.html
+build_power_plant: power-generator by delapouite, https://game-icons.net/1x1/delapouite/power-generator.html
+build_naval_yard: harbor-dock by delapouite, https://game-icons.net/1x1/delapouite/harbor-dock.html
+action_upgrade: upgrade by delapouite, https://game-icons.net/1x1/delapouite/upgrade.html
+prod_infantry: rifle by sbed, https://game-icons.net/1x1/sbed/rifle.html
+prod_infantry_artillery: mortar by delapouite, https://game-icons.net/1x1/delapouite/mortar.html
+prod_infantry_flamethrower: flamethrower-soldier by delapouite, https://game-icons.net/1x1/delapouite/flamethrower-soldier.html
+prod_tank: battle-tank by lorc, https://game-icons.net/1x1/lorc/battle-tank.html
+prod_artillery: cannon by lorc, https://game-icons.net/1x1/lorc/cannon.html
+prod_anti_air: turret by sbed, https://game-icons.net/1x1/sbed/turret.html
+prod_flamethrower: flamethrower by delapouite, https://game-icons.net/1x1/delapouite/flamethrower.html
+prod_fighter: jet-fighter by delapouite, https://game-icons.net/1x1/delapouite/jet-fighter.html
+prod_bomber: bomber by lord-berandas, https://game-icons.net/1x1/lord-berandas/bomber.html
+prod_scout_plane: helicopter by delapouite, https://game-icons.net/1x1/delapouite/helicopter.html
+prod_patrol_boat: speed-boat by delapouite, https://game-icons.net/1x1/delapouite/speed-boat.html
+prod_destroyer_ship: battleship by cathelineau, https://game-icons.net/1x1/cathelineau/battleship.html
+prod_battleship: iron-hulled-warship by cathelineau, https://game-icons.net/1x1/cathelineau/iron-hulled-warship.html

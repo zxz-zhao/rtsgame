@@ -66,8 +66,22 @@ public class LobbyManager : MonoBehaviour
     public Button NavCampaignBtn;
     public Button NavRankBtn;
     public Button NavMailBtn;
+    [Header("Runtime Button Sprites")]
+    public Sprite RuntimeButtonPrimarySprite;
+    public Sprite RuntimeButtonSecondarySprite;
+    public Sprite RuntimeButtonNeutralSprite;
+    public Sprite RuntimeButtonDangerSprite;
+    public Sprite CampaignMatchRouteSprite;
+    public Sprite CampaignCustomRouteSprite;
+    public Sprite CampaignGlobalRouteSprite;
+    [System.NonSerialized] public GameObject ShopPanel;
+    [System.NonSerialized] public Button ShopBackBtn;
     public GameObject WarehousePanel;
     public Button WarehouseBackBtn;
+    [System.NonSerialized] public GameObject CampaignPanel;
+    [System.NonSerialized] public Button CampaignBackBtn;
+    [System.NonSerialized] public GameObject RankPanel;
+    [System.NonSerialized] public Button RankBackBtn;
 
     [Header("科技面板（模态）")]
     public GameObject TechPanel;
@@ -161,6 +175,12 @@ public class LobbyManager : MonoBehaviour
     string[] _friendMetas;
     string[] _friendStatuses;
     int[] _friendLevels;
+    RawImage _sceneRankBadgeRawImage;
+    Image _sceneRankBadgeImage;
+    Text _sceneCommanderNameText;
+    Text _sceneCommanderLevelText;
+    Text _sceneRankBadgeNameText;
+    readonly Dictionary<string, Sprite> _runtimeRankBadgeSprites = new Dictionary<string, Sprite>(12);
     Button _returnBattleButton;
     GameObject _friendView;
     RectTransform _friendViewViewport;
@@ -168,9 +188,14 @@ public class LobbyManager : MonoBehaviour
     ScrollRect _friendViewScrollRect;
     Scrollbar _friendViewScrollbar;
     readonly List<GameObject> _friendViewRows = new List<GameObject>();
-    const float FriendViewRowHeight = 80f;
-    const float FriendViewRowSpacing = 8f;
-    const float FriendViewRowPadding = 6f;
+    const float FriendViewRowHeight = 64f;
+    const float FriendViewRowSpacing = 7f;
+    const float FriendViewRowPadding = 4f;
+    static readonly Vector2 LobbyLayoutReferenceResolution = new Vector2(1280f, 720f);
+    int _lastLayoutScreenWidth = -1;
+    int _lastLayoutScreenHeight = -1;
+    Rect _lastLayoutSafeArea = new Rect(-1f, -1f, -1f, -1f);
+    static readonly Dictionary<string, Sprite> RuntimeResourceSpriteCache = new Dictionary<string, Sprite>(64);
     static readonly (string name, string rank, string status, int level)[] FriendListTestData =
     {
         ("IronWolf", "黄金指挥官", "在线", 18),
@@ -182,6 +207,20 @@ public class LobbyManager : MonoBehaviour
         ("TigerAce", "王牌车长", "离线", 24),
         ("SnowBear", "防线军士", "在线", 11),
     };
+    static readonly (string resource, string displayName, int minLevel, string[] tokens)[] RankBadgeCatalog =
+    {
+        ("rank_badge_10_marksman_rifle", "神射军徽", 50, new[] { "最强", "王者", "王牌", "神射" }),
+        ("rank_badge_05_marshal_eagle", "鹰徽元帅", 35, new[] { "元帅" }),
+        ("rank_badge_09_heavy_mg", "重机枪军徽", 30, new[] { "钻石" }),
+        ("rank_badge_08_crossed_pistols", "双枪军徽", 25, new[] { "上校" }),
+        ("rank_badge_07_crossed_smg", "冲锋军徽", 20, new[] { "黄金" }),
+        ("rank_badge_06_crossed_rifles", "步枪军徽", 15, new[] { "白银" }),
+        ("rank_badge_04_major_crossed_sabers", "少校军徽", 10, new[] { "少校" }),
+        ("rank_badge_03_gold_wing_star", "金翼星徽", 8, new[] { "中尉", "尉" }),
+        ("rank_badge_02_silver_double_star", "银星军徽", 4, new[] { "下士", "中士", "士官" }),
+        ("rank_badge_01_bronze_shield", "青铜盾徽", 1, new[] { "列兵", "新兵", "青铜" }),
+    };
+    const float TwoPi = 6.283185307179586f;
 
     /// <summary>从 Resources/LobbyGen 取精灵（与 LobbySceneBuilder 生成的 PNG 同名）。如果场景里误绑了其他贴图，这里会统一纠正。</summary>
     static class LobbyGenRes
@@ -191,6 +230,10 @@ public class LobbyManager : MonoBehaviour
         public static Sprite Get(string baseName)
         {
             if (string.IsNullOrEmpty(baseName)) return null;
+            baseName = baseName.Trim().Replace('\\', '/');
+            if (baseName.StartsWith("LobbyGen/", StringComparison.OrdinalIgnoreCase))
+                baseName = baseName.Substring("LobbyGen/".Length);
+
             if (Cache.TryGetValue(baseName, out var cached) && cached != null) return cached;
 
             string path = "LobbyGen/" + baseName;
@@ -254,6 +297,40 @@ public class LobbyManager : MonoBehaviour
         }
     }
 
+    static class GeneratedButtonRes
+    {
+        static readonly Dictionary<string, Sprite> Cache = new Dictionary<string, Sprite>(8);
+
+        public static Sprite Get(string baseName, Vector4 border)
+        {
+            if (string.IsNullOrEmpty(baseName)) return null;
+            string key = baseName + "_" + border;
+            if (Cache.TryGetValue(key, out var cached) && cached != null) return cached;
+
+            string path = "UI/GeneratedButtons/" + baseName;
+            Sprite sprite = Resources.Load<Sprite>(path);
+            if (sprite == null)
+            {
+                var tex = Resources.Load<Texture2D>(path);
+                if (tex != null)
+                {
+                    sprite = Sprite.Create(
+                        tex,
+                        new Rect(0f, 0f, tex.width, tex.height),
+                        new Vector2(0.5f, 0.5f),
+                        100f,
+                        0,
+                        SpriteMeshType.FullRect,
+                        border);
+                    sprite.name = baseName;
+                }
+            }
+
+            if (sprite != null) Cache[key] = sprite;
+            return sprite;
+        }
+    }
+
     static readonly string[] LobbyBackgroundResourceCandidates = new[]
     {
         "LobbyGen/user_lobby_background",
@@ -267,6 +344,54 @@ public class LobbyManager : MonoBehaviour
         foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
             if (t.name == name) return t;
         return null;
+    }
+
+    static Transform FindFirstNamedChild(Transform root, params string[] names)
+    {
+        if (root == null || names == null) return null;
+        for (int i = 0; i < names.Length; i++)
+        {
+            var child = FindDeepChild(root, names[i]);
+            if (child != null) return child;
+        }
+        return null;
+    }
+
+    static bool HasSceneAuthoredTaskPanel(Transform root)
+    {
+        var taskPanel = FindDeepChild(root, "renwu");
+        if (taskPanel == null) return false;
+
+        return FindDeepChild(taskPanel, "TaskSlotPanel0") is RectTransform
+            && FindDeepChild(taskPanel, "TaskSlotPanel1") is RectTransform
+            && FindDeepChild(taskPanel, "TaskSlotPanel2") is RectTransform;
+    }
+
+    static bool HasSceneAuthoredTechPanel(Transform root)
+    {
+        var techPanel = FindDeepChild(root, "keji");
+        if (techPanel == null) return false;
+
+        return FindDeepChild(techPanel, "TechSlotPanel0") is RectTransform
+            || FindDeepChild(techPanel, "TechResearchName") is RectTransform
+            || FindDeepChild(techPanel, "TechProgressSlider") is RectTransform;
+    }
+
+    static bool HasSceneAuthoredMainLobbyLayout(Transform root)
+    {
+        if (root == null) return false;
+
+        bool hasModeButtons =
+            FindDeepChild(root, "QuickMatchButton")?.GetComponent<Button>() != null
+            && FindDeepChild(root, "CustomRoomButton")?.GetComponent<Button>() != null
+            && FindDeepChild(root, "GlobalConquestButton")?.GetComponent<Button>() != null;
+        if (hasModeButtons) return true;
+
+        bool hasModeCards =
+            FindDeepChild(root, "CardMatch") is RectTransform
+            && FindDeepChild(root, "CardCustom") is RectTransform
+            && FindDeepChild(root, "CardGlobal") is RectTransform;
+        return hasModeCards;
     }
 
     static void SetImageSpriteIfLoaded(Transform root, string nodeName, string lobbyGenBaseName)
@@ -623,6 +748,11 @@ public class LobbyManager : MonoBehaviour
         t.fontStyle = FontStyle.Bold;
         t.alignment = TextAnchor.MiddleCenter;
         t.color = color;
+        t.horizontalOverflow = HorizontalWrapMode.Wrap;
+        t.verticalOverflow = VerticalWrapMode.Truncate;
+        t.resizeTextForBestFit = true;
+        t.resizeTextMinSize = Mathf.Max(8, fontSize - 6);
+        t.resizeTextMaxSize = fontSize;
         var sh = go.AddComponent<Shadow>();
         sh.effectColor = new Color(0f, 0f, 0f, 0.6f);
         sh.effectDistance = new Vector2(2f, -2f);
@@ -722,39 +852,79 @@ public class LobbyManager : MonoBehaviour
         return label;
     }
 
-    static Button CreateRuntimeButton(Transform parent, string name, string text, Vector2 anchor, Vector2 size)
+    Button CreateRuntimeButton(Transform parent, string name, string text, Vector2 anchor, Vector2 size)
     {
-        var sprite = KenneyUiRes.Get("button_yellow_header") ?? LobbyGenRes.Get("gen_button_gold");
-        var img = CreateRuntimeImage(parent, name, sprite, anchor, size, Color.white, true);
+        EnsureRuntimeButtonSprites();
+        var sprite = RuntimeButtonNeutralSprite
+            ?? RuntimeButtonSecondarySprite;
+        var img = CreateRuntimeImage(parent, name, sprite, anchor, size, sprite != null ? Color.white : new Color(0f, 0f, 0f, 0.004f), false);
         var btn = img.gameObject.AddComponent<Button>();
-        var label = CreateRuntimeText(img.transform, "Text", text, new Vector2(0.5f, 0.5f), size, 18, new Color(0.08f, 0.12f, 0.13f, 1f));
+        var label = CreateRuntimeText(img.transform, "Text", text, new Vector2(0.5f, 0.5f), size, 18, new Color(0.96f, 0.92f, 0.74f, 1f));
         label.rectTransform.anchorMin = Vector2.zero;
         label.rectTransform.anchorMax = Vector2.one;
         label.rectTransform.offsetMin = label.rectTransform.offsetMax = Vector2.zero;
         return btn;
     }
 
-    static void ApplyRuntimeButtonSkin(Button button, string spriteName, Color tint, Color labelColor)
+    static bool HasSpriteBorder(Sprite sprite)
+    {
+        return sprite != null && sprite.border.sqrMagnitude > 0.01f;
+    }
+
+    Sprite ResolveRuntimeButtonSkinSprite(string spriteName)
+    {
+        EnsureRuntimeButtonSprites();
+        Sprite assignedSprite = null;
+        switch (spriteName)
+        {
+            case "button_yellow_header":
+                assignedSprite = RuntimeButtonPrimarySprite;
+                break;
+            case "button_blue_header":
+            case "button_neutral_depth":
+                assignedSprite = RuntimeButtonSecondarySprite;
+                break;
+            case "button_red_header":
+                assignedSprite = RuntimeButtonDangerSprite;
+                break;
+            default:
+                assignedSprite = RuntimeButtonNeutralSprite;
+                break;
+        }
+
+        if (assignedSprite != null) return assignedSprite;
+        var kenneySprite = KenneyUiRes.Get(spriteName, new Vector4(14f, 14f, 14f, 14f));
+        return kenneySprite
+            ?? RuntimeButtonNeutralSprite
+            ?? RuntimeButtonSecondarySprite
+            ?? RuntimeButtonPrimarySprite;
+    }
+
+    void ApplyRuntimeButtonSkin(Button button, string spriteName, Color tint, Color labelColor)
     {
         if (button == null) return;
 
         var image = button.GetComponent<Image>();
+        Sprite sprite = null;
         if (image != null)
         {
-            var sprite = KenneyUiRes.Get(spriteName);
+            sprite = ResolveRuntimeButtonSkinSprite(spriteName);
             if (sprite != null)
             {
                 image.sprite = sprite;
-                image.type = Image.Type.Sliced;
-                image.preserveAspect = false;
             }
-            image.color = tint;
+            image.type = HasSpriteBorder(image.sprite) ? Image.Type.Sliced : Image.Type.Simple;
+            image.preserveAspect = false;
+            image.color = image.sprite != null ? tint : new Color(tint.r, tint.g, tint.b, Mathf.Min(tint.a, 0.004f));
         }
 
         var label = button.GetComponentInChildren<Text>(true);
         if (label != null)
         {
-            label.color = labelColor;
+            if (sprite != null && sprite.name == "gen_button_dark")
+                label.color = new Color(0.96f, 0.92f, 0.74f, 1f);
+            else
+                label.color = labelColor;
             label.fontStyle = FontStyle.Bold;
         }
     }
@@ -840,7 +1010,7 @@ public class LobbyManager : MonoBehaviour
         float vibrato = 1f + Mathf.Sin(t * 18f) * 0.003f;
         float sawA = Saw(t * freq * vibrato);
         float sawB = Saw(t * freq * (1f + detune * 0.01f));
-        float square = Mathf.Sign(Mathf.Sin(2f * Mathf.PI * freq * 0.5f * t)) * 0.22f;
+        float square = Mathf.Sign(Mathf.Sin(TwoPi * freq * 0.5f * t)) * 0.22f;
         return (sawA * 0.55f + sawB * 0.35f + square) * env;
     }
 
@@ -850,7 +1020,7 @@ public class LobbyManager : MonoBehaviour
         if (local > 0.45f) return 0f;
         float freq = MidiToFreq(midi);
         float env = Mathf.Clamp01(local / 0.035f) * Mathf.Exp(-local * 4.4f);
-        return Mathf.Sin(2f * Mathf.PI * freq * t) * env;
+        return Mathf.Sin(TwoPi * freq * t) * env;
     }
 
     static float MarchKick(float phase, bool active)
@@ -858,7 +1028,7 @@ public class LobbyManager : MonoBehaviour
         if (!active || phase > 0.22f) return 0f;
         float env = Mathf.Exp(-phase * 18f);
         float freq = Mathf.Lerp(92f, 42f, Mathf.Clamp01(phase / 0.22f));
-        return Mathf.Sin(2f * Mathf.PI * freq * phase * 0.22f) * env;
+        return Mathf.Sin(TwoPi * freq * phase * 0.22f) * env;
     }
 
     static float MarchSnare(float phase, bool active, int sampleIndex)
@@ -1058,68 +1228,75 @@ public class LobbyManager : MonoBehaviour
         ConfigureOverlayText(FindDeepChild(root, "GemCountText")?.GetComponent<Text>(),
             new Vector2(0.350f, 1.110f), new Vector2(112f, 30f), 22, TextAnchor.MiddleCenter);
 
-        float[] taskY = { 0.700f, 0.460f, 0.220f };
-        float[] fullTaskY = { 0.682f, 0.575f, 0.468f };
-        for (int i = 0; i < taskY.Length; i++)
+        if (!HasSceneAuthoredTaskPanel(root))
         {
-            Transform row = FindDeepChild(root, "TaskRow" + i);
-            Transform scope = row != null ? row : root;
-            bool rowOnFullHall = row != null && row.parent != null
-                && (row.parent == root || row.parent.name == "HallPanel");
-            if (row != null)
+            float[] taskY = { 0.700f, 0.460f, 0.220f };
+            float[] fullTaskY = { 0.682f, 0.575f, 0.468f };
+            for (int i = 0; i < taskY.Length; i++)
             {
-                var rowRt = row as RectTransform;
-                if (rowRt != null)
+                Transform row = FindDeepChild(root, "TaskRow" + i);
+                Transform scope = row != null ? row : root;
+                bool rowOnFullHall = row != null && row.parent != null
+                    && (row.parent == root || row.parent.name == "HallPanel");
+                if (row != null)
                 {
-                    rowRt.anchorMin = rowRt.anchorMax = rowRt.pivot = rowOnFullHall
-                        ? new Vector2(0.852f, fullTaskY[i])
-                        : new Vector2(0.5f, taskY[i]);
-                    rowRt.anchoredPosition = Vector2.zero;
-                    rowRt.sizeDelta = rowOnFullHall ? new Vector2(250f, 52f) : new Vector2(230f, 62f);
+                    var rowRt = row as RectTransform;
+                    if (rowRt != null)
+                    {
+                        rowRt.anchorMin = rowRt.anchorMax = rowRt.pivot = rowOnFullHall
+                            ? new Vector2(0.852f, fullTaskY[i])
+                            : new Vector2(0.5f, taskY[i]);
+                        rowRt.anchoredPosition = Vector2.zero;
+                        rowRt.sizeDelta = rowOnFullHall ? new Vector2(250f, 52f) : new Vector2(230f, 62f);
+                    }
                 }
+
+                ConfigureOverlayText(FindDeepChild(scope, "TaskTitle" + i)?.GetComponent<Text>(),
+                    rowOnFullHall ? new Vector2(0.350f, 0.760f) : new Vector2(0.480f, 0.660f),
+                    rowOnFullHall ? new Vector2(116f, 18f) : new Vector2(100f, 18f), 12, TextAnchor.MiddleLeft);
+                ConfigureOverlayText(FindDeepChild(scope, "TaskProg" + i)?.GetComponent<Text>(),
+                    rowOnFullHall ? new Vector2(0.900f, 0.760f) : new Vector2(0.940f, 0.660f),
+                    new Vector2(42f, 18f), 12, TextAnchor.MiddleRight);
+                ConfigureOverlayRect(FindDeepChild(scope, "TaskSlider" + i) as RectTransform,
+                    rowOnFullHall ? new Vector2(0.420f, 0.250f) : new Vector2(0.500f, 0.330f),
+                    rowOnFullHall ? new Vector2(112f, 8f) : new Vector2(96f, 8f));
+                ConfigureOverlayRect(FindDeepChild(scope, "TaskClaim" + i) as RectTransform,
+                    rowOnFullHall ? new Vector2(0.960f, 0.120f) : new Vector2(0.940f, 0.120f),
+                    rowOnFullHall ? new Vector2(56f, 24f) : new Vector2(56f, 24f));
             }
 
-            ConfigureOverlayText(FindDeepChild(scope, "TaskTitle" + i)?.GetComponent<Text>(),
-                rowOnFullHall ? new Vector2(0.350f, 0.760f) : new Vector2(0.480f, 0.660f),
-                rowOnFullHall ? new Vector2(116f, 18f) : new Vector2(100f, 18f), 12, TextAnchor.MiddleLeft);
-            ConfigureOverlayText(FindDeepChild(scope, "TaskProg" + i)?.GetComponent<Text>(),
-                rowOnFullHall ? new Vector2(0.900f, 0.760f) : new Vector2(0.940f, 0.660f),
-                new Vector2(42f, 18f), 12, TextAnchor.MiddleRight);
-            ConfigureOverlayRect(FindDeepChild(scope, "TaskSlider" + i) as RectTransform,
-                rowOnFullHall ? new Vector2(0.420f, 0.250f) : new Vector2(0.500f, 0.330f),
-                rowOnFullHall ? new Vector2(112f, 8f) : new Vector2(96f, 8f));
-            ConfigureOverlayRect(FindDeepChild(scope, "TaskClaim" + i) as RectTransform,
-                rowOnFullHall ? new Vector2(0.960f, 0.120f) : new Vector2(0.940f, 0.120f),
-                rowOnFullHall ? new Vector2(56f, 24f) : new Vector2(56f, 24f));
+            RetuneRectWithFullHallFallback(root, "MoreTasksBtn",
+                new Vector2(0.500f, 0.070f), new Vector2(196f, 30f),
+                new Vector2(0.852f, 0.395f), new Vector2(180f, 34f));
         }
 
-        RetuneRectWithFullHallFallback(root, "MoreTasksBtn",
-            new Vector2(0.500f, 0.070f), new Vector2(196f, 30f),
-            new Vector2(0.852f, 0.395f), new Vector2(180f, 34f));
-        RetuneTextWithFullHallFallback(root, "TechResearchName",
-            new Vector2(0.595f, 0.700f), new Vector2(110f, 18f),
-            new Vector2(0.852f, 0.385f), new Vector2(150f, 22f), 13, TextAnchor.MiddleLeft);
-        RetuneTextWithFullHallFallback(root, "TechResearchDesc",
-            new Vector2(0.595f, 0.490f), new Vector2(112f, 18f),
-            new Vector2(0.852f, 0.358f), new Vector2(150f, 18f), 11, TextAnchor.MiddleLeft);
-        RetuneTextWithFullHallFallback(root, "TechTimerText",
-            new Vector2(0.485f, 0.200f), new Vector2(76f, 18f),
-            new Vector2(0.835f, 0.328f), new Vector2(82f, 18f), 12, TextAnchor.MiddleLeft);
-        RetuneTextWithFullHallFallback(root, "TechTimerBar",
-            new Vector2(0.485f, 0.200f), new Vector2(76f, 18f),
-            new Vector2(0.835f, 0.328f), new Vector2(82f, 18f), 12, TextAnchor.MiddleLeft);
-        RetuneRectWithFullHallFallback(root, "TechProgressSlider",
-            new Vector2(0.472f, 0.160f), new Vector2(76f, 8f),
-            new Vector2(0.846f, 0.300f), new Vector2(112f, 6f));
-        RetuneRectWithFullHallFallback(root, "TechSpeedBtn",
-            new Vector2(0.800f, 0.380f), new Vector2(56f, 28f),
-            new Vector2(0.895f, 0.292f), new Vector2(60f, 30f));
-        RetuneRectWithFullHallFallback(root, "TechStartBtn",
-            new Vector2(0.800f, 0.380f), new Vector2(56f, 28f),
-            new Vector2(0.958f, 0.292f), new Vector2(60f, 30f));
-        RetuneRectWithFullHallFallback(root, "TechTreeBtn",
-            new Vector2(0.500f, 0.080f), new Vector2(196f, 30f),
-            new Vector2(0.860f, 0.488f), new Vector2(210f, 44f));
+        if (!HasSceneAuthoredTechPanel(root))
+        {
+            RetuneTextWithFullHallFallback(root, "TechResearchName",
+                new Vector2(0.595f, 0.700f), new Vector2(110f, 18f),
+                new Vector2(0.852f, 0.385f), new Vector2(150f, 22f), 13, TextAnchor.MiddleLeft);
+            RetuneTextWithFullHallFallback(root, "TechResearchDesc",
+                new Vector2(0.595f, 0.490f), new Vector2(112f, 18f),
+                new Vector2(0.852f, 0.358f), new Vector2(150f, 18f), 11, TextAnchor.MiddleLeft);
+            RetuneTextWithFullHallFallback(root, "TechTimerText",
+                new Vector2(0.485f, 0.200f), new Vector2(76f, 18f),
+                new Vector2(0.835f, 0.328f), new Vector2(82f, 18f), 12, TextAnchor.MiddleLeft);
+            RetuneTextWithFullHallFallback(root, "TechTimerBar",
+                new Vector2(0.485f, 0.200f), new Vector2(76f, 18f),
+                new Vector2(0.835f, 0.328f), new Vector2(82f, 18f), 12, TextAnchor.MiddleLeft);
+            RetuneRectWithFullHallFallback(root, "TechProgressSlider",
+                new Vector2(0.472f, 0.160f), new Vector2(76f, 8f),
+                new Vector2(0.846f, 0.300f), new Vector2(112f, 6f));
+            RetuneRectWithFullHallFallback(root, "TechSpeedBtn",
+                new Vector2(0.800f, 0.380f), new Vector2(56f, 28f),
+                new Vector2(0.895f, 0.292f), new Vector2(60f, 30f));
+            RetuneRectWithFullHallFallback(root, "TechStartBtn",
+                new Vector2(0.800f, 0.380f), new Vector2(56f, 28f),
+                new Vector2(0.958f, 0.292f), new Vector2(60f, 30f));
+            RetuneRectWithFullHallFallback(root, "TechTreeBtn",
+                new Vector2(0.500f, 0.080f), new Vector2(196f, 30f),
+                new Vector2(0.860f, 0.488f), new Vector2(210f, 44f));
+        }
     }
 
     void EnsureCommanderProfileChrome(Transform root)
@@ -1211,11 +1388,12 @@ public class LobbyManager : MonoBehaviour
             {
                 rowRt.anchorMin = rowRt.anchorMax = rowRt.pivot = new Vector2(0.125f, 0.700f - i * 0.104f);
                 rowRt.anchoredPosition = Vector2.zero;
-                rowRt.sizeDelta = new Vector2(226f, 68f);
+                rowRt.sizeDelta = new Vector2(190f, 64f);
             }
 
             var rowImage = _friendRows[i].GetComponent<Image>();
-            var rowSprite = KenneyUiRes.Get("button_neutral_depth", new Vector4(16f, 16f, 16f, 16f)) ?? LobbyGenRes.Get("gen_friend_row");
+            var rowSprite = LobbyGenRes.Get("gen_friend_row")
+                ?? KenneyUiRes.Get("button_neutral_depth", new Vector4(16f, 16f, 16f, 16f));
             if (rowImage != null && rowSprite != null)
             {
                 rowImage.sprite = rowSprite;
@@ -1239,11 +1417,11 @@ public class LobbyManager : MonoBehaviour
             if (_friendLevelTexts?[i] != null)
                 ConfigureOverlayText(_friendLevelTexts[i], new Vector2(0f, 0.5f), new Vector2(44f, 16f), 11, TextAnchor.MiddleCenter);
             if (_friendNameTexts?[i] != null)
-                ConfigureOverlayText(_friendNameTexts[i], new Vector2(0f, 1f), new Vector2(106f, 22f), 15, TextAnchor.MiddleLeft);
+                ConfigureOverlayText(_friendNameTexts[i], new Vector2(0f, 1f), new Vector2(96f, 22f), 15, TextAnchor.MiddleLeft);
             if (_friendMetaTexts?[i] != null)
-                ConfigureOverlayText(_friendMetaTexts[i], new Vector2(0f, 0f), new Vector2(90f, 18f), 11, TextAnchor.MiddleLeft);
+                ConfigureOverlayText(_friendMetaTexts[i], new Vector2(0f, 0f), new Vector2(84f, 18f), 11, TextAnchor.MiddleLeft);
             if (_friendStatusTexts?[i] != null)
-                ConfigureOverlayText(_friendStatusTexts[i], new Vector2(1f, 0.5f), new Vector2(78f, 18f), 11, TextAnchor.MiddleRight);
+                ConfigureOverlayText(_friendStatusTexts[i], new Vector2(1f, 0.5f), new Vector2(58f, 18f), 11, TextAnchor.MiddleRight);
 
             if (_friendNameTexts?[i] != null)
             {
@@ -1425,6 +1603,8 @@ public class LobbyManager : MonoBehaviour
         if (MatchStatusText == null)
             MatchStatusText = FindDeepChild(root, "MatchStatusText")?.GetComponent<Text>();
 
+        BindExistingCommanderBadgeNodes(root);
+
         if (QuickMatchButton == null)
             QuickMatchButton = FindDeepChild(root, "QuickMatchButton")?.GetComponent<Button>();
         if (CustomRoomButton == null)
@@ -1445,12 +1625,198 @@ public class LobbyManager : MonoBehaviour
         BindExistingRoomNodes(root);
     }
 
+    void BindExistingCommanderBadgeNodes(Transform root)
+    {
+        if (root == null) return;
+
+        _sceneCommanderLevelText = FindDeepChild(root, "dengji")?.GetComponent<Text>();
+
+        var plinth = FindDeepChild(root, "LobbyModelPreviewPlinth");
+        if (plinth != null)
+        {
+            _sceneCommanderNameText =
+                FindDeepChild(plinth, "name")?.GetComponent<Text>()
+                ?? plinth.GetComponentInChildren<Text>(true);
+        }
+
+        var glow = FindDeepChild(root, "LobbyModelPreviewGlow");
+        if (glow != null)
+            _sceneRankBadgeNameText = glow.GetComponentInChildren<Text>(true);
+
+        var preview = FindDeepChild(root, "LobbyModelPreview");
+        if (preview == null) return;
+
+        var oldModelPreview = preview.GetComponent<LobbyModelPreview>();
+        if (oldModelPreview != null && oldModelPreview.enabled)
+            oldModelPreview.enabled = false;
+
+        _sceneRankBadgeRawImage = preview.GetComponent<RawImage>();
+        _sceneRankBadgeImage = preview.GetComponent<Image>();
+
+        if (_sceneRankBadgeRawImage != null)
+        {
+            _sceneRankBadgeRawImage.color = Color.white;
+            _sceneRankBadgeRawImage.raycastTarget = false;
+            _sceneRankBadgeRawImage.uvRect = new Rect(0f, 0f, 1f, 1f);
+        }
+
+        if (_sceneRankBadgeImage != null)
+        {
+            _sceneRankBadgeImage.color = Color.white;
+            _sceneRankBadgeImage.raycastTarget = false;
+            _sceneRankBadgeImage.preserveAspect = true;
+        }
+    }
+
+    void ApplySceneCommanderBadgeData(string commanderName, int level, string rankTitle)
+    {
+        if (_sceneRankBadgeRawImage == null && _sceneRankBadgeImage == null)
+        {
+            var root = HallPanel != null ? HallPanel.transform : GameObject.Find("LobbyCanvas")?.transform;
+            BindExistingCommanderBadgeNodes(root);
+        }
+
+        level = Mathf.Max(1, level);
+        commanderName = string.IsNullOrWhiteSpace(commanderName) ? "游客" : commanderName.Trim();
+
+        var badge = ResolveRankBadge(rankTitle, level);
+        string shownRankTitle = string.IsNullOrWhiteSpace(rankTitle) ? badge.displayName : rankTitle.Trim();
+
+        if (_sceneCommanderNameText != null)
+            _sceneCommanderNameText.text = commanderName;
+        if (_sceneCommanderLevelText != null)
+            _sceneCommanderLevelText.text = level.ToString();
+        if (_sceneRankBadgeNameText != null)
+            _sceneRankBadgeNameText.text = shownRankTitle;
+
+        var texture = LoadRankBadgeTexture(badge.resource);
+        if (texture == null)
+            return;
+
+        var oldModelPreview = _sceneRankBadgeRawImage != null
+            ? _sceneRankBadgeRawImage.GetComponent<LobbyModelPreview>()
+            : _sceneRankBadgeImage != null ? _sceneRankBadgeImage.GetComponent<LobbyModelPreview>() : null;
+        if (oldModelPreview != null && oldModelPreview.enabled)
+            oldModelPreview.enabled = false;
+
+        if (_sceneRankBadgeRawImage != null)
+        {
+            _sceneRankBadgeRawImage.texture = texture;
+            _sceneRankBadgeRawImage.color = Color.white;
+            _sceneRankBadgeRawImage.raycastTarget = false;
+            if (_sceneRankBadgeImage != null)
+                _sceneRankBadgeImage.enabled = false;
+            return;
+        }
+
+        if (_sceneRankBadgeImage != null)
+        {
+            _sceneRankBadgeImage.sprite = GetOrCreateRankBadgeSprite(badge.resource, texture);
+            _sceneRankBadgeImage.color = Color.white;
+            _sceneRankBadgeImage.preserveAspect = true;
+            _sceneRankBadgeImage.raycastTarget = false;
+        }
+    }
+
+    static (string resource, string displayName) ResolveRankBadge(string rankTitle, int level)
+    {
+        string text = rankTitle ?? "";
+        for (int i = 0; i < RankBadgeCatalog.Length; i++)
+        {
+            var entry = RankBadgeCatalog[i];
+            for (int j = 0; j < entry.tokens.Length; j++)
+            {
+                if (text.IndexOf(entry.tokens[j], StringComparison.OrdinalIgnoreCase) >= 0)
+                    return (entry.resource, entry.displayName);
+            }
+        }
+
+        int safeLevel = Mathf.Max(1, level);
+        for (int i = 0; i < RankBadgeCatalog.Length; i++)
+        {
+            var entry = RankBadgeCatalog[i];
+            if (safeLevel >= entry.minLevel)
+                return (entry.resource, entry.displayName);
+        }
+
+        var fallback = RankBadgeCatalog[RankBadgeCatalog.Length - 1];
+        return (fallback.resource, fallback.displayName);
+    }
+
+    static Texture2D LoadRankBadgeTexture(string resourceName)
+    {
+        if (string.IsNullOrEmpty(resourceName))
+            return null;
+
+        string path = "LobbyGen/WW2RankBadges/" + resourceName;
+        var texture = Resources.Load<Texture2D>(path);
+        if (texture != null)
+            return texture;
+
+        return Resources.Load<Texture2D>("LobbyGen/WW2RankBadges/rank_badge_01_bronze_shield");
+    }
+
+    Sprite GetOrCreateRankBadgeSprite(string resourceName, Texture2D texture)
+    {
+        if (string.IsNullOrEmpty(resourceName))
+            return null;
+
+        string path = "LobbyGen/WW2RankBadges/" + resourceName;
+        var importedSprite = Resources.Load<Sprite>(path);
+        if (importedSprite != null)
+            return importedSprite;
+        if (texture == null)
+            return null;
+
+        if (_runtimeRankBadgeSprites.TryGetValue(resourceName, out var cached) && cached != null)
+            return cached;
+
+        var sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
+        sprite.name = resourceName;
+        _runtimeRankBadgeSprites[resourceName] = sprite;
+        return sprite;
+    }
+
+    string GetCommanderDisplayName()
+    {
+        var net = NetworkClient.Instance;
+        string name = net != null && !string.IsNullOrEmpty(net.UserName)
+            ? net.UserName
+            : PlayerPrefs.GetString("current_user", "游客");
+        return string.IsNullOrWhiteSpace(name) ? "游客" : name.Trim();
+    }
+
+    int GetCommanderLevel()
+    {
+        var net = NetworkClient.Instance;
+        int level = net != null ? net.Level : PlayerPrefs.GetInt("net_level", 1);
+        return Mathf.Max(1, level);
+    }
+
+    string GetCommanderRankTitle(int level)
+    {
+        var net = NetworkClient.Instance;
+        string rank = net != null ? net.RankTitle : "";
+        if (string.IsNullOrWhiteSpace(rank))
+            rank = PlayerPrefs.GetString("net_rank_title", "");
+        if (string.IsNullOrWhiteSpace(rank))
+            rank = PlayerPrefs.GetString("player_rank_title", "");
+        if (!string.IsNullOrWhiteSpace(rank))
+            return rank.Trim();
+
+        return ResolveRankBadge("", level).displayName;
+    }
+
     void RetuneSceneTaskListLayout(Transform root)
     {
         if (root == null) return;
 
         var taskPanel = FindDeepChild(root, "renwu");
         if (taskPanel == null) return;
+
+        // 当前大厅的任务栏由场景手工摆放；运行时只绑定数据，不再覆盖 RectTransform。
+        if (HasSceneAuthoredTaskPanel(root))
+            return;
 
         var taskSlots = new[]
         {
@@ -1482,6 +1848,120 @@ public class LobbyManager : MonoBehaviour
         moreTasks.anchorMin = moreTasks.anchorMax = moreTasks.pivot = new Vector2(0.5f, buttonBand * 0.5f);
         moreTasks.anchoredPosition = Vector2.zero;
         moreTasks.sizeDelta = new Vector2(106f, 24f);
+    }
+
+    static bool ApproximatelyRect(Rect a, Rect b)
+    {
+        return Mathf.Abs(a.x - b.x) < 0.5f
+            && Mathf.Abs(a.y - b.y) < 0.5f
+            && Mathf.Abs(a.width - b.width) < 0.5f
+            && Mathf.Abs(a.height - b.height) < 0.5f;
+    }
+
+    static Rect GetScreenSafeAreaFallback()
+    {
+        try
+        {
+            var prop = typeof(Screen).GetProperty(
+                "safeArea",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (prop != null && prop.PropertyType == typeof(Rect))
+            {
+                object value = prop.GetValue(null, null);
+                if (value is Rect)
+                    return (Rect)value;
+            }
+        }
+        catch (Exception)
+        {
+            // Older Unity runtimes do not expose Screen.safeArea.
+        }
+
+        return new Rect(0f, 0f, Screen.width, Screen.height);
+    }
+
+    static void ApplyReferenceStageTransform(RectTransform rt, Vector2 anchoredPosition, float uniformScale)
+    {
+        if (rt == null) return;
+
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = LobbyLayoutReferenceResolution;
+        rt.anchoredPosition = anchoredPosition;
+        rt.localScale = new Vector3(uniformScale, uniformScale, 1f);
+    }
+
+    static void MoveCanvasChildIntoHall(Transform canvas, Transform hall, string childName)
+    {
+        if (canvas == null || hall == null || string.IsNullOrEmpty(childName)) return;
+
+        var child = canvas.Find(childName);
+        if (child == null || child == hall) return;
+        child.SetParent(hall, false);
+    }
+
+    void EnsureHandmadeHallHierarchy(Transform canvas, Transform hall)
+    {
+        if (EnableLegacyLobbyScaffolding) return;
+
+        MoveCanvasChildIntoHall(canvas, hall, "dengji");
+    }
+
+    void ApplyResponsiveHallLayout(bool force = false)
+    {
+        if (!EnableLegacyLobbyScaffolding && HasSceneAuthoredMainLobbyLayout(GetLobbyCanvasRoot()))
+            return;
+
+        RectTransform hallRect = HallPanel != null ? HallPanel.GetComponent<RectTransform>() : null;
+        if (hallRect == null) return;
+
+        Transform canvasTransform = hallRect.parent;
+
+        RectTransform canvasRect = null;
+        Canvas canvas = hallRect.root != null ? hallRect.root.GetComponent<Canvas>() : null;
+        if (canvas != null)
+            canvasRect = canvas.GetComponent<RectTransform>();
+        if (canvasRect == null)
+            canvasRect = hallRect.parent as RectTransform;
+        if (canvasRect == null) return;
+
+        Rect safeArea = GetScreenSafeAreaFallback();
+        if (safeArea.width <= 0f || safeArea.height <= 0f)
+            safeArea = new Rect(0f, 0f, Screen.width, Screen.height);
+
+        if (!force
+            && _lastLayoutScreenWidth == Screen.width
+            && _lastLayoutScreenHeight == Screen.height
+            && ApproximatelyRect(_lastLayoutSafeArea, safeArea))
+            return;
+
+        float scaleFactor = canvas != null ? Mathf.Max(0.0001f, canvas.scaleFactor) : 1f;
+        float usableWidth = safeArea.width / scaleFactor;
+        float usableHeight = safeArea.height / scaleFactor;
+        float uniformScale = Mathf.Min(
+            usableWidth / LobbyLayoutReferenceResolution.x,
+            usableHeight / LobbyLayoutReferenceResolution.y);
+        uniformScale = Mathf.Max(0.01f, uniformScale);
+
+        float safeCenterX = (safeArea.x + safeArea.width * 0.5f) / Mathf.Max(1f, Screen.width);
+        float safeCenterY = (safeArea.y + safeArea.height * 0.5f) / Mathf.Max(1f, Screen.height);
+        Vector2 anchoredPosition = new Vector2(
+            (safeCenterX - 0.5f) * canvasRect.rect.width,
+            (safeCenterY - 0.5f) * canvasRect.rect.height);
+
+        EnsureHandmadeHallHierarchy(canvasTransform, hallRect.transform);
+
+        if (!EnableLegacyLobbyScaffolding && canvasTransform != null)
+        {
+            ApplyReferenceStageTransform(canvasTransform.Find("Background") as RectTransform, anchoredPosition, uniformScale);
+            ApplyReferenceStageTransform(canvasTransform.Find("BackgroundOverlay") as RectTransform, anchoredPosition, uniformScale);
+        }
+        ApplyReferenceStageTransform(hallRect, anchoredPosition, uniformScale);
+
+        _lastLayoutScreenWidth = Screen.width;
+        _lastLayoutScreenHeight = Screen.height;
+        _lastLayoutSafeArea = safeArea;
     }
 
     void BindExistingTaskNodes(Transform root)
@@ -2027,7 +2507,8 @@ public class LobbyManager : MonoBehaviour
         slider.value = 0f;
         slider.interactable = false;
 
-        var bg = CreateRuntimeImage(go.transform, "Background", null, new Vector2(0.5f, 0.5f), size, new Color(0f, 0f, 0f, 0f));
+        var trackSprite = KenneyUiRes.Get("bar_blue_gloss") ?? LobbyGenRes.Get("gen_progress_track");
+        var bg = CreateRuntimeImage(go.transform, "Background", trackSprite, new Vector2(0.5f, 0.5f), size, Color.white, HasSpriteBorder(trackSprite));
         bg.rectTransform.anchorMin = Vector2.zero;
         bg.rectTransform.anchorMax = Vector2.one;
         bg.rectTransform.offsetMin = Vector2.zero;
@@ -2042,7 +2523,8 @@ public class LobbyManager : MonoBehaviour
         fa.offsetMin = Vector2.zero;
         fa.offsetMax = Vector2.zero;
 
-        var fill = CreateRuntimeImage(fillArea.transform, "Fill", null, new Vector2(0.5f, 0.5f), size, fillColor);
+        var fillSprite = KenneyUiRes.Get("bar_yellow_gloss") ?? LobbyGenRes.Get("gen_progress_fill");
+        var fill = CreateRuntimeImage(fillArea.transform, "Fill", fillSprite, new Vector2(0.5f, 0.5f), size, fillColor, HasSpriteBorder(fillSprite));
         fill.rectTransform.anchorMin = Vector2.zero;
         fill.rectTransform.anchorMax = Vector2.one;
         fill.rectTransform.offsetMin = Vector2.zero;
@@ -2051,55 +2533,797 @@ public class LobbyManager : MonoBehaviour
         slider.fillRect = fill.rectTransform;
     }
 
-    bool CreateRuntimeWarehousePanel()
+    Transform GetLobbyCanvasRoot()
     {
-        Transform canvas = HallPanel != null && HallPanel.transform.parent != null
+        return HallPanel != null && HallPanel.transform.parent != null
             ? HallPanel.transform.parent
             : GameObject.Find("LobbyCanvas")?.transform;
+    }
+
+    static Sprite GetBestLobbySprite(params string[] resourceNames)
+    {
+        if (resourceNames == null) return null;
+        for (int i = 0; i < resourceNames.Length; i++)
+        {
+            var sprite = LobbyGenRes.Get(resourceNames[i]);
+            if (sprite != null)
+                return sprite;
+        }
+        return null;
+    }
+
+    static Sprite GetRuntimeResourceSprite(string resourcePath, Vector4 border = default(Vector4))
+    {
+        if (string.IsNullOrEmpty(resourcePath)) return null;
+
+        string key = resourcePath + "_" + border;
+        if (RuntimeResourceSpriteCache.TryGetValue(key, out var cached) && cached != null)
+            return cached;
+
+        var importedSprite = Resources.Load<Sprite>(resourcePath);
+        if (importedSprite != null && border.sqrMagnitude <= 0.01f)
+        {
+            RuntimeResourceSpriteCache[key] = importedSprite;
+            return importedSprite;
+        }
+
+        var texture = Resources.Load<Texture2D>(resourcePath);
+        if (texture == null) return importedSprite;
+
+        var sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, texture.width, texture.height),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect,
+            border);
+        sprite.name = resourcePath.Replace('/', '_');
+        RuntimeResourceSpriteCache[key] = sprite;
+        return sprite;
+    }
+
+    void SetBottomNavSubPanelActive(GameObject activePanel)
+    {
+        SafeSetActive(ShopPanel, activePanel == ShopPanel);
+        SafeSetActive(WarehousePanel, activePanel == WarehousePanel);
+        SafeSetActive(CampaignPanel, activePanel == CampaignPanel);
+        SafeSetActive(RankPanel, activePanel == RankPanel);
+    }
+
+    bool CreateRuntimeFeaturePanelBase(
+        string panelName,
+        string headerSpriteName,
+        string title,
+        string subtitle,
+        Vector2 shellSize,
+        Color backdropTint,
+        out GameObject panel,
+        out Transform shell,
+        out Button backButton)
+    {
+        panel = null;
+        shell = null;
+        backButton = null;
+
+        Transform canvas = GetLobbyCanvasRoot();
         if (canvas == null) return false;
 
-        var panel = new GameObject("WarehousePanel");
+        panel = new GameObject(panelName);
         panel.transform.SetParent(canvas, false);
         var prt = panel.AddComponent<RectTransform>();
         prt.anchorMin = Vector2.zero;
         prt.anchorMax = Vector2.one;
         prt.offsetMin = new Vector2(0f, 60f);
         prt.offsetMax = new Vector2(0f, -88f);
+
         var bg = panel.AddComponent<Image>();
-        bg.sprite = LobbyGenRes.Get("ref_lobby_desk_no_bottom_map") ?? LobbyGenRes.Get("_ref_lobby_master");
-        bg.color = new Color(0.28f, 0.24f, 0.18f, 1f);
+        bg.sprite = GetBestLobbySprite("ref_lobby_desk_no_bottom_map", "_ref_lobby_master", "gen_bg_desk");
+        bg.color = backdropTint;
 
-        var shell = CreateRuntimeImage(panel.transform, "WarehouseShell", LobbyGenRes.Get("gen_panel_frame"),
-            new Vector2(0.5f, 0.52f), new Vector2(940f, 500f), Color.white, true).transform;
-        var hero = CreateRuntimeImage(shell, "WarehouseHeroPlate", LobbyGenRes.Get("gen_nav_wh_button"),
-            new Vector2(0.5f, 0.82f), new Vector2(760f, 126f), Color.white, true).transform;
-        CreateRuntimeImage(hero, "WarehouseHeroIcon", LobbyGenRes.Get("gen_nav_wh"),
-            new Vector2(0.27f, 0.52f), new Vector2(104f, 104f), Color.white);
-        CreateRuntimeText(hero, "WarehouseTitle", "仓库",
-            new Vector2(0.61f, 0.54f), new Vector2(280f, 86f), 50, new Color(1f, 0.84f, 0.46f, 1f));
-        CreateRuntimeText(shell, "WarehouseSubtitle", "物资补给 / 装备库存 / 战备箱",
-            new Vector2(0.5f, 0.64f), new Vector2(600f, 28f), 18, new Color(0.90f, 0.82f, 0.62f, 1f));
+        shell = CreateRuntimeImage(panel.transform, panelName + "Shell",
+            GetBestLobbySprite("gen_panel_frame", "gen_card_frame"),
+            new Vector2(0.5f, 0.52f), shellSize, Color.white, true).transform;
 
-        string[] names = { "装甲补给箱", "能源核心", "战车零件", "指挥芯片", "合金钢材", "加速模块" };
-        string[] iconNames = { "gen_nav_wh", "gen_icon_gem", "gen_icon_tank", "gen_icon_gear", "gen_icon_star", "gen_icon_custom" };
-        for (int i = 0; i < names.Length; i++)
+        var headerPlateSprite = GetBestLobbySprite("gen_friend_row", "gen_card_frame", "gen_task_card");
+        var header = CreateRuntimeImage(shell, panelName + "Header", headerPlateSprite,
+            new Vector2(0.5f, 0.85f), new Vector2(Mathf.Min(shellSize.x - 170f, 650f), 82f), Color.white, true);
+        header.raycastTarget = false;
+
+        var headerIconSprite = GetBestLobbySprite(headerSpriteName);
+        bool hasExactHeaderArt = headerIconSprite != null
+            && headerIconSprite.name.StartsWith("gen_exact_nav_", StringComparison.Ordinal);
+        if (headerIconSprite != null)
         {
-            int col = i % 3, row = i / 3;
-            var slot = CreateRuntimeImage(shell, "WarehouseSlot" + i, LobbyGenRes.Get("gen_friend_row"),
-                new Vector2(0.25f + col * 0.25f, 0.39f - row * 0.20f), new Vector2(210f, 84f), Color.white, true).transform;
-            CreateRuntimeImage(slot, "WarehouseSlotIcon" + i, LobbyGenRes.Get(iconNames[i]),
-                new Vector2(0.20f, 0.55f), new Vector2(48f, 48f), Color.white);
-            var item = CreateRuntimeText(slot, "WarehouseSlotName" + i, names[i],
-                new Vector2(0.62f, 0.63f), new Vector2(126f, 24f), 15, new Color(0.98f, 0.92f, 0.76f, 1f));
-            item.alignment = TextAnchor.MiddleLeft;
-            var count = CreateRuntimeText(slot, "WarehouseSlotCount" + i, "x" + (i * 7 + 12),
-                new Vector2(0.62f, 0.34f), new Vector2(126f, 20f), 13, new Color(0.52f, 0.92f, 0.58f, 1f));
-            count.alignment = TextAnchor.MiddleLeft;
+            var iconSize = hasExactHeaderArt
+                ? new Vector2(headerIconSprite.rect.width, headerIconSprite.rect.height)
+                : new Vector2(58f, 58f);
+            if (hasExactHeaderArt)
+            {
+                float scale = Mathf.Min(1f, Mathf.Min(270f / Mathf.Max(1f, iconSize.x), 74f / Mathf.Max(1f, iconSize.y)));
+                iconSize *= scale;
+            }
+            var icon = CreateRuntimeImage(header.transform, panelName + "HeaderIcon", headerIconSprite,
+                hasExactHeaderArt ? new Vector2(0.23f, 0.50f) : new Vector2(0.18f, 0.50f),
+                iconSize, Color.white, false);
+            icon.raycastTarget = false;
+            UseCenterPivot(icon);
         }
 
+        if (!hasExactHeaderArt)
+        {
+            var titleText = CreateRuntimeText(header.transform, panelName + "HeaderTitle", title,
+                new Vector2(0.48f, 0.62f), new Vector2(260f, 32f), 28, new Color(1f, 0.90f, 0.56f, 1f));
+            titleText.alignment = TextAnchor.MiddleLeft;
+            UseCenterPivot(titleText);
+        }
+
+        var headerSubText = CreateRuntimeText(header.transform, panelName + "HeaderSubText", subtitle,
+            hasExactHeaderArt ? new Vector2(0.68f, 0.50f) : new Vector2(0.50f, 0.30f),
+            hasExactHeaderArt ? new Vector2(300f, 24f) : new Vector2(360f, 20f),
+            14, new Color(0.91f, 0.84f, 0.66f, 1f));
+        headerSubText.alignment = TextAnchor.MiddleLeft;
+        UseCenterPivot(headerSubText);
+
+        if (!hasExactHeaderArt)
+        {
+            var section = CreateRuntimeText(shell, panelName + "SectionTitle", title + "指挥台",
+                new Vector2(0.18f, 0.92f), new Vector2(240f, 28f), 16, new Color(0.98f, 0.91f, 0.74f, 1f));
+            section.alignment = TextAnchor.MiddleLeft;
+            UseCenterPivot(section);
+        }
+
+        var dividerSprite = GetBestLobbySprite("gen_progress_fill") ?? KenneyUiRes.Get("bar_yellow_gloss");
+        var divider = CreateRuntimeImage(shell, panelName + "Divider", dividerSprite,
+            new Vector2(0.5f, 0.690f), new Vector2(shellSize.x - 300f, 6f), new Color(1f, 0.82f, 0.32f, 0.72f),
+            HasSpriteBorder(dividerSprite));
+        divider.raycastTarget = false;
+
+        backButton = CreateRuntimeButton(shell, panelName + "BackBtn", "返回大厅",
+            new Vector2(0.5f, 0.060f), new Vector2(220f, 40f));
+        ApplyRuntimeButtonSkin(backButton, "button_blue_header", Color.white, new Color(0.06f, 0.14f, 0.18f, 1f));
+        backButton.onClick.AddListener(ShowHall);
+        panel.SetActive(false);
+        return true;
+    }
+
+    Button CreateRuntimeInfoActionCard(
+        Transform parent,
+        string name,
+        Vector2 anchor,
+        Vector2 size,
+        Sprite icon,
+        string title,
+        string desc,
+        string footer,
+        string actionText,
+        bool primaryAction,
+        Action onClick)
+    {
+        var card = CreateRuntimeImage(parent, name,
+            GetBestLobbySprite("gen_task_card", "gen_friend_row", "gen_panel_frame"),
+            anchor, size, Color.white, true).transform;
+
+        if (icon != null)
+            CreateRuntimeImage(card, name + "Icon", icon,
+                new Vector2(0.13f, 0.56f), new Vector2(52f, 52f), Color.white);
+
+        var titleText = CreateRuntimeText(card, name + "Title", title,
+            new Vector2(0.43f, 0.67f), new Vector2(size.x * 0.44f, 24f), 18, new Color(0.98f, 0.92f, 0.76f, 1f));
+        titleText.alignment = TextAnchor.MiddleLeft;
+
+        var descText = CreateRuntimeText(card, name + "Desc", desc,
+            new Vector2(0.43f, 0.44f), new Vector2(size.x * 0.44f, 34f), 12, new Color(0.76f, 0.82f, 0.74f, 1f));
+        descText.alignment = TextAnchor.MiddleLeft;
+
+        var footerText = CreateRuntimeText(card, name + "Footer", footer,
+            new Vector2(0.43f, 0.20f), new Vector2(size.x * 0.44f, 20f), 13,
+            primaryAction ? new Color(1f, 0.84f, 0.34f, 1f) : new Color(0.62f, 0.90f, 1f, 1f));
+        footerText.alignment = TextAnchor.MiddleLeft;
+
+        var actionButton = CreateRuntimeButton(card, name + "Action", actionText,
+            new Vector2(0.84f, 0.50f), new Vector2(92f, 36f));
+        ApplyRuntimeButtonSkin(actionButton, primaryAction ? "button_yellow_header" : "button_blue_header",
+            Color.white, primaryAction ? new Color(0.10f, 0.11f, 0.07f, 1f) : new Color(0.06f, 0.14f, 0.18f, 1f));
+
+        var actionLabel = actionButton.GetComponentInChildren<Text>(true);
+        if (actionLabel != null)
+        {
+            actionLabel.resizeTextForBestFit = true;
+            actionLabel.resizeTextMinSize = 10;
+            actionLabel.resizeTextMaxSize = 16;
+        }
+
+        if (onClick != null)
+            actionButton.onClick.AddListener(() => onClick());
+        return actionButton;
+    }
+
+    Button CreateRuntimeShopOfferRow(
+        Transform parent,
+        string name,
+        Vector2 anchor,
+        Sprite rowSprite,
+        Sprite icon,
+        string title,
+        string desc,
+        string price,
+        string actionText,
+        bool primaryAction,
+        Action onClick)
+    {
+        var resolvedRowSprite = rowSprite ?? GetBestLobbySprite("gen_friend_row", "gen_task_card");
+        var rowImage = CreateRuntimeImage(parent, name,
+            resolvedRowSprite,
+            anchor, new Vector2(760f, 72f), Color.white, HasSpriteBorder(resolvedRowSprite));
+        rowImage.preserveAspect = false;
+        var row = rowImage.transform;
+
+        if (icon != null)
+        {
+            var iconImage = CreateRuntimeImage(row, name + "Icon", icon,
+                new Vector2(0.08f, 0.52f), new Vector2(38f, 38f), Color.white);
+            UseCenterPivot(iconImage);
+        }
+
+        var titleText = CreateRuntimeText(row, name + "Title", title,
+            new Vector2(0.27f, 0.72f), new Vector2(260f, 22f), 17, new Color(0.98f, 0.92f, 0.76f, 1f));
+        titleText.alignment = TextAnchor.MiddleLeft;
+        UseCenterPivot(titleText);
+
+        var descText = CreateRuntimeText(row, name + "Desc", desc,
+            new Vector2(0.35f, 0.28f), new Vector2(390f, 20f), 12, new Color(0.78f, 0.84f, 0.76f, 1f));
+        descText.alignment = TextAnchor.MiddleLeft;
+        UseCenterPivot(descText);
+
+        var priceText = CreateRuntimeText(row, name + "Price", price,
+            new Vector2(0.71f, 0.72f), new Vector2(142f, 24f), 14,
+            primaryAction ? new Color(1f, 0.84f, 0.34f, 1f) : new Color(0.62f, 0.90f, 1f, 1f));
+        priceText.alignment = TextAnchor.MiddleRight;
+        UseCenterPivot(priceText);
+
+        var actionButton = CreateRuntimeButton(row, name + "Action", actionText,
+            new Vector2(0.90f, 0.50f), new Vector2(104f, 30f));
+        UseCenterPivot(actionButton);
+        ApplyRuntimeButtonSkin(actionButton, primaryAction ? "button_yellow_header" : "button_blue_header",
+            Color.white, primaryAction ? new Color(0.10f, 0.11f, 0.07f, 1f) : new Color(0.06f, 0.14f, 0.18f, 1f));
+
+        var actionLabel = actionButton.GetComponentInChildren<Text>(true);
+        if (actionLabel != null)
+        {
+            actionLabel.fontSize = 15;
+            actionLabel.resizeTextMinSize = 10;
+            actionLabel.resizeTextMaxSize = 15;
+        }
+
+        if (onClick != null)
+            actionButton.onClick.AddListener(() => onClick());
+        return actionButton;
+    }
+
+    static void UseCenterPivot(Component component)
+    {
+        if (component == null) return;
+        var rt = component.GetComponent<RectTransform>();
+        if (rt == null) return;
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+    }
+
+    void CreateRuntimeRankRow(
+        Transform parent,
+        string name,
+        Vector2 anchor,
+        int place,
+        string commander,
+        string title,
+        int level,
+        int score,
+        int wins,
+        string badgeResource,
+        bool highlight)
+    {
+        var row = CreateRuntimeImage(parent, name,
+            GetBestLobbySprite("gen_friend_row", "gen_task_card", "gen_panel_frame"),
+            anchor, new Vector2(820f, 50f),
+            highlight ? new Color(1f, 0.98f, 0.90f, 1f) : Color.white, true).transform;
+
+        var placeText = CreateRuntimeText(row, name + "Place", "#" + place,
+            new Vector2(0.08f, 0.50f), new Vector2(82f, 28f), 18,
+            highlight ? new Color(1f, 0.82f, 0.38f, 1f) : new Color(0.93f, 0.91f, 0.82f, 1f));
+        placeText.alignment = TextAnchor.MiddleCenter;
+
+        string resolvedBadge = string.IsNullOrEmpty(badgeResource)
+            ? ResolveRankBadge(title, level).resource
+            : badgeResource;
+        var badgeTexture = LoadRankBadgeTexture(resolvedBadge);
+        var badgeSprite = GetOrCreateRankBadgeSprite(resolvedBadge, badgeTexture);
+        if (badgeSprite != null)
+            CreateRuntimeImage(row, name + "Badge", badgeSprite,
+                new Vector2(0.19f, 0.50f), new Vector2(38f, 38f), Color.white);
+
+        var nameText = CreateRuntimeText(row, name + "Commander", commander,
+            new Vector2(0.42f, 0.63f), new Vector2(280f, 22f), 16, new Color(0.97f, 0.92f, 0.76f, 1f));
+        nameText.alignment = TextAnchor.MiddleLeft;
+
+        var metaText = CreateRuntimeText(row, name + "Meta", title + "  Lv." + Mathf.Max(1, level),
+            new Vector2(0.42f, 0.34f), new Vector2(280f, 20f), 12, new Color(0.74f, 0.82f, 0.76f, 1f));
+        metaText.alignment = TextAnchor.MiddleLeft;
+
+        var scoreText = CreateRuntimeText(row, name + "Score", "功勋 " + score,
+            new Vector2(0.82f, 0.63f), new Vector2(152f, 20f), 13, new Color(1f, 0.84f, 0.36f, 1f));
+        scoreText.alignment = TextAnchor.MiddleRight;
+
+        var winsText = CreateRuntimeText(row, name + "Wins", "胜场 " + wins,
+            new Vector2(0.82f, 0.34f), new Vector2(152f, 18f), 12, new Color(0.72f, 0.90f, 1f, 1f));
+        winsText.alignment = TextAnchor.MiddleRight;
+    }
+
+    bool CreateRuntimeShopPanel()
+    {
+        if (!CreateRuntimeFeaturePanelBase(
+            "ShopPanel",
+            "gen_exact_nav_shop",
+            "商店",
+            "军需补给 / 稀有兑换 / 每日特供",
+            new Vector2(980f, 530f),
+            new Color(0.28f, 0.24f, 0.18f, 1f),
+            out var panel,
+            out var shell,
+            out var backButton))
+            return false;
+
+        ShopPanel = panel;
+        ShopBackBtn = backButton;
+
+        string goldNow = GoldText != null ? GoldText.text : "10,000";
+        string gemNow = GemText != null ? GemText.text : "888";
+
+        var stockCard = CreateRuntimeImage(shell, "ShopStockCard",
+            GetBestLobbySprite("gen_friend_row", "gen_task_card"),
+            new Vector2(0.5f, 0.625f), new Vector2(760f, 52f), Color.white, true).transform;
+        var stockTitle = CreateRuntimeText(stockCard, "ShopStockTitle", "当前军需储备",
+            new Vector2(0.16f, 0.50f), new Vector2(190f, 22f), 16, new Color(0.97f, 0.91f, 0.74f, 1f));
+        stockTitle.alignment = TextAnchor.MiddleLeft;
+        UseCenterPivot(stockTitle);
+        var stockGoldIcon = CreateRuntimeImage(stockCard, "ShopGoldIcon", GetBestLobbySprite("gen_icon_star"),
+            new Vector2(0.41f, 0.50f), new Vector2(28f, 28f), Color.white);
+        UseCenterPivot(stockGoldIcon);
+        var goldCount = CreateRuntimeText(stockCard, "ShopGoldCount", goldNow + " 金币",
+            new Vector2(0.52f, 0.50f), new Vector2(160f, 22f), 14, new Color(1f, 0.84f, 0.36f, 1f));
+        goldCount.alignment = TextAnchor.MiddleLeft;
+        UseCenterPivot(goldCount);
+        var stockGemIcon = CreateRuntimeImage(stockCard, "ShopGemIcon", GetBestLobbySprite("gen_icon_gem"),
+            new Vector2(0.72f, 0.50f), new Vector2(28f, 28f), Color.white);
+        UseCenterPivot(stockGemIcon);
+        var gemCount = CreateRuntimeText(stockCard, "ShopGemCount", gemNow + " 晶石",
+            new Vector2(0.84f, 0.50f), new Vector2(160f, 22f), 14, new Color(0.70f, 0.93f, 1f, 1f));
+        gemCount.alignment = TextAnchor.MiddleLeft;
+        UseCenterPivot(gemCount);
+
+        var hint = CreateRuntimeText(shell, "ShopHint",
+            "点击任意补给可查看报价，军需官会在每日 05:00 刷新特供。",
+            new Vector2(0.5f, 0.128f), new Vector2(760f, 20f), 12, new Color(0.82f, 0.84f, 0.78f, 1f));
+        hint.alignment = TextAnchor.MiddleCenter;
+        UseCenterPivot(hint);
+
+        string[] names = { "基础补给箱", "精锐装备包", "重装蓝图", "赛季通行令" };
+        string[] descs =
+        {
+            "常规军需补给，适合前线轮换整备。",
+            "钻石兑换稀有模组与车组外观。",
+            "提升重型坦克与火炮的研发进度。",
+            "开启额外任务链与赛季奖励。"
+        };
+        string[] footers = { "2,400 金币", "180 晶石", "6,200 金币", "480 晶石" };
+        string[] actions = { "补给", "兑换", "研发", "激活" };
+        Sprite[] icons =
+        {
+            GetBestLobbySprite("gen_icon_star"),
+            GetBestLobbySprite("gen_icon_gem"),
+            GetBestLobbySprite("gen_icon_tank"),
+            GetBestLobbySprite("gen_icon_helmet")
+        };
+        Sprite rowBaseSprite = GetBestLobbySprite("gen_friend_row", "gen_task_card");
+        Sprite[] rowSprites = { rowBaseSprite, rowBaseSprite, rowBaseSprite, rowBaseSprite };
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            string itemName = names[i];
+            string footer = footers[i];
+            bool premium = footer.Contains("晶石");
+            CreateRuntimeShopOfferRow(shell, "ShopOffer" + i,
+                new Vector2(0.5f, 0.515f - i * 0.098f),
+                rowSprites[i], icons[i], itemName, descs[i], footer, actions[i], !premium,
+                () =>
+                {
+                    hint.text = "商店：" + itemName + " 已加入军需清单";
+                    if (MatchStatusText) MatchStatusText.text = "商店：正在查看 " + itemName;
+                });
+        }
+
+        panel.SetActive(false);
+        return true;
+    }
+
+    bool CreateRuntimeWarehousePanel()
+    {
+        if (!CreateRuntimeFeaturePanelBase(
+            "WarehousePanel",
+            "gen_exact_nav_warehouse",
+            "仓库",
+            "物资补给 / 装备库存 / 战备箱",
+            new Vector2(960f, 520f),
+            new Color(0.28f, 0.24f, 0.18f, 1f),
+            out var panel,
+            out var shell,
+            out var backButton))
+            return false;
+
         WarehousePanel = panel;
-        WarehouseBackBtn = CreateRuntimeButton(shell, "WarehouseBackBtn", "返回大厅", new Vector2(0.5f, 0.07f), new Vector2(220f, 42f));
-        WarehouseBackBtn.onClick.AddListener(ShowHall);
+        WarehouseBackBtn = backButton;
+
+        string[] names = { "装甲补给箱", "能源核心", "战车零件", "指挥芯片", "合金钢材", "加速模块" };
+        string[] categories = { "装备补给", "战略资源", "载具维护", "战术模组", "装甲材料", "效率增幅" };
+        string[] descs =
+        {
+            "标准前线军需箱，内含履带修复件、弹药补给与应急整备包。",
+            "用于驱动基地设施与高阶科技研究，是后勤部每日重点保管物资。",
+            "覆盖主战坦克、突击炮与自行火炮的常用维护套件。",
+            "用于提升编队指令传输与战场部署效率的核心数据模块。",
+            "强化建筑包层与战车防护时使用的高强度军工材料。",
+            "可缩短研究、训练与物资调度时间的即时加速组件。"
+        };
+        string[] sourceTexts =
+        {
+            "获取：匹配奖励 / 日常任务 / 军需商店",
+            "获取：战役章节 / 占领奖励 / 每周补给",
+            "获取：装甲工坊 / 战损回收 / 竞技场",
+            "获取：科技中心 / 赛季通行令 / 精锐补给",
+            "获取：联盟捐献 / 基地生产 / 军团补给",
+            "获取：限时活动 / 军需兑换 / 高级补给箱"
+        };
+        int[] counts = { 12, 19, 26, 33, 40, 47 };
+        float[] readiness = { 0.78f, 0.92f, 0.66f, 0.81f, 0.74f, 0.88f };
+        float[] rarity = { 0.42f, 0.76f, 0.58f, 0.81f, 0.63f, 0.94f };
+        float[] demand = { 0.69f, 0.82f, 0.73f, 0.57f, 0.79f, 0.91f };
+        Sprite[] icons =
+        {
+            GetBestLobbySprite("gen_nav_wh"),
+            GetBestLobbySprite("gen_icon_gem"),
+            GetBestLobbySprite("gen_icon_tank"),
+            GetBestLobbySprite("gen_icon_tech_blueprint"),
+            GetBestLobbySprite("gen_icon_star"),
+            GetBestLobbySprite("gen_icon_helmet")
+        };
+
+        var overview = CreateRuntimeImage(shell, "WarehouseOverviewCard",
+            GetBestLobbySprite("gen_task_card", "gen_friend_row"),
+            new Vector2(0.5f, 0.60f), new Vector2(820f, 50f), Color.white, true).transform;
+        var capText = CreateRuntimeText(overview, "WarehouseCapacityText", "库存容量  68 / 120",
+            new Vector2(0.15f, 0.50f), new Vector2(190f, 22f), 16, new Color(0.97f, 0.91f, 0.74f, 1f));
+        capText.alignment = TextAnchor.MiddleLeft;
+        CreateOverlayRuntimeSlider(overview, "WarehouseCapacitySlider",
+            new Vector2(0.48f, 0.50f), new Vector2(210f, 14f), new Color(0.76f, 0.66f, 0.24f, 1f));
+        var capSlider = overview.Find("WarehouseCapacitySlider")?.GetComponent<Slider>();
+        if (capSlider != null) capSlider.value = 68f / 120f;
+        var reserveText = CreateRuntimeText(overview, "WarehouseReserveText", "战备评分  4860",
+            new Vector2(0.82f, 0.50f), new Vector2(170f, 22f), 15, new Color(0.68f, 0.92f, 1f, 1f));
+        reserveText.alignment = TextAnchor.MiddleRight;
+
+        var hint = CreateRuntimeText(shell, "WarehouseHint", "仓库军需已同步，可在战斗前快速查看核心资源存量。",
+            new Vector2(0.5f, 0.14f), new Vector2(760f, 22f), 14, new Color(0.82f, 0.84f, 0.78f, 1f));
+        hint.alignment = TextAnchor.MiddleCenter;
+
+        var tabBar = CreateRuntimeImage(shell, "WarehouseTabBar",
+            GetBestLobbySprite("gen_friend_row", "gen_task_card"),
+            new Vector2(0.47f, 0.52f), new Vector2(596f, 40f), Color.white, true);
+        tabBar.raycastTarget = false;
+
+        var listPanel = CreateRuntimeImage(shell, "WarehouseInventoryPanel",
+            GetBestLobbySprite("gen_task_card", "gen_panel_frame", "gen_card_frame"),
+            new Vector2(0.28f, 0.34f), new Vector2(360f, 262f), Color.white, true).transform;
+        var listTitle = CreateRuntimeText(listPanel, "WarehouseListTitle", "战备清单",
+            new Vector2(0.18f, 0.92f), new Vector2(120f, 20f), 16, new Color(1f, 0.90f, 0.56f, 1f));
+        listTitle.alignment = TextAnchor.MiddleLeft;
+        var listMeta = CreateRuntimeText(listPanel, "WarehouseListMeta", "共 6 类核心物资",
+            new Vector2(0.82f, 0.92f), new Vector2(140f, 18f), 12, new Color(0.72f, 0.86f, 1f, 1f));
+        listMeta.alignment = TextAnchor.MiddleRight;
+
+        var detailPanel = CreateRuntimeImage(shell, "WarehouseDetailPanel",
+            GetBestLobbySprite("gen_tech_card", "gen_panel_frame", "gen_card_frame"),
+            new Vector2(0.73f, 0.34f), new Vector2(440f, 262f), Color.white, true).transform;
+        var detailSection = CreateRuntimeText(detailPanel, "WarehouseDetailSection", "物资详情",
+            new Vector2(0.18f, 0.92f), new Vector2(120f, 20f), 16, new Color(1f, 0.90f, 0.56f, 1f));
+        detailSection.alignment = TextAnchor.MiddleLeft;
+
+        var detailIconPlate = CreateRuntimeImage(detailPanel, "WarehouseDetailIconPlate",
+            GetBestLobbySprite("gen_card_frame", "gen_task_card", "gen_friend_row"),
+            new Vector2(0.18f, 0.69f), new Vector2(96f, 96f), Color.white, true).transform;
+        var detailIcon = CreateRuntimeImage(detailIconPlate, "WarehouseDetailIcon", icons[0],
+            new Vector2(0.50f, 0.50f), new Vector2(58f, 58f), Color.white);
+
+        var detailTitle = CreateRuntimeText(detailPanel, "WarehouseDetailTitle", names[0],
+            new Vector2(0.58f, 0.79f), new Vector2(190f, 24f), 18, new Color(0.98f, 0.92f, 0.76f, 1f));
+        detailTitle.alignment = TextAnchor.MiddleLeft;
+        var detailCategory = CreateRuntimeText(detailPanel, "WarehouseDetailCategory", categories[0],
+            new Vector2(0.58f, 0.69f), new Vector2(190f, 18f), 12, new Color(0.72f, 0.86f, 1f, 1f));
+        detailCategory.alignment = TextAnchor.MiddleLeft;
+        var detailCount = CreateRuntimeText(detailPanel, "WarehouseDetailCount", "库存 x" + counts[0],
+            new Vector2(0.84f, 0.69f), new Vector2(90f, 18f), 13, new Color(0.52f, 0.92f, 0.58f, 1f));
+        detailCount.alignment = TextAnchor.MiddleRight;
+
+        var detailDesc = CreateRuntimeText(detailPanel, "WarehouseDetailDesc", descs[0],
+            new Vector2(0.50f, 0.51f), new Vector2(350f, 56f), 13, new Color(0.84f, 0.86f, 0.80f, 1f));
+        detailDesc.alignment = TextAnchor.UpperLeft;
+
+        string[] statLabels = { "前线储备", "稀有等级", "调度需求" };
+        Color[] statColors =
+        {
+            new Color(0.64f, 0.86f, 0.58f, 1f),
+            new Color(1f, 0.82f, 0.36f, 1f),
+            new Color(0.72f, 0.86f, 1f, 1f)
+        };
+        Slider[] statSliders = new Slider[3];
+        for (int i = 0; i < statLabels.Length; i++)
+        {
+            var statRow = CreateRuntimeImage(detailPanel, "WarehouseDetailStatRow" + i,
+                GetBestLobbySprite("gen_friend_row", "gen_task_card"),
+                new Vector2(0.50f, 0.30f - i * 0.09f), new Vector2(350f, 32f), Color.white, true).transform;
+            var statLabel = CreateRuntimeText(statRow, "WarehouseDetailStatLabel" + i, statLabels[i],
+                new Vector2(0.18f, 0.50f), new Vector2(90f, 18f), 12, new Color(0.94f, 0.90f, 0.82f, 1f));
+            statLabel.alignment = TextAnchor.MiddleLeft;
+            CreateOverlayRuntimeSlider(statRow, "WarehouseDetailStatSlider" + i,
+                new Vector2(0.66f, 0.50f), new Vector2(150f, 10f), statColors[i]);
+            statSliders[i] = statRow.Find("WarehouseDetailStatSlider" + i)?.GetComponent<Slider>();
+        }
+
+        var detailSource = CreateRuntimeText(detailPanel, "WarehouseDetailSource", sourceTexts[0],
+            new Vector2(0.50f, 0.07f), new Vector2(350f, 34f), 11, new Color(0.80f, 0.82f, 0.76f, 1f));
+        detailSource.alignment = TextAnchor.UpperLeft;
+
+        var actionPrimary = CreateRuntimeButton(shell, "WarehouseActionPrimary", "快速装备",
+            new Vector2(0.58f, 0.19f), new Vector2(126f, 36f));
+        ApplyRuntimeButtonSkin(actionPrimary, "button_yellow_header", Color.white, new Color(0.10f, 0.11f, 0.07f, 1f));
+        var actionSecondary = CreateRuntimeButton(shell, "WarehouseActionSecondary", "整理仓库",
+            new Vector2(0.73f, 0.19f), new Vector2(126f, 36f));
+        ApplyRuntimeButtonSkin(actionSecondary, "button_blue_header", Color.white, new Color(0.06f, 0.14f, 0.18f, 1f));
+        var actionTertiary = CreateRuntimeButton(shell, "WarehouseActionTertiary", "军需兑换",
+            new Vector2(0.88f, 0.19f), new Vector2(126f, 36f));
+        ApplyRuntimeButtonSkin(actionTertiary, "button_neutral_depth", Color.white, new Color(0.08f, 0.12f, 0.13f, 1f));
+
+        Button[] tabButtons = new Button[4];
+        string[] tabNames = { "全部", "装备", "资源", "模组" };
+        Action<int> setTabSelection = null;
+        setTabSelection = selectedTab =>
+        {
+            for (int i = 0; i < tabButtons.Length; i++)
+            {
+                var button = tabButtons[i];
+                if (button == null) continue;
+                ApplyRuntimeButtonSkin(button,
+                    i == selectedTab ? "gen_nav_tab_active" : "gen_nav_tab",
+                    Color.white,
+                    i == selectedTab ? new Color(0.20f, 0.16f, 0.08f, 1f) : new Color(0.88f, 0.90f, 0.86f, 1f));
+            }
+            hint.text = "仓库：当前筛选 " + tabNames[selectedTab] + " 分类";
+            if (MatchStatusText) MatchStatusText.text = "仓库：切换到 " + tabNames[selectedTab] + " 分类";
+        };
+
+        for (int i = 0; i < tabButtons.Length; i++)
+        {
+            int tabIndex = i;
+            var chip = CreateRuntimeButton(shell, "WarehouseTab" + i, tabNames[i],
+                new Vector2(0.26f + i * 0.14f, 0.52f), new Vector2(104f, 34f));
+            chip.onClick.AddListener(() => setTabSelection(tabIndex));
+            tabButtons[i] = chip;
+        }
+
+        Button[] slotButtons = new Button[names.Length];
+        Image[] slotImages = new Image[names.Length];
+        Text[] slotNameTexts = new Text[names.Length];
+        Text[] slotCountTexts = new Text[names.Length];
+        Text[] slotMetaTexts = new Text[names.Length];
+        Action<int> selectItem = null;
+        selectItem = selectedIndex =>
+        {
+            selectedIndex = Mathf.Clamp(selectedIndex, 0, names.Length - 1);
+            for (int i = 0; i < names.Length; i++)
+            {
+                bool isSelected = i == selectedIndex;
+                if (slotImages[i] != null)
+                    slotImages[i].color = isSelected ? new Color(1f, 0.97f, 0.88f, 1f) : Color.white;
+                if (slotNameTexts[i] != null)
+                    slotNameTexts[i].color = isSelected ? new Color(1f, 0.88f, 0.46f, 1f) : new Color(0.98f, 0.92f, 0.76f, 1f);
+                if (slotMetaTexts[i] != null)
+                    slotMetaTexts[i].color = isSelected ? new Color(0.82f, 0.92f, 1f, 1f) : new Color(0.70f, 0.78f, 0.76f, 1f);
+                if (slotCountTexts[i] != null)
+                    slotCountTexts[i].color = isSelected ? new Color(0.58f, 0.96f, 0.64f, 1f) : new Color(0.52f, 0.92f, 0.58f, 1f);
+            }
+
+            detailIcon.sprite = icons[selectedIndex];
+            detailTitle.text = names[selectedIndex];
+            detailCategory.text = categories[selectedIndex];
+            detailCount.text = "库存 x" + counts[selectedIndex];
+            detailDesc.text = descs[selectedIndex];
+            detailSource.text = sourceTexts[selectedIndex];
+
+            if (statSliders[0] != null) statSliders[0].value = readiness[selectedIndex];
+            if (statSliders[1] != null) statSliders[1].value = rarity[selectedIndex];
+            if (statSliders[2] != null) statSliders[2].value = demand[selectedIndex];
+
+            hint.text = "仓库：已选中 " + names[selectedIndex];
+            if (MatchStatusText) MatchStatusText.text = "仓库：查看 " + names[selectedIndex] + " 详情";
+        };
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            int itemIndex = i;
+            int col = i % 2;
+            int row = i / 2;
+            var slotImage = CreateRuntimeImage(listPanel, "WarehouseSlot" + i,
+                GetBestLobbySprite("gen_friend_row", "gen_task_card"),
+                new Vector2(0.29f + col * 0.42f, 0.69f - row * 0.22f), new Vector2(146f, 54f), Color.white, true);
+            var slotButton = slotImage.gameObject.AddComponent<Button>();
+            slotButton.targetGraphic = slotImage;
+            slotImages[i] = slotImage;
+            slotButtons[i] = slotButton;
+
+            CreateRuntimeImage(slotImage.transform, "WarehouseSlotIcon" + i, icons[i],
+                new Vector2(0.16f, 0.50f), new Vector2(32f, 32f), Color.white);
+            var item = CreateRuntimeText(slotImage.transform, "WarehouseSlotName" + i, names[i],
+                new Vector2(0.54f, 0.64f), new Vector2(92f, 16f), 12, new Color(0.98f, 0.92f, 0.76f, 1f));
+            item.alignment = TextAnchor.MiddleLeft;
+            slotNameTexts[i] = item;
+            var meta = CreateRuntimeText(slotImage.transform, "WarehouseSlotMeta" + i, categories[i],
+                new Vector2(0.54f, 0.34f), new Vector2(92f, 14f), 10, new Color(0.70f, 0.78f, 0.76f, 1f));
+            meta.alignment = TextAnchor.MiddleLeft;
+            slotMetaTexts[i] = meta;
+            var count = CreateRuntimeText(slotImage.transform, "WarehouseSlotCount" + i, "x" + counts[i],
+                new Vector2(0.84f, 0.50f), new Vector2(42f, 14f), 11, new Color(0.52f, 0.92f, 0.58f, 1f));
+            count.alignment = TextAnchor.MiddleRight;
+            slotCountTexts[i] = count;
+
+            slotButton.onClick.AddListener(() => selectItem(itemIndex));
+        }
+
+        actionPrimary.onClick.AddListener(() =>
+        {
+            hint.text = "仓库：已将 " + detailTitle.text + " 装入当前编组";
+            if (MatchStatusText) MatchStatusText.text = "仓库：快速装备完成";
+        });
+        actionSecondary.onClick.AddListener(() =>
+        {
+            hint.text = "仓库：后勤官正在整理库存与补给序列";
+            if (MatchStatusText) MatchStatusText.text = "仓库：整理指令已下达";
+        });
+        actionTertiary.onClick.AddListener(() =>
+        {
+            hint.text = "仓库：已打开 " + detailTitle.text + " 的军需兑换方案";
+            if (MatchStatusText) MatchStatusText.text = "仓库：准备进入军需兑换";
+        });
+
+        setTabSelection(0);
+        selectItem(0);
+
+        panel.SetActive(false);
+        return true;
+    }
+
+    bool CreateRuntimeCampaignPanel()
+    {
+        if (!CreateRuntimeFeaturePanelBase(
+            "CampaignPanel",
+            "gen_exact_nav_campaign",
+            "战役",
+            "战区演练 / 行动档案 / 荣耀征程",
+            new Vector2(990f, 540f),
+            new Color(0.24f, 0.20f, 0.15f, 1f),
+            out var panel,
+            out var shell,
+            out var backButton))
+            return false;
+
+        CampaignPanel = panel;
+        CampaignBackBtn = backButton;
+
+        var briefing = CreateRuntimeImage(shell, "CampaignBriefing",
+            GetBestLobbySprite("gen_tech_card", "gen_task_card", "gen_panel_frame"),
+            new Vector2(0.80f, 0.42f), new Vector2(240f, 300f), Color.white, true).transform;
+        var briefingTitle = CreateRuntimeText(briefing, "CampaignBriefingTitle", "战役简报",
+            new Vector2(0.50f, 0.86f), new Vector2(180f, 24f), 18, new Color(1f, 0.90f, 0.56f, 1f));
+        briefingTitle.alignment = TextAnchor.MiddleCenter;
+        var briefingBody = CreateRuntimeText(briefing, "CampaignBriefingBody",
+            "今日推荐\n北境登陆  Lv.6\n钢铁峡谷  Lv.12\n海岛封锁  Lv.20\n\n完成章节可获得军功、蓝图与战备箱。",
+            new Vector2(0.50f, 0.48f), new Vector2(190f, 180f), 14, new Color(0.84f, 0.86f, 0.80f, 1f));
+        briefingBody.alignment = TextAnchor.UpperLeft;
+
+        var hint = CreateRuntimeText(shell, "CampaignHint",
+            "选择一条战役线路，指挥部会为你准备对应编组方案。",
+            new Vector2(0.40f, 0.12f), new Vector2(520f, 22f), 14, new Color(0.82f, 0.84f, 0.78f, 1f));
+        hint.alignment = TextAnchor.MiddleCenter;
+
+        var routeConfigs = new[]
+        {
+            new { Sprite = CampaignMatchRouteSprite, Anchor = new Vector2(0.39f, 0.56f), Size = new Vector2(412f, 145f), Message = "战役：已切换到战区演练，准备选择匹配地图", Action = (Action)(() => OnQuickMatch()) },
+            new { Sprite = CampaignCustomRouteSprite, Anchor = new Vector2(0.39f, 0.36f), Size = new Vector2(412f, 132f), Message = "战役：联合推演正在整编，即将开放多人协同关卡", Action = (Action)(() => { if (MatchStatusText) MatchStatusText.text = "战役：联合推演即将开放"; hint.text = "联合推演需要更多战役节点，当前版本先保留为预告位。"; }) },
+            new { Sprite = CampaignGlobalRouteSprite, Anchor = new Vector2(0.39f, 0.16f), Size = new Vector2(412f, 132f), Message = "战役：已进入全球争霸部署阶段", Action = (Action)(() => OnGlobalConquest()) }
+        };
+
+        for (int i = 0; i < routeConfigs.Length; i++)
+        {
+            var cfg = routeConfigs[i];
+            var banner = CreateRuntimeImage(shell, "CampaignRoute" + i,
+                cfg.Sprite,
+                cfg.Anchor, cfg.Size, cfg.Sprite != null ? Color.white : new Color(0f, 0f, 0f, 0.004f), false);
+            var bannerButton = banner.gameObject.AddComponent<Button>();
+            bannerButton.targetGraphic = banner;
+            bannerButton.onClick.AddListener(() =>
+            {
+                if (MatchStatusText) MatchStatusText.text = cfg.Message;
+                cfg.Action?.Invoke();
+            });
+        }
+
+        panel.SetActive(false);
+        return true;
+    }
+
+    bool CreateRuntimeRankPanel()
+    {
+        if (!CreateRuntimeFeaturePanelBase(
+            "RankPanel",
+            "gen_exact_nav_rank",
+            "排行榜",
+            "赛季军衔 / 功勋排行 / 指挥官战绩",
+            new Vector2(980f, 530f),
+            new Color(0.18f, 0.20f, 0.26f, 1f),
+            out var panel,
+            out var shell,
+            out var backButton))
+            return false;
+
+        RankPanel = panel;
+        RankBackBtn = backButton;
+
+        string commander = GetCommanderDisplayName();
+        int level = GetCommanderLevel();
+        string title = GetCommanderRankTitle(level);
+
+        var seasonCard = CreateRuntimeImage(shell, "RankSeasonCard",
+            GetBestLobbySprite("gen_task_card", "gen_friend_row"),
+            new Vector2(0.50f, 0.60f), new Vector2(840f, 58f), Color.white, true).transform;
+        var seasonTitle = CreateRuntimeText(seasonCard, "RankSeasonTitle", "S3 东线军演赛季",
+            new Vector2(0.22f, 0.50f), new Vector2(220f, 22f), 17, new Color(1f, 0.90f, 0.56f, 1f));
+        seasonTitle.alignment = TextAnchor.MiddleLeft;
+        var seasonMeta = CreateRuntimeText(seasonCard, "RankSeasonMeta", "每周一 05:00 结算军功与战绩",
+            new Vector2(0.68f, 0.50f), new Vector2(330f, 20f), 13, new Color(0.74f, 0.86f, 1f, 1f));
+        seasonMeta.alignment = TextAnchor.MiddleRight;
+
+        var topRows = new[]
+        {
+            new { Place = 1, Name = "IronWolf", Rank = "鹰徽元帅", Level = 37, Score = 2190, Wins = 128, Badge = "rank_badge_05_marshal_eagle" },
+            new { Place = 2, Name = "BlueHawk", Rank = "重机枪军徽", Level = 33, Score = 2044, Wins = 116, Badge = "rank_badge_09_heavy_mg" },
+            new { Place = 3, Name = "TigerAce", Rank = "双枪军徽", Level = 28, Score = 1896, Wins = 104, Badge = "rank_badge_08_crossed_pistols" },
+            new { Place = 4, Name = "SteelRain", Rank = "冲锋军徽", Level = 22, Score = 1710, Wins = 93, Badge = "rank_badge_07_crossed_smg" }
+        };
+
+        for (int i = 0; i < topRows.Length; i++)
+        {
+            var row = topRows[i];
+            CreateRuntimeRankRow(shell, "RankTopRow" + i,
+                new Vector2(0.50f, 0.49f - i * 0.11f),
+                row.Place, row.Name, row.Rank, row.Level, row.Score, row.Wins, row.Badge, false);
+        }
+
+        CreateRuntimeRankRow(shell, "RankPlayerRow",
+            new Vector2(0.50f, 0.16f),
+            27, commander, title, level, 1280 + level * 7, 42 + level, null, true);
+
+        var hint = CreateRuntimeText(shell, "RankHint", "排行榜每场战斗后自动刷新，你的个人战绩已在下方高亮。",
+            new Vector2(0.50f, 0.10f), new Vector2(760f, 20f), 13, new Color(0.82f, 0.84f, 0.78f, 1f));
+        hint.alignment = TextAnchor.MiddleCenter;
+
         panel.SetActive(false);
         return true;
     }
@@ -2273,7 +3497,23 @@ public class LobbyManager : MonoBehaviour
         Transform root = HallPanel != null ? HallPanel.transform.root : GameObject.Find("LobbyCanvas")?.transform;
         if (root == null) return false;
 
-        var friendView = FindDeepChild(root, "friendview");
+        var friendView = FindFirstNamedChild(root, "friendview", "FriendView", "Scroll View");
+        if (friendView == null)
+        {
+            foreach (var scroll in root.GetComponentsInChildren<ScrollRect>(true))
+            {
+                if (scroll == null) continue;
+                var viewport = scroll.viewport != null ? scroll.viewport : scroll.transform.Find("Viewport") as RectTransform;
+                var content = scroll.content != null
+                    ? scroll.content
+                    : (viewport != null ? viewport.Find("Content") as RectTransform : scroll.transform.Find("Content") as RectTransform);
+                if (viewport != null && content != null)
+                {
+                    friendView = scroll.transform;
+                    break;
+                }
+            }
+        }
         if (friendView == null) return false;
 
         _friendView = friendView.gameObject;
@@ -2304,7 +3544,7 @@ public class LobbyManager : MonoBehaviour
 
         var viewportImage = _friendViewViewport.GetComponent<Image>();
         if (viewportImage == null) viewportImage = _friendViewViewport.gameObject.AddComponent<Image>();
-        viewportImage.color = new Color(0.05f, 0.08f, 0.10f, 0.16f);
+        viewportImage.color = new Color(0.02f, 0.04f, 0.02f, 0.12f);
         viewportImage.raycastTarget = true;
 
         _friendViewContent.anchorMin = new Vector2(0f, 1f);
@@ -2421,41 +3661,56 @@ public class LobbyManager : MonoBehaviour
         layout.flexibleWidth = 1f;
 
         var image = row.AddComponent<Image>();
-        image.sprite = KenneyUiRes.Get("button_neutral_depth", new Vector4(16f, 16f, 16f, 16f)) ?? LobbyGenRes.Get("gen_friend_row");
-        image.type = Image.Type.Sliced;
-        image.color = Color.white;
+        var rowSprite = LobbyGenRes.Get("gen_friend_row")
+            ?? KenneyUiRes.Get("button_neutral_depth", new Vector4(16f, 16f, 16f, 16f));
+        image.sprite = rowSprite;
+        image.type = rowSprite != null && HasSpriteBorder(rowSprite) ? Image.Type.Sliced : Image.Type.Simple;
+        image.color = rowSprite != null ? Color.white : new Color(0.06f, 0.07f, 0.04f, 0.92f);
 
         var button = row.AddComponent<Button>();
         button.targetGraphic = image;
 
+        var avatarRingSprite = KenneyUiRes.Get("button_blue_header", new Vector4(14f, 14f, 14f, 14f))
+            ?? LobbyGenRes.Get("gen_portrait_ring");
+        var avatarRing = CreateRuntimeImage(row.transform, "AvatarRing",
+            avatarRingSprite, new Vector2(0f, 0.5f), new Vector2(52f, 52f), Color.white, HasSpriteBorder(avatarRingSprite));
+        avatarRing.rectTransform.anchoredPosition = new Vector2(32f, 0f);
+        avatarRing.raycastTarget = false;
+
         var avatar = CreateRuntimeImage(row.transform, "Avatar",
-            LobbyGenRes.Get("gen_avatar_player"), new Vector2(0f, 0.5f), new Vector2(42f, 42f), Color.white);
-        avatar.rectTransform.anchoredPosition = new Vector2(30f, 0f);
+            LobbyGenRes.Get("gen_avatar_player"), new Vector2(0f, 0.5f), new Vector2(44f, 44f), Color.white);
+        avatar.rectTransform.anchoredPosition = new Vector2(32f, 0f);
         avatar.preserveAspect = true;
+        avatar.raycastTarget = false;
 
         var level = CreateRuntimeText(row.transform, "Level", "",
-            new Vector2(0f, 0.5f), new Vector2(32f, 16f), 11, new Color(1f, 0.90f, 0.46f, 1f));
+            new Vector2(0f, 0f), new Vector2(42f, 16f), 11, new Color(1f, 0.90f, 0.46f, 1f));
         level.alignment = TextAnchor.MiddleCenter;
-        level.rectTransform.anchoredPosition = new Vector2(30f, 20f);
+        level.rectTransform.anchoredPosition = new Vector2(32f, 4f);
+        level.raycastTarget = false;
 
         var name = CreateRuntimeText(row.transform, "Name", "",
-            new Vector2(0f, 1f), new Vector2(118f, 20f), 14, new Color(0.96f, 0.91f, 0.72f, 1f));
+            new Vector2(0f, 1f), new Vector2(122f, 21f), 15, new Color(0.96f, 0.91f, 0.72f, 1f));
         name.alignment = TextAnchor.MiddleLeft;
-        name.rectTransform.anchoredPosition = new Vector2(62f, -10f);
+        name.rectTransform.anchoredPosition = new Vector2(66f, -9f);
+        name.raycastTarget = false;
 
         var meta = CreateRuntimeText(row.transform, "Meta", "",
-            new Vector2(0f, 0f), new Vector2(108f, 18f), 11, new Color(0.76f, 0.81f, 0.76f, 1f));
+            new Vector2(0f, 0f), new Vector2(122f, 18f), 11, new Color(0.76f, 0.81f, 0.76f, 1f));
         meta.alignment = TextAnchor.MiddleLeft;
-        meta.rectTransform.anchoredPosition = new Vector2(62f, 8f);
+        meta.rectTransform.anchoredPosition = new Vector2(66f, 9f);
+        meta.raycastTarget = false;
 
         var status = CreateRuntimeText(row.transform, "Status", "",
-            new Vector2(1f, 0.5f), new Vector2(70f, 18f), 11, new Color(0.44f, 0.92f, 0.58f, 1f));
+            new Vector2(1f, 0.5f), new Vector2(62f, 18f), 11, new Color(0.44f, 0.92f, 0.58f, 1f));
         status.alignment = TextAnchor.MiddleRight;
-        status.rectTransform.anchoredPosition = new Vector2(-10f, 0f);
+        status.rectTransform.anchoredPosition = new Vector2(-11f, -1f);
+        status.raycastTarget = false;
 
         var empty = CreateRuntimeText(row.transform, "Empty", "",
-            new Vector2(0.5f, 0.5f), new Vector2(220f, 22f), 13, new Color(0.78f, 0.82f, 0.88f, 1f));
+            new Vector2(0.5f, 0.5f), new Vector2(214f, 22f), 13, new Color(0.82f, 0.82f, 0.66f, 1f));
         empty.alignment = TextAnchor.MiddleCenter;
+        empty.raycastTarget = false;
         empty.gameObject.SetActive(false);
 
         _friendViewRows[index] = row;
@@ -2468,6 +3723,7 @@ public class LobbyManager : MonoBehaviour
 
         bool isEmpty = !string.IsNullOrEmpty(emptyText);
         var avatarImage = row.transform.Find("Avatar")?.GetComponent<Image>();
+        var avatarRingImage = row.transform.Find("AvatarRing")?.GetComponent<Image>();
         var levelText = row.transform.Find("Level")?.GetComponent<Text>();
         var nameText = row.transform.Find("Name")?.GetComponent<Text>();
         var metaText = row.transform.Find("Meta")?.GetComponent<Text>();
@@ -2476,6 +3732,7 @@ public class LobbyManager : MonoBehaviour
         var button = row.GetComponent<Button>();
 
         if (avatarImage != null) avatarImage.gameObject.SetActive(!isEmpty);
+        if (avatarRingImage != null) avatarRingImage.gameObject.SetActive(!isEmpty);
         if (levelText != null) levelText.gameObject.SetActive(!isEmpty);
         if (nameText != null) nameText.gameObject.SetActive(!isEmpty);
         if (metaText != null) metaText.gameObject.SetActive(!isEmpty);
@@ -2579,25 +3836,31 @@ public class LobbyManager : MonoBehaviour
 
         DisableCompactFriendScrollbars(root);
 
-        if (FindDeepChild(root, "FriendRow0") != null || FindDeepChild(root, "DynamicFriendRow0") != null)
-            return;
-
         var rowsRoot = FindDeepChild(root, "FriendRows");
         if (rowsRoot == null)
         {
             var rowsGo = new GameObject("FriendRows");
             rowsGo.transform.SetParent(root, false);
-            var rt = rowsGo.AddComponent<RectTransform>();
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
             rowsRoot = rowsGo.transform;
         }
+        else
+        {
+            rowsRoot.SetParent(root, false);
+            rowsRoot.gameObject.SetActive(true);
+        }
+
+        var rowsRt = rowsRoot as RectTransform;
+        if (rowsRt == null) rowsRt = rowsRoot.gameObject.AddComponent<RectTransform>();
+        rowsRt.anchorMin = Vector2.zero;
+        rowsRt.anchorMax = Vector2.one;
+        rowsRt.pivot = new Vector2(0.5f, 0.5f);
+        rowsRt.anchoredPosition = Vector2.zero;
+        rowsRt.offsetMin = Vector2.zero;
+        rowsRt.offsetMax = Vector2.zero;
 
         float[] rowY = { 0.681f, 0.575f, 0.469f, 0.363f, 0.257f };
         for (int i = 0; i < 5; i++)
-            EnsureCompactFriendRow(rowsRoot, i, new Vector2(0.125f, rowY[i]), new Vector2(216f, 64f));
+            EnsureCompactFriendRow(rowsRoot, root, i, new Vector2(0.125f, rowY[i]), new Vector2(190f, 64f));
 
         _friendRows = null;
         _friendNameTexts = null;
@@ -2607,6 +3870,7 @@ public class LobbyManager : MonoBehaviour
         _friendAvatarImages = null;
         _friendClickButtons = null;
     }
+
 
     void DisableCompactFriendScrollbars(Transform root)
     {
@@ -2629,27 +3893,51 @@ public class LobbyManager : MonoBehaviour
             scrollbar.gameObject.SetActive(false);
     }
 
-    static void EnsureCompactFriendRow(Transform parent, int index, Vector2 anchor, Vector2 size)
+    static void EnsureCompactFriendRow(Transform parent, Transform searchRoot, int index, Vector2 anchor, Vector2 size)
     {
         var rowName = "FriendRow" + index;
+        var dynamicRowName = "DynamicFriendRow" + index;
         var existing = parent != null ? parent.Find(rowName) : null;
+        if (existing == null && parent != null)
+            existing = parent.Find(dynamicRowName);
+        if (existing == null && searchRoot != null)
+            existing = FindDeepChild(searchRoot, rowName) ?? FindDeepChild(searchRoot, dynamicRowName);
+
+        Transform row;
+        bool created = false;
         if (existing != null)
         {
-            ConfigureOverlayRect(existing as RectTransform, anchor, size);
-            return;
+            row = existing;
+            row.SetParent(parent, false);
+            row.gameObject.SetActive(true);
+            var existingRt = row as RectTransform;
+            if (existingRt == null) existingRt = row.gameObject.AddComponent<RectTransform>();
+            ConfigureOverlayRect(existingRt, anchor, size);
+        }
+        else
+        {
+            var rowButton = CreateRuntimeHitButton(parent, rowName, anchor, size);
+            row = rowButton.transform;
+            created = true;
         }
 
-        var rowButton = CreateRuntimeHitButton(parent, rowName, anchor, size);
-        var row = rowButton.transform;
         var rowImage = row.GetComponent<Image>();
+        if (rowImage == null) rowImage = row.gameObject.AddComponent<Image>();
         var rowSprite = LobbyGenRes.Get("gen_friend_row")
             ?? KenneyUiRes.Get("button_neutral_depth", new Vector4(16f, 16f, 16f, 16f));
-        if (rowImage != null)
+        rowImage.sprite = rowSprite;
+        rowImage.type = rowSprite != null ? Image.Type.Sliced : Image.Type.Simple;
+        rowImage.color = rowSprite != null ? Color.white : new Color(0.04f, 0.05f, 0.03f, 0.92f);
+        rowImage.raycastTarget = true;
+
+        var button = row.GetComponent<Button>();
+        if (button == null) button = row.gameObject.AddComponent<Button>();
+        button.targetGraphic = rowImage;
+
+        if (!created)
         {
-            rowImage.sprite = rowSprite;
-            rowImage.type = rowSprite != null ? Image.Type.Sliced : Image.Type.Simple;
-            rowImage.color = rowSprite != null ? Color.white : new Color(0f, 0f, 0f, 0.004f);
-            rowImage.raycastTarget = true;
+            RetuneCompactFriendRowChildren(row, index);
+            return;
         }
 
         CreateRuntimeImage(row, "FriendAvatar" + index,
@@ -2661,17 +3949,53 @@ public class LobbyManager : MonoBehaviour
         level.alignment = TextAnchor.MiddleCenter;
 
         var name = CreateOverlayRuntimeText(row, "FriendName" + index, "",
-            new Vector2(0.51f, 0.66f), new Vector2(126f, 20f), 14, new Color(0.96f, 0.91f, 0.72f, 1f));
+            new Vector2(0.53f, 0.66f), new Vector2(108f, 20f), 14, new Color(0.96f, 0.91f, 0.72f, 1f));
         name.alignment = TextAnchor.MiddleLeft;
 
         var meta = CreateOverlayRuntimeText(row, "FriendMeta" + index, "",
-            new Vector2(0.51f, 0.39f), new Vector2(126f, 18f), 11, new Color(0.76f, 0.81f, 0.76f, 1f));
+            new Vector2(0.53f, 0.39f), new Vector2(108f, 18f), 11, new Color(0.76f, 0.81f, 0.76f, 1f));
         meta.alignment = TextAnchor.MiddleLeft;
 
         var status = CreateOverlayRuntimeText(row, "FriendStatus" + index, "",
-            new Vector2(0.82f, 0.31f), new Vector2(68f, 18f), 11, new Color(0.44f, 0.92f, 0.58f, 1f));
+            new Vector2(0.91f, 0.31f), new Vector2(54f, 18f), 11, new Color(0.44f, 0.92f, 0.58f, 1f));
         status.alignment = TextAnchor.MiddleRight;
+        RetuneCompactFriendRowChildren(row, index);
     }
+
+    static void RetuneCompactFriendRowChildren(Transform row, int index)
+    {
+        RetuneCompactFriendImage(row, "FriendAvatar" + index, "DynamicFriendAvatar" + index,
+            new Vector2(0.17f, 0.54f), new Vector2(44f, 44f));
+        RetuneCompactFriendText(row, "FriendLevelText" + index, "DynamicFriendLevelText" + index,
+            new Vector2(0.17f, 0.19f), new Vector2(40f, 16f), 11, TextAnchor.MiddleCenter);
+        RetuneCompactFriendText(row, "FriendName" + index, "DynamicFriendName" + index,
+            new Vector2(0.57f, 0.66f), new Vector2(96f, 20f), 14, TextAnchor.MiddleLeft);
+        RetuneCompactFriendText(row, "FriendMeta" + index, "DynamicFriendMeta" + index,
+            new Vector2(0.57f, 0.39f), new Vector2(96f, 18f), 11, TextAnchor.MiddleLeft);
+        RetuneCompactFriendText(row, "FriendStatus" + index, "DynamicFriendStatus" + index,
+            new Vector2(0.93f, 0.31f), new Vector2(54f, 18f), 11, TextAnchor.MiddleRight);
+    }
+
+    static void RetuneCompactFriendImage(Transform row, string primaryName, string fallbackName, Vector2 anchor, Vector2 size)
+    {
+        var tr = FindDeepChild(row, primaryName) ?? FindDeepChild(row, fallbackName);
+        var image = tr != null ? tr.GetComponent<Image>() : null;
+        if (image == null) return;
+        ConfigureOverlayRect(image.rectTransform, anchor, size);
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+    }
+
+    static void RetuneCompactFriendText(Transform row, string primaryName, string fallbackName,
+        Vector2 anchor, Vector2 size, int maxFontSize, TextAnchor alignment)
+    {
+        var tr = FindDeepChild(row, primaryName) ?? FindDeepChild(row, fallbackName);
+        var text = tr != null ? tr.GetComponent<Text>() : null;
+        if (text == null) return;
+        ConfigureOverlayText(text, anchor, size, maxFontSize, alignment);
+        text.raycastTarget = false;
+    }
+
 
     void BindFriendRowViews()
     {
@@ -2891,6 +4215,7 @@ public class LobbyManager : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         _uiToolkit = FindObjectOfType<LobbyUIToolkitController>();
+        EnsureRuntimeButtonSprites();
 
         Transform root = GameObject.Find("LobbyCanvas")?.transform;
         if (root != null)
@@ -2898,6 +4223,24 @@ public class LobbyManager : MonoBehaviour
             var legacyReturnBattle = FindDeepChild(root, "ReturnBattleButton");
             if (legacyReturnBattle != null) legacyReturnBattle.gameObject.SetActive(false);
         }
+    }
+
+    void EnsureRuntimeButtonSprites()
+    {
+        Vector4 border = new Vector4(16f, 16f, 16f, 16f);
+        if (RuntimeButtonPrimarySprite == null)
+            RuntimeButtonPrimarySprite = LobbyGenRes.Get("gen_button_gold")
+                ?? GeneratedButtonRes.Get("generated_button_primary", border);
+        if (RuntimeButtonSecondarySprite == null)
+            RuntimeButtonSecondarySprite = LobbyGenRes.Get("gen_button_dark")
+                ?? GeneratedButtonRes.Get("generated_button_secondary", border);
+        if (RuntimeButtonNeutralSprite == null)
+            RuntimeButtonNeutralSprite = LobbyGenRes.Get("gen_button_tech_metal")
+                ?? LobbyGenRes.Get("gen_button_dark")
+                ?? GeneratedButtonRes.Get("generated_button_neutral", border);
+        if (RuntimeButtonDangerSprite == null)
+            RuntimeButtonDangerSprite = LobbyGenRes.Get("gen_button_dark")
+                ?? GeneratedButtonRes.Get("generated_button_danger", border);
     }
 
     LobbyUIToolkitController UiToolkit
@@ -2919,6 +4262,25 @@ public class LobbyManager : MonoBehaviour
 
     void OpenLobbyShopInfo()
     {
+        if (ShopPanel == null)
+        {
+            CreateRuntimeShopPanel();
+            PolishPanel(ShopPanel, new Color(0.22f, 0.18f, 0.10f, 0.97f), new Color(1f, 0.72f, 0.12f, 0.95f));
+            PolishButton(ShopBackBtn);
+        }
+        if (ShopPanel != null)
+        {
+            SafeSetActive(HallPanel, false);
+            SafeSetActive(MapPanel, false);
+            SafeSetActive(RoomPanel, false);
+            SafeSetActive(InvitePanel, false);
+            SafeSetActive(CreateRoomPanel, false);
+            SetBottomNavSubPanelActive(ShopPanel);
+            SetMainLobbyHitButtonsActive(false);
+            if (MatchStatusText) MatchStatusText.text = "商店：浏览军需补给与稀有兑换";
+            return;
+        }
+
         var toolkit = UiToolkit;
         if (toolkit != null) { toolkit.OpenToolkitShopPanel(); return; }
         if (MatchStatusText) MatchStatusText.text = "商店：补给商城正在接入";
@@ -2926,6 +4288,25 @@ public class LobbyManager : MonoBehaviour
 
     void OpenLobbyGemStoreInfo()
     {
+        if (ShopPanel == null)
+        {
+            CreateRuntimeShopPanel();
+            PolishPanel(ShopPanel, new Color(0.22f, 0.18f, 0.10f, 0.97f), new Color(1f, 0.72f, 0.12f, 0.95f));
+            PolishButton(ShopBackBtn);
+        }
+        if (ShopPanel != null)
+        {
+            SafeSetActive(HallPanel, false);
+            SafeSetActive(MapPanel, false);
+            SafeSetActive(RoomPanel, false);
+            SafeSetActive(InvitePanel, false);
+            SafeSetActive(CreateRoomPanel, false);
+            SetBottomNavSubPanelActive(ShopPanel);
+            SetMainLobbyHitButtonsActive(false);
+            if (MatchStatusText) MatchStatusText.text = "商店：已切换到高级物资与晶石兑换";
+            return;
+        }
+
         var toolkit = UiToolkit;
         if (toolkit != null) { toolkit.OpenToolkitGemStorePanel(); return; }
         if (MatchStatusText) MatchStatusText.text = "钻石商店：高级物资兑换待开放";
@@ -2933,6 +4314,25 @@ public class LobbyManager : MonoBehaviour
 
     void OpenLobbyRankInfo()
     {
+        if (RankPanel == null)
+        {
+            CreateRuntimeRankPanel();
+            PolishPanel(RankPanel, new Color(0.08f, 0.11f, 0.18f, 0.97f), new Color(0.78f, 0.88f, 1f, 0.95f));
+            PolishButton(RankBackBtn);
+        }
+        if (RankPanel != null)
+        {
+            SafeSetActive(HallPanel, false);
+            SafeSetActive(MapPanel, false);
+            SafeSetActive(RoomPanel, false);
+            SafeSetActive(InvitePanel, false);
+            SafeSetActive(CreateRoomPanel, false);
+            SetBottomNavSubPanelActive(RankPanel);
+            SetMainLobbyHitButtonsActive(false);
+            if (MatchStatusText) MatchStatusText.text = "排行榜：赛季功勋与军衔榜单";
+            return;
+        }
+
         var toolkit = UiToolkit;
         if (toolkit != null) { toolkit.OpenToolkitRankPanel(); return; }
         if (MatchStatusText) MatchStatusText.text = "排行榜：赛季榜单正在接入";
@@ -2957,13 +4357,37 @@ public class LobbyManager : MonoBehaviour
         OnGlobalConquest();
     }
 
+    void OpenCampaignPanel()
+    {
+        if (CampaignPanel == null)
+        {
+            CreateRuntimeCampaignPanel();
+            PolishPanel(CampaignPanel, new Color(0.20f, 0.16f, 0.11f, 0.97f), new Color(1f, 0.72f, 0.12f, 0.95f));
+            PolishButton(CampaignBackBtn);
+        }
+        if (CampaignPanel == null)
+        {
+            if (MatchStatusText) MatchStatusText.text = "战役：指挥台初始化失败";
+            return;
+        }
+
+        SafeSetActive(HallPanel, false);
+        SafeSetActive(MapPanel, false);
+        SafeSetActive(RoomPanel, false);
+        SafeSetActive(InvitePanel, false);
+        SafeSetActive(CreateRoomPanel, false);
+        SetBottomNavSubPanelActive(CampaignPanel);
+        SetMainLobbyHitButtonsActive(false);
+        if (MatchStatusText) MatchStatusText.text = "战役：已进入战区行动档案";
+    }
+
     void Start()
     {
         var net = NetworkClient.Instance;
-        string pname = (net != null && !string.IsNullOrEmpty(net.UserName)) ? net.UserName
-            : PlayerPrefs.GetString("current_user", "游客");
+        string pname = GetCommanderDisplayName();
         bool isGuest = net != null ? net.IsGuest : (PlayerPrefs.GetInt("is_guest", 1) == 1);
-        int level = net != null ? net.Level : 1;
+        int level = GetCommanderLevel();
+        string rankTitle = GetCommanderRankTitle(level);
         int wins = net != null ? net.Wins : 0;
         int losses = net != null ? net.Losses : 0;
         LoadTaskClaimedToday();
@@ -2972,6 +4396,7 @@ public class LobbyManager : MonoBehaviour
             EnsureReferenceDynamicOverlay();
 
         Transform lobbyRoot = HallPanel != null ? HallPanel.transform : GameObject.Find("LobbyCanvas")?.transform;
+        ApplyResponsiveHallLayout(true);
         EnsureLobbyVisualChrome(lobbyRoot);
         EnsureCompactFriendListOverlay(lobbyRoot);
         EnsureSceneFriendView();
@@ -2988,7 +4413,8 @@ public class LobbyManager : MonoBehaviour
 
         if (PlayerNameText) PlayerNameText.text = pname + (isGuest ? " [游客]" : "");
         if (PlayerLevelText) PlayerLevelText.text = level.ToString();
-        if (PlayerRankText) PlayerRankText.text = net != null && !string.IsNullOrEmpty(net.RankTitle) ? net.RankTitle : "--";
+        if (PlayerRankText) PlayerRankText.text = rankTitle;
+        ApplySceneCommanderBadgeData(pname, level, rankTitle);
         RefreshPlayerAvatar();
         RefreshTopEconomy();
 
@@ -3079,7 +4505,7 @@ public class LobbyManager : MonoBehaviour
         NavShopBtn?.onClick.AddListener(OpenLobbyShopInfo);
         NavWarehouseBtn?.onClick.AddListener(OpenWarehouse);
         WarehouseBackBtn?.onClick.AddListener(ShowHall);
-        NavCampaignBtn?.onClick.AddListener(OnQuickMatch);
+        NavCampaignBtn?.onClick.AddListener(OpenCampaignPanel);
         NavRankBtn?.onClick.AddListener(OpenLobbyRankInfo);
         NavMailBtn?.onClick.AddListener(OpenLobbyMailInfo);
 
@@ -3403,7 +4829,10 @@ public class LobbyManager : MonoBehaviour
         if (!string.IsNullOrEmpty(j.rankTitle))
             net.SetRankTitle(j.rankTitle);
         RefreshTopEconomy();
-        if (PlayerRankText) PlayerRankText.text = string.IsNullOrEmpty(net.RankTitle) ? "--" : net.RankTitle;
+        int level = GetCommanderLevel();
+        string rankTitle = GetCommanderRankTitle(level);
+        if (PlayerRankText) PlayerRankText.text = rankTitle;
+        ApplySceneCommanderBadgeData(GetCommanderDisplayName(), level, rankTitle);
         var toolkit = UiToolkit;
 
         int taskSlotCount = Mathf.Max(TaskTitleTexts?.Length ?? 0, 3);
@@ -3536,19 +4965,30 @@ public class LobbyManager : MonoBehaviour
 
     void OnTechStart()
     {
+        TryStartTechResearch();
+    }
+
+    bool TryStartTechResearch()
+    {
         var net = NetworkClient.Instance;
-        if (net == null || string.IsNullOrEmpty(net.Token)) return;
+        if (net == null || string.IsNullOrEmpty(net.Token)) return false;
         net.StartTechResearch(j =>
         {
             if (j.success) RefreshLobbyFromServer();
             else if (MatchStatusText) MatchStatusText.text = j.error ?? "无法开始研究";
         });
+        return true;
     }
 
     void OnTechSpeedUp()
     {
+        TrySpeedUpTech();
+    }
+
+    bool TrySpeedUpTech()
+    {
         var net = NetworkClient.Instance;
-        if (net == null || string.IsNullOrEmpty(net.Token)) return;
+        if (net == null || string.IsNullOrEmpty(net.Token)) return false;
         net.SpeedUpTech(j =>
         {
             if (j.success)
@@ -3559,6 +4999,7 @@ public class LobbyManager : MonoBehaviour
             }
             else if (MatchStatusText) MatchStatusText.text = j.error ?? "加速失败";
         });
+        return true;
     }
 
     public void UiToolkitClaimTask(int index)
@@ -3572,14 +5013,14 @@ public class LobbyManager : MonoBehaviour
         if (MatchStatusText) MatchStatusText.text = "任务已刷新";
     }
 
-    public void UiToolkitTechStart()
+    public bool UiToolkitTechStart()
     {
-        OnTechStart();
+        return TryStartTechResearch();
     }
 
-    public void UiToolkitTechSpeedUp()
+    public bool UiToolkitTechSpeedUp()
     {
-        OnTechSpeedUp();
+        return TrySpeedUpTech();
     }
 
     public void UiToolkitOpenFriends()
@@ -3678,6 +5119,8 @@ public class LobbyManager : MonoBehaviour
     // ── Update（匹配计时 + 邀请轮询）────────────────────────────
     void Update()
     {
+        ApplyResponsiveHallLayout();
+
         var net2 = NetworkClient.Instance;
         if (net2 != null && !string.IsNullOrEmpty(net2.Token))
         {
@@ -3764,9 +5207,10 @@ public class LobbyManager : MonoBehaviour
         SafeSetActive(HallPanel, true);
         SafeSetActive(MapPanel, false);
         SafeSetActive(RoomPanel, false);
-        SafeSetActive(WarehousePanel, false);
         SafeSetActive(InvitePanel, false);
         SafeSetActive(CreateRoomPanel, false);
+        SafeSetActive(MatchingOverlay, false);
+        SetBottomNavSubPanelActive(null);
         SetMainLobbyHitButtonsActive(true);
     }
 
@@ -3787,12 +5231,6 @@ public class LobbyManager : MonoBehaviour
     {
         if (WarehousePanel == null)
         {
-            if (!EnableLegacyLobbyScaffolding)
-            {
-                if (MatchStatusText) MatchStatusText.text = "仓库面板未配置";
-                return;
-            }
-
             CreateRuntimeWarehousePanel();
             PolishPanel(WarehousePanel, new Color(0.06f, 0.09f, 0.18f, 0.97f), new Color(1f, 0.72f, 0.12f, 0.95f));
             PolishButton(WarehouseBackBtn);
@@ -3803,7 +5241,7 @@ public class LobbyManager : MonoBehaviour
         SafeSetActive(RoomPanel, false);
         SafeSetActive(InvitePanel, false);
         SafeSetActive(CreateRoomPanel, false);
-        SafeSetActive(WarehousePanel, true);
+        SetBottomNavSubPanelActive(WarehousePanel);
         SetMainLobbyHitButtonsActive(false);
         if (MatchStatusText) MatchStatusText.text = "仓库：查看物资、装备与补给箱";
     }
@@ -3890,13 +5328,6 @@ public class LobbyManager : MonoBehaviour
         selectedMap = BattleMapCatalog.DefaultMapName;
         if (MapPanel == null)
         {
-            if (!EnableLegacyLobbyScaffolding)
-            {
-                if (MatchStatusText) MatchStatusText.text = "正在按默认地图匹配...";
-                StartMatchWithMap(selectedMap);
-                return;
-            }
-
             CreateRuntimeMapPanel();
             PolishPanel(MapPanel, new Color(0.05f, 0.08f, 0.16f, 0.96f), new Color(0.20f, 0.55f, 1f, 0.95f));
             PolishButtonArray(MapButtons);
@@ -3913,8 +5344,8 @@ public class LobbyManager : MonoBehaviour
         }
 
         SafeSetActive(HallPanel, false);
-        SafeSetActive(WarehousePanel, false);
         SafeSetActive(RoomPanel, false);
+        SetBottomNavSubPanelActive(null);
         SafeSetActive(MapPanel, true);
         SetMainLobbyHitButtonsActive(false);
         if (MatchStatusText) MatchStatusText.text = "请选择地图后开始匹配";
@@ -3935,8 +5366,8 @@ public class LobbyManager : MonoBehaviour
         }
 
         SafeSetActive(HallPanel, false);
-        SafeSetActive(WarehousePanel, false);
         SafeSetActive(MapPanel, false);
+        SetBottomNavSubPanelActive(null);
         SafeSetActive(RoomPanel, true);
         SetMainLobbyHitButtonsActive(false);
         RefreshRooms();
@@ -3947,10 +5378,10 @@ public class LobbyManager : MonoBehaviour
         selectedMap = BattleMapCatalog.DefaultMapName;
         SafeSetActive(MapPanel, false);
         SafeSetActive(RoomPanel, false);
-        SafeSetActive(WarehousePanel, false);
         SafeSetActive(InvitePanel, false);
         SafeSetActive(CreateRoomPanel, false);
         SafeSetActive(MatchingOverlay, false);
+        SetBottomNavSubPanelActive(null);
         if (MatchStatusText) MatchStatusText.text = "请选择匹配地图";
     }
 
@@ -3965,10 +5396,10 @@ public class LobbyManager : MonoBehaviour
         SafeSetActive(HallPanel, true);
         SafeSetActive(MapPanel, false);
         SafeSetActive(RoomPanel, false);
-        SafeSetActive(WarehousePanel, false);
         SafeSetActive(InvitePanel, false);
         SafeSetActive(CreateRoomPanel, false);
         SafeSetActive(MatchingOverlay, false);
+        SetBottomNavSubPanelActive(null);
 
         if (MatchStatusText) MatchStatusText.text = $"匹配中：{map}";
         var net = NetworkClient.Instance;
@@ -4137,12 +5568,7 @@ public class LobbyManager : MonoBehaviour
 
     public void UiToolkitOpenWarehouse()
     {
-        SafeSetActive(MapPanel, false);
-        SafeSetActive(RoomPanel, false);
-        SafeSetActive(InvitePanel, false);
-        SafeSetActive(CreateRoomPanel, false);
-        SafeSetActive(WarehousePanel, false);
-        if (MatchStatusText) MatchStatusText.text = "仓库：查看物资、装备与补给箱";
+        OpenWarehouse();
     }
 
     public void UiToolkitLoadWarehouse(Action<string, string[], string[], int[]> callback)
@@ -4160,6 +5586,105 @@ public class LobbyManager : MonoBehaviour
         int[] counts = { 12, 19, 26, 33, 40, 47 };
         if (MatchStatusText) MatchStatusText.text = "仓库：物资清单已同步";
         callback?.Invoke("战备库存已加载", names, descs, counts);
+    }
+
+    public void UiToolkitLoadLeaderboard(Action<string, string, List<SimpleJson>, SimpleJson, string> callback)
+    {
+        var net = NetworkClient.Instance;
+        if (net == null || string.IsNullOrEmpty(net.Token) || net.IsGuest)
+        {
+            var fallback = BuildLocalLeaderboard(net);
+            var current = FindCurrentLeaderboardEntry(fallback, net != null ? net.UserId : null);
+            if (MatchStatusText) MatchStatusText.text = "排行榜：本地赛季榜单已加载";
+            callback?.Invoke("S3 东线军演赛季", "每周一 05:00 结算军功与战绩", fallback, current, "本地榜单");
+            return;
+        }
+
+        net.GetLeaderboard(json =>
+        {
+            if (json != null && json.success)
+            {
+                var rows = json.leaderboard ?? new List<SimpleJson>();
+                SimpleJson currentRow = json.current ?? FindCurrentLeaderboardEntry(rows, net.UserId);
+                if (MatchStatusText) MatchStatusText.text = "排行榜：赛季功勋榜已同步";
+                callback?.Invoke(
+                    string.IsNullOrEmpty(json.season) ? "S3 东线军演赛季" : json.season,
+                    string.IsNullOrEmpty(json.resetText) ? "每周一 05:00 结算军功与战绩" : json.resetText,
+                    rows,
+                    currentRow,
+                    rows.Count > 0 ? $"已加载 {rows.Count} 名指挥官" : "暂无排行数据");
+                return;
+            }
+
+            var fallback = BuildLocalLeaderboard(net);
+            var fallbackCurrent = FindCurrentLeaderboardEntry(fallback, net != null ? net.UserId : null);
+            if (MatchStatusText) MatchStatusText.text = "排行榜：服务器未连接，显示本地榜单";
+            callback?.Invoke("S3 东线军演赛季", "服务器未连接时显示本地演示榜", fallback, fallbackCurrent, "本地榜单");
+        });
+    }
+
+    static SimpleJson FindCurrentLeaderboardEntry(List<SimpleJson> rows, string userId)
+    {
+        if (rows == null || string.IsNullOrEmpty(userId)) return null;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row != null && row.userId == userId)
+                return row;
+            if (row != null && row.id == userId)
+                return row;
+            if (row != null && row.isCurrentBool)
+                return row;
+        }
+        return null;
+    }
+
+    static List<SimpleJson> BuildLocalLeaderboard(NetworkClient net)
+    {
+        string currentName = net != null && !string.IsNullOrWhiteSpace(net.UserName) ? net.UserName : "Commander";
+        int currentLevel = net != null ? Mathf.Max(1, net.Level) : 1;
+        int currentWins = net != null ? Mathf.Max(0, net.Wins) : 0;
+        int currentLosses = net != null ? Mathf.Max(0, net.Losses) : 0;
+        string currentRank = net != null && !string.IsNullOrWhiteSpace(net.RankTitle) ? net.RankTitle : "列兵";
+
+        string currentUserId = net != null && !string.IsNullOrWhiteSpace(net.UserId) ? net.UserId : "local-current";
+        var currentRow = NewLeaderboardRow(1, currentName, currentLevel, currentWins, currentLosses, currentWins * 30 + currentLevel * 8 - currentLosses * 6, currentRank, true);
+        currentRow.id = currentUserId;
+        currentRow.userId = currentUserId;
+
+        var rows = new List<SimpleJson>
+        {
+            currentRow,
+            NewLeaderboardRow(2, "IronWolf", 8, 12, 4, 402, "上尉", false),
+            NewLeaderboardRow(3, "SeaHammer", 6, 9, 3, 318, "中尉", false),
+            NewLeaderboardRow(4, "SkyLancer", 5, 7, 5, 245, "少尉", false),
+            NewLeaderboardRow(5, "DesertFox", 4, 5, 4, 188, "军士", false)
+        };
+        rows.Sort((a, b) =>
+        {
+            int scoreCompare = (b.score ?? 0).CompareTo(a.score ?? 0);
+            if (scoreCompare != 0) return scoreCompare;
+            return (b.wins ?? 0).CompareTo(a.wins ?? 0);
+        });
+        for (int i = 0; i < rows.Count; i++)
+            rows[i].place = i + 1;
+        return rows;
+    }
+
+    static SimpleJson NewLeaderboardRow(int place, string username, int level, int wins, int losses, int score, string rankTitle, bool current)
+    {
+        return new SimpleJson
+        {
+            place = place,
+            username = username,
+            level = level,
+            wins = wins,
+            losses = losses,
+            score = score,
+            rankTitle = rankTitle,
+            status = current ? "我方指挥官" : "赛季活跃",
+            isCurrentBool = current
+        };
     }
 
     public void UiToolkitOpenTech()
@@ -4206,6 +5731,59 @@ public class LobbyManager : MonoBehaviour
         return sb.ToString();
     }
 
+    public List<SimpleJson> UiToolkitBuildNotifications()
+    {
+        var rows = new List<SimpleJson>();
+        if (!string.IsNullOrEmpty(_pendingInviteRoomId))
+        {
+            string from = string.IsNullOrEmpty(_pendingInviteFrom) ? "队友" : _pendingInviteFrom;
+            string mapName = string.IsNullOrEmpty(_pendingInviteMapName) ? "未知地图" : _pendingInviteMapName;
+            rows.Add(new SimpleJson
+            {
+                title = "房间邀请",
+                body = from + " 邀请你加入房间（" + mapName + "）",
+                status = "待处理",
+                action = "查看房间"
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(_latestInboxNotification))
+        {
+            rows.Add(new SimpleJson
+            {
+                title = "邮件同步",
+                body = _latestInboxNotification,
+                status = "已同步",
+                action = "知道了"
+            });
+        }
+
+        string hallStatus = MatchStatusText != null ? MatchStatusText.text : "";
+        if (!string.IsNullOrWhiteSpace(hallStatus) && !string.Equals(hallStatus, _latestInboxNotification, StringComparison.Ordinal))
+        {
+            rows.Add(new SimpleJson
+            {
+                title = "大厅状态",
+                body = hallStatus,
+                status = "实时",
+                action = "查看"
+            });
+        }
+
+        if (rows.Count == 0)
+        {
+            rows.Add(new SimpleJson
+            {
+                title = "指挥部",
+                body = "暂无新消息，指挥部一切正常。",
+                status = "正常",
+                action = "知道了"
+            });
+        }
+
+        return rows;
+    }
+
     public bool UiToolkitHasPendingInvite()
     {
         return !string.IsNullOrEmpty(_pendingInviteRoomId);
@@ -4232,14 +5810,11 @@ public class LobbyManager : MonoBehaviour
             bool selected = i == idx;
             if (img)
             {
-                var sprite = KenneyUiRes.Get(selected ? "button_yellow_header" : "button_blue_header");
-                if (sprite != null)
-                {
-                    img.sprite = sprite;
-                    img.type = Image.Type.Sliced;
-                    img.preserveAspect = false;
-                }
-                img.color = selected ? Color.white : new Color(0.78f, 0.92f, 1f, 0.95f);
+                img.type = Image.Type.Simple;
+                img.preserveAspect = false;
+                img.color = img.sprite != null
+                    ? (selected ? Color.white : new Color(0.78f, 0.92f, 1f, 0.95f))
+                    : new Color(0f, 0f, 0f, 0.004f);
             }
 
             var label = MapButtons[i]?.GetComponentInChildren<Text>(true);
@@ -4282,7 +5857,7 @@ public class LobbyManager : MonoBehaviour
         SafeSetActive(HallPanel, false);
         SafeSetActive(MapPanel, false);
         SafeSetActive(RoomPanel, false);
-        SafeSetActive(WarehousePanel, false);
+        SetBottomNavSubPanelActive(null);
         SafeSetActive(MatchingOverlay, true);
         if (MatchingMapText)   MatchingMapText.text   = "地图：" + map;
         if (MatchingCountText) MatchingCountText.text = "0s";
@@ -4306,7 +5881,12 @@ public class LobbyManager : MonoBehaviour
         SafeSetActive(MatchingOverlay, false);
         NetworkClient.Instance?.CancelMatch();
         if (selectedMap == BattleMapCatalog.GlobalConquestName || MapPanel == null) ShowHall();
-        else { SafeSetActive(HallPanel, false); SafeSetActive(WarehousePanel, false); SafeSetActive(MapPanel, true); }
+        else
+        {
+            SafeSetActive(HallPanel, false);
+            SetBottomNavSubPanelActive(null);
+            SafeSetActive(MapPanel, true);
+        }
     }
 
     // 鈹€鈹€ 濂藉弸鎿嶄綔 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -4768,13 +6348,53 @@ public class LobbyManager : MonoBehaviour
         foreach (var button in buttons) PolishButton(button);
     }
 
+    static bool ShouldKeepButtonTransparent(Button button, Text label)
+    {
+        if (button == null) return true;
+        string name = button.name ?? "";
+        if (name.StartsWith("BackImage", StringComparison.Ordinal))
+            return true;
+        return label == null || string.IsNullOrEmpty(label.text) || label.text.Trim().Length == 0;
+    }
+
+    static string ChoosePolishButtonSkinName(Button button)
+    {
+        string name = button != null && button.name != null ? button.name : "";
+        if (name.IndexOf("Logout", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Surrender", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "button_red_header";
+
+        if (name.IndexOf("Start", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Confirm", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Claim", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Create", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Speed", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "button_yellow_header";
+
+        return "button_blue_header";
+    }
+
+    static bool IsButtonBackgroundSprite(Sprite sprite)
+    {
+        if (sprite == null || string.IsNullOrEmpty(sprite.name)) return false;
+        return sprite.name.IndexOf("button", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     void PolishButton(Button button)
     {
         if (button == null) return;
 
         var image = button.GetComponent<Image>();
+        var label = button.GetComponentInChildren<Text>(true);
+        if (image == null)
+        {
+            image = button.gameObject.AddComponent<Image>();
+            button.targetGraphic = image;
+        }
+
         Color baseColor = image != null ? image.color : new Color(0.16f, 0.32f, 0.58f, 1f);
-        if (image != null && image.color.a <= 0.02f)
+        bool transparentImage = image != null && image.color.a <= 0.02f;
+        if (transparentImage && ShouldKeepButtonTransparent(button, label))
         {
             var transparent = button.colors;
             transparent.normalColor = new Color(1f, 1f, 1f, 0f);
@@ -4787,24 +6407,51 @@ public class LobbyManager : MonoBehaviour
             button.colors = transparent;
             return;
         }
+
+        string skinName = ChoosePolishButtonSkinName(button);
+        Sprite skinSprite = null;
+        bool canReplaceSprite = image != null
+            && !IsExactLobbySprite(image)
+            && (image.sprite == null || transparentImage || IsButtonBackgroundSprite(image.sprite));
+        if (canReplaceSprite)
+        {
+            skinSprite = ResolveRuntimeButtonSkinSprite(skinName);
+            if (skinSprite != null)
+            {
+                image.sprite = skinSprite;
+                image.type = HasSpriteBorder(skinSprite) ? Image.Type.Sliced : Image.Type.Simple;
+                image.preserveAspect = false;
+                image.color = Color.white;
+                baseColor = Color.white;
+            }
+        }
+
+        if (image != null && transparentImage && skinSprite == null)
+        {
+            baseColor = new Color(0.14f, 0.33f, 0.52f, 0.95f);
+            image.color = baseColor;
+        }
+
         if (image != null && image.color.a < 0.9f)
             image.color = new Color(baseColor.r, baseColor.g, baseColor.b, 0.95f);
 
         var colors = button.colors;
-        colors.normalColor = baseColor;
-        colors.highlightedColor = Color.Lerp(baseColor, Color.white, 0.18f);
-        colors.pressedColor = Color.Lerp(baseColor, Color.black, 0.28f);
-        colors.selectedColor = Color.Lerp(baseColor, Color.white, 0.10f);
-        colors.disabledColor = new Color(baseColor.r * 0.55f, baseColor.g * 0.55f, baseColor.b * 0.55f, 0.65f);
+        Color transitionBase = image != null && image.sprite != null ? Color.white : baseColor;
+        colors.normalColor = transitionBase;
+        colors.highlightedColor = Color.Lerp(transitionBase, Color.white, 0.18f);
+        colors.pressedColor = Color.Lerp(transitionBase, Color.black, 0.28f);
+        colors.selectedColor = Color.Lerp(transitionBase, Color.white, 0.10f);
+        colors.disabledColor = new Color(transitionBase.r * 0.55f, transitionBase.g * 0.55f, transitionBase.b * 0.55f, 0.65f);
         colors.colorMultiplier = 1f;
         colors.fadeDuration = 0.08f;
         button.colors = colors;
 
-        var label = button.GetComponentInChildren<Text>(true);
         if (label != null)
         {
             label.fontStyle = FontStyle.Bold;
-            label.color = button == NavWarehouseBtn
+            label.color = skinName == "button_yellow_header"
+                ? new Color(0.10f, 0.11f, 0.07f, 1f)
+                : button == NavWarehouseBtn
                 ? new Color(1f, 0.84f, 0.46f, 1f)
                 : new Color(0.94f, 0.97f, 1f, 1f);
         }

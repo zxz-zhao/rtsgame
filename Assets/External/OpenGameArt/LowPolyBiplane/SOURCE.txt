@@ -1,7 +1,0 @@
-Asset: Low-Poly Biplane
-Source: https://opengameart.org/content/low-poly-biplane
-Download source: https://opengameart.org/sites/default/files/biplane.zip
-Downloaded: 2026-06-02
-License: CC0
-Imported files: biplane.obj, diffuse_512.png
-

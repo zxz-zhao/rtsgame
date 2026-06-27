@@ -2,8 +2,8 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// 全屏 vignette 红光脉冲：告警状态（金币不足/人口爆满/电力超载/基地受攻）激活时屏幕边缘红色脉动。
-/// 由 RTSHUD 在 Update 中调用 SetActive(active, intensity) 控制。
+/// 全屏 vignette 红光脉冲：主基地低血量时屏幕边缘红色脉动。
+/// 由 RTSHUD 在 Update 中调用 SetState(active, intensity) 控制。
 /// </summary>
 public class _HudVignettePulse : MonoBehaviour
 {

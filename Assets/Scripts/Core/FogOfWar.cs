@@ -24,6 +24,9 @@ public class FogOfWar : MonoBehaviour
     private readonly List<Vector3> _vsPos = new List<Vector3>();
     private readonly List<float> _vsR2 = new List<float>();
 
+    /// <summary>
+    /// Returns the singleton fog controller, creating one on demand when scenes do not include it explicitly.
+    /// </summary>
     public static FogOfWar EnsureInstance()
     {
         if (Instance != null) return Instance;
@@ -33,19 +36,31 @@ public class FogOfWar : MonoBehaviour
         return Instance;
     }
 
+    /// <summary>
+    /// Captures the first live singleton instance when this component is loaded.
+    /// </summary>
     void Awake() { if (Instance == null) Instance = this; }
 
+    /// <summary>
+    /// Registers one enemy object as a fog-aware visibility target.
+    /// </summary>
     public static void RegisterEnemy(FogHideable h)
     {
         EnsureInstance();
         if (h != null && !_enemies.Contains(h)) _enemies.Add(h);
     }
 
+    /// <summary>
+    /// Removes an enemy object from fog tracking.
+    /// </summary>
     public static void UnregisterEnemy(FogHideable h)
     {
         _enemies.Remove(h);
     }
 
+    /// <summary>
+    /// Periodically rebuilds player vision sources and re-evaluates every registered enemy target.
+    /// </summary>
     void Update()
     {
         if (!Enabled) { ShowAll(); return; }
@@ -56,6 +71,9 @@ public class FogOfWar : MonoBehaviour
         EvaluateEnemies();
     }
 
+    /// <summary>
+    /// Reconstructs the list of friendly unit and building vision sources used for the current fog pass.
+    /// </summary>
     void RebuildVisionSources()
     {
         _vsPos.Clear(); _vsR2.Clear();
@@ -93,6 +111,9 @@ public class FogOfWar : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Applies fog visibility to every tracked enemy by comparing it against the current friendly vision list.
+    /// </summary>
     void EvaluateEnemies()
     {
         for (int i = _enemies.Count - 1; i >= 0; i--)
@@ -112,6 +133,9 @@ public class FogOfWar : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Forces all tracked enemies visible when fog is disabled.
+    /// </summary>
     void ShowAll()
     {
         for (int i = _enemies.Count - 1; i >= 0; i--)

@@ -1,0 +1,13 @@
+WW2 skin material sources
+
+Aircraft and steel helmet painted metal:
+ambientCG PaintedMetal006, 1K JPG PBR maps, CC0 / public domain.
+https://ambientcg.com/view?id=PaintedMetal006
+
+Infantry camouflage fabric:
+TextureCan Fabric 0001 camouflage vinyl fabric, 1K PBR maps, CC0.
+https://www.texturecan.com/details/11/
+
+Infantry leather boots and webbing:
+ambientCG Leather014, 1K JPG PBR maps, CC0 / public domain.
+https://ambientcg.com/view?id=Leather014

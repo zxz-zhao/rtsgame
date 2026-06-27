@@ -1,13 +1,17 @@
+using System;
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using Object = UnityEngine.Object;
+using Random = UnityEngine.Random;
 
 // AI控制器：多路进攻、动态难度、游斗时间加速升级
 public class AIController : MonoBehaviour
 {
     [Header("AI 基础设置")]
     public int   InitialGold        = 800;
-    public float AttackWaveInterval  = 40f;  // 进攻间隔
+    public float AttackWaveInterval  = 40f;  // attack interval
+    public float InitialAttackDelay  = 180f; // first attack delay
     public int   WaveBaseSize        = 5;    // 基础波次规模
     public int   MaxAliveAIUnits     = 35;   // 场上最多存活 AI 单位数（防卡帧）
     public float GoldInterval        = 5f;
@@ -48,9 +52,9 @@ public class AIController : MonoBehaviour
 
     // 波次单位池（按游斗时长选择）
     static readonly string[] EarlyUnits  = { "Infantry", "Infantry", "Infantry" };
-    static readonly string[] MidUnits    = { "Infantry", "Tank", "Artillery" };
-    static readonly string[] LateUnits   = { "Tank", "Tank", "Artillery", "Flamethrower" };
-    static readonly string[] EliteUnits  = { "Tank", "Artillery", "Flamethrower", "Fighter", "Bomber", "ScoutPlane" };
+    static readonly string[] MidUnits    = { "Infantry", "LightTank", "Artillery" };
+    static readonly string[] LateUnits   = { "LightTank", "MediumTank", "Artillery", "Flamethrower" };
+    static readonly string[] EliteUnits  = { "MediumTank", "HeavyTank", "Artillery", "Flamethrower", "Fighter", "Bomber", "ScoutPlane" };
 
     void Start()
     {
@@ -90,7 +94,7 @@ public class AIController : MonoBehaviour
         }
 
         var list = new List<GameObject>();
-        foreach (var n in new[] { "Infantry", "Artillery", "Tank", "Flamethrower", "Fighter", "Bomber", "ScoutPlane" })
+        foreach (var n in new[] { "Infantry", "Artillery", "LightTank", "MediumTank", "HeavyTank", "Flamethrower", "Fighter", "Bomber", "ScoutPlane" })
         {
             var p = Resources.Load<GameObject>($"Prefabs/{n}_E");
             if (p == null) p = Resources.Load<GameObject>($"Prefabs/{n}");
@@ -211,6 +215,14 @@ public class AIController : MonoBehaviour
         var prefab = Resources.Load<GameObject>($"Prefabs/{prefabBase}_E");
         if (prefab == null) prefab = Resources.Load<GameObject>($"Prefabs/{prefabBase}");
         if (prefab == null && prefabBase != "Airfield") { Debug.LogWarning($"AIController: 找不到 {prefabBase}_E Prefab"); return; }
+        Type buildingType = prefabBase == "Airfield"
+            ? typeof(Airfield)
+            : prefab != null && prefab.GetComponent<RTSBuilding>() != null
+                ? prefab.GetComponent<RTSBuilding>().GetType()
+                : null;
+        if (buildingType != null
+            && !MainBase.CanConstructBuilding(buildingType, string.Empty, false, out _))
+            return;
         // 在基地附近随机选一个偏移位置放置
         Vector3 basePos = aiMainBase.transform.position;
         Vector3 offset  = new Vector3(Random.Range(-20f, 20f), 0f, Random.Range(-20f, 20f));
@@ -254,6 +266,7 @@ public class AIController : MonoBehaviour
         // 随游斗时长缩短间隔（最少到 12s）
         float dynamicInterval = Mathf.Max(12f, AttackWaveInterval - waveCount * 2f);
         waveTimer += Time.deltaTime;
+        if (!IsOffenseUnlocked()) return;
         if (waveTimer < dynamicInterval) return;
         waveTimer = 0f;
 
@@ -293,6 +306,7 @@ public class AIController : MonoBehaviour
     // ── 骚扰攻击（小条随机进攻）──────────────────────
     void UpdateHarass()
     {
+        if (!IsOffenseUnlocked()) return;
         if (waveCount < 3) return;  // 第3波后开始骚扰
         harassTimer += Time.deltaTime;
         if (harassTimer < 20f) return;
@@ -432,8 +446,7 @@ public class AIController : MonoBehaviour
         var go = new GameObject(name);
         go.transform.position = new Vector3(pos.x, 0f, pos.z);
         var collider = go.AddComponent<BoxCollider>();
-        collider.center = new Vector3(0f, 0.35f, 0f);
-        collider.size = new Vector3(10f, 1.0f, 8f);
+        Airfield.ConfigureCollider(collider);
         BuildFallbackAirfieldVisual(go.transform, playerOwned);
         var airfield = go.AddComponent<Airfield>();
         airfield.bPlayerOwned = playerOwned;
@@ -442,13 +455,7 @@ public class AIController : MonoBehaviour
 
     static void BuildFallbackAirfieldVisual(Transform parent, bool playerOwned)
     {
-        Color baseColor = playerOwned ? new Color(0.18f, 0.42f, 0.58f) : new Color(0.55f, 0.30f, 0.18f);
-        Color stripeColor = playerOwned ? new Color(0.60f, 0.88f, 1f) : new Color(1f, 0.55f, 0.35f);
-        AddFallbackPart(parent, "AirfieldPad", new Vector3(0f, 0.04f, 0f), new Vector3(10.2f, 0.08f, 7.8f), baseColor);
-        AddFallbackPart(parent, "RunwayStripe", new Vector3(0f, 0.11f, 0f), new Vector3(0.22f, 0.04f, 6.8f), stripeColor);
-        AddFallbackPart(parent, "ParkingMarkL", new Vector3(-2.7f, 0.12f, -1.4f), new Vector3(1.8f, 0.04f, 0.16f), stripeColor);
-        AddFallbackPart(parent, "ParkingMarkR", new Vector3(2.7f, 0.12f, -1.4f), new Vector3(1.8f, 0.04f, 0.16f), stripeColor);
-        AddFallbackPart(parent, "FuelCrate", new Vector3(3.8f, 0.35f, 2.7f), new Vector3(0.9f, 0.7f, 0.9f), new Color(0.34f, 0.32f, 0.28f));
+        Airfield.BuildVisual(parent, playerOwned, AddFallbackPart);
     }
 
     static void AddFallbackPart(Transform parent, string name, Vector3 localPos, Vector3 localScale, Color color)
@@ -468,6 +475,14 @@ public class AIController : MonoBehaviour
             mat.color = color;
             renderer.sharedMaterial = mat;
         }
+    }
+
+    bool IsOffenseUnlocked()
+    {
+        if (GameManager.Instance == null)
+            return false;
+
+        return GameManager.Instance.GameTime >= Mathf.Max(0f, InitialAttackDelay);
     }
 
     static bool RequiresAirfieldSlot(GameObject prefab)

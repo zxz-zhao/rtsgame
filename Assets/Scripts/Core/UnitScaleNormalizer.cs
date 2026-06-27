@@ -3,6 +3,9 @@ using UnityEngine;
 
 public static class UnitScaleNormalizer
 {
+    /// <summary>
+    /// Uniformly rescales a unit's visual root so it fits within the requested height and footprint targets.
+    /// </summary>
     public static bool Normalize(Transform unitRoot, float targetHeight, float targetFootprint, bool includeAttachmentVisuals = false)
     {
         if (unitRoot == null || targetHeight <= 0f || targetFootprint <= 0f) return false;
@@ -35,6 +38,9 @@ public static class UnitScaleNormalizer
         return true;
     }
 
+    /// <summary>
+    /// Resolves the transform that should be treated as the visual root for scaling operations.
+    /// </summary>
     public static Transform ResolveVisualRoot(Transform unitRoot)
     {
         if (unitRoot == null) return null;
@@ -42,6 +48,9 @@ public static class UnitScaleNormalizer
         return model != null ? model : unitRoot;
     }
 
+    /// <summary>
+    /// Computes the combined renderer bounds for a visual hierarchy while skipping helper and attachment visuals.
+    /// </summary>
     static bool TryComputeRendererBounds(Transform visualRoot, out Bounds bounds, bool includeAttachmentVisuals)
     {
         bounds = new Bounds(visualRoot.position, Vector3.zero);
@@ -69,6 +78,9 @@ public static class UnitScaleNormalizer
         return !first;
     }
 
+    /// <summary>
+    /// Filters out helper nodes and optional attachment visuals that should not affect scale calibration.
+    /// </summary>
     static bool ShouldExclude(Transform transform, bool includeAttachmentVisuals)
     {
         if (transform == null) return true;
@@ -86,6 +98,9 @@ public static class UnitScaleNormalizer
         return false;
     }
 
+    /// <summary>
+    /// Returns whether a named node should always be ignored when calculating presentation bounds.
+    /// </summary>
     static bool IsAlwaysExcluded(string name)
     {
         return name.StartsWith("Label_", StringComparison.OrdinalIgnoreCase)
@@ -111,9 +126,13 @@ public static class UnitScaleNormalizer
             || name.EndsWith("Ring", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Returns whether a named node represents a detachable weapon or muzzle visual that can be ignored.
+    /// </summary>
     static bool IsAttachmentExcluded(string name)
     {
         return name == "KenneyWeapon"
+            || name.StartsWith("InfantryUniform", StringComparison.OrdinalIgnoreCase)
             || name.StartsWith("WW2Shoulder", StringComparison.OrdinalIgnoreCase)
             || name == "ShoulderCannon"
             || name == "Muzzle"

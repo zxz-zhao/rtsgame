@@ -516,19 +516,19 @@ PrefabInstance:
     - target: {fileID: -7511558181221131132, guid: 37aa93080fcebee4097e63a853c314e4, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: 2100000, guid: 3810b1d07a3d38145913578494fcde6e, type: 2}
+      objectReference: {fileID: 2100000, guid: 1560458a611b42c9be9f9112848432b5, type: 2}
     - target: {fileID: -7511558181221131132, guid: 37aa93080fcebee4097e63a853c314e4, type: 3}
       propertyPath: m_Materials.Array.data[1]
       value: 
-      objectReference: {fileID: 2100000, guid: 769dd20b33fb08f41ac502ccbbff602f, type: 2}
+      objectReference: {fileID: 2100000, guid: 95696fd733634ea5bf4849b8b2ae63f7, type: 2}
     - target: {fileID: -7511558181221131132, guid: 37aa93080fcebee4097e63a853c314e4, type: 3}
       propertyPath: m_Materials.Array.data[2]
       value: 
-      objectReference: {fileID: 2100000, guid: 7244c316b39844b4bb5b83a0fe78fe3d, type: 2}
+      objectReference: {fileID: 2100000, guid: c41d5ceaf95f45d7b7600291ebf3df2b, type: 2}
     - target: {fileID: -7511558181221131132, guid: 37aa93080fcebee4097e63a853c314e4, type: 3}
       propertyPath: m_Materials.Array.data[3]
       value: 
-      objectReference: {fileID: 2100000, guid: b0fc6f5b087d23749928a14aca3e05e0, type: 2}
+      objectReference: {fileID: 2100000, guid: 4f7a154de04e46f88ced436fd6b4d80c, type: 2}
     - target: {fileID: 919132149155446097, guid: 37aa93080fcebee4097e63a853c314e4, type: 3}
       propertyPath: m_Name
       value: KenneyAircraft
@@ -609,7 +609,7 @@ PrefabInstance:
     - target: {fileID: -7511558181221131132, guid: bbb9cc8cea90de74080c4d5a6e5d1ca0, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: 2100000, guid: b18b371104a05b84d90ebfafbf02dc82, type: 2}
+      objectReference: {fileID: 2100000, guid: c41d5ceaf95f45d7b7600291ebf3df2b, type: 2}
     - target: {fileID: -2001496963424984923, guid: bbb9cc8cea90de74080c4d5a6e5d1ca0, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
@@ -691,7 +691,7 @@ PrefabInstance:
     - target: {fileID: -7511558181221131132, guid: 5c9c3cf2e3297cf49804a5acba7b00c4, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: 2100000, guid: 8da22e186054e1f4598ea8939364ff92, type: 2}
+      objectReference: {fileID: 2100000, guid: 4f7a154de04e46f88ced436fd6b4d80c, type: 2}
     - target: {fileID: 919132149155446097, guid: 5c9c3cf2e3297cf49804a5acba7b00c4, type: 3}
       propertyPath: m_Name
       value: KenneyDorsalTurret
@@ -769,7 +769,7 @@ PrefabInstance:
     - target: {fileID: -7511558181221131132, guid: 0c6a881b1fe140f41a32700df0d3faa0, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: 2100000, guid: 68b66fc5363e4b444bf8ef508fe93a92, type: 2}
+      objectReference: {fileID: 2100000, guid: 4f7a154de04e46f88ced436fd6b4d80c, type: 2}
     - target: {fileID: 919132149155446097, guid: 0c6a881b1fe140f41a32700df0d3faa0, type: 3}
       propertyPath: m_Name
       value: KenneyBombB
@@ -925,7 +925,7 @@ PrefabInstance:
     - target: {fileID: -7511558181221131132, guid: 0c6a881b1fe140f41a32700df0d3faa0, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: 2100000, guid: 68b66fc5363e4b444bf8ef508fe93a92, type: 2}
+      objectReference: {fileID: 2100000, guid: 4f7a154de04e46f88ced436fd6b4d80c, type: 2}
     - target: {fileID: 919132149155446097, guid: 0c6a881b1fe140f41a32700df0d3faa0, type: 3}
       propertyPath: m_Name
       value: KenneyBombA

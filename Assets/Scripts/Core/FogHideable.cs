@@ -16,16 +16,25 @@ public class FogHideable : MonoBehaviour
 
     public bool IsVisibleForCommands => !_initialized || _wasVisible;
 
+    /// <summary>
+    /// Registers this object with the fog system whenever it becomes active.
+    /// </summary>
     void OnEnable()
     {
         FogOfWar.RegisterEnemy(this);
     }
 
+    /// <summary>
+    /// Unregisters this object from the fog system whenever it is disabled.
+    /// </summary>
     void OnDisable()
     {
         FogOfWar.UnregisterEnemy(this);
     }
 
+    /// <summary>
+    /// Caches renderers and world-space helper UI after the owning unit or building has finished building its visuals.
+    /// </summary>
     void Start()
     {
         // 延迟一帧采集 Renderer 列表（让 RTSUnit/RTSBuilding 完成模型挂载）
@@ -43,6 +52,9 @@ public class FogHideable : MonoBehaviour
         ApplyVisibility();
     }
 
+    /// <summary>
+    /// Records the latest fog visibility state and reapplies it only when the state actually changed.
+    /// </summary>
     public void SetVisible(bool v)
     {
         if (!_initialized) return;
@@ -51,6 +63,9 @@ public class FogHideable : MonoBehaviour
         ApplyVisibility();
     }
 
+    /// <summary>
+    /// Toggles model renderers, minimap markers, and world-space bars to match the current fog state.
+    /// </summary>
     void ApplyVisibility()
     {
         bool v = _wasVisible;

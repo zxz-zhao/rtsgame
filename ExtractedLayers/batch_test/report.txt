@@ -1,0 +1,5 @@
+source=E:\code\c++\UnityRTS\Assets\Resources\LobbyGen\_ref_lobby_master.png
+elements=3
+Match tight=305,378,414,148 export=305,378,414,148 pixels=58857 plate=42920 detail=15937
+Custom tight=305,247,414,136 export=305,247,414,136 pixels=27358 plate=17887 detail=9471
+Conquest tight=305,103,414,136 export=305,103,414,136 pixels=24049 plate=16501 detail=7548

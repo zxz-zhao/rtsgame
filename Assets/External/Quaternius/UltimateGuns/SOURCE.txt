@@ -1,9 +1,0 @@
-Asset: Ultimate Guns Pack
-Author: Quaternius
-Source: https://quaternius.com/packs/ultimategun.html
-Download source: https://drive.google.com/drive/folders/12V-mHNB6bnW2WzgpJfRBQd-TG4pOO3yx
-Downloaded: 2026-06-02
-License: CC0 1.0 Universal
-License URL: https://creativecommons.org/publicdomain/zero/1.0/
-Imported files: FBX models only, plus original License.txt and Preview.jpg in _Source.
-

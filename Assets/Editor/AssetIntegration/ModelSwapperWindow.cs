@@ -63,6 +63,8 @@ public class ModelSwapperWindow : EditorWindow
         ("AirFactory_Model",  "AirFactory_E",  "飞机厂（红）",   Vector3.zero),
         ("TankFactory_Model", "TankFactory_P", "特需厂（蓝）",   Vector3.zero),
         ("TankFactory_Model", "TankFactory_E", "特需厂（红）",   Vector3.zero),
+        ("TankFactory_Model", "ArmorFactory_P","坦克厂（蓝）",   Vector3.zero),
+        ("TankFactory_Model", "ArmorFactory_E","坦克厂（红）",   Vector3.zero),
         ("PowerPlant_Model",  "PowerPlant_P",  "电厂（蓝）",    Vector3.zero),
         ("PowerPlant_Model",  "PowerPlant_E",  "电厂（红）",    Vector3.zero),
         ("GoldMine_Model",    "GoldMine_P",    "金矿（蓝）",    Vector3.zero),
@@ -248,6 +250,7 @@ public class ModelSwapperWindow : EditorWindow
             case "AirFactory":
                 targetHeight = 6f; targetFootprint = 10f; return true;
             case "TankFactory":
+            case "ArmorFactory":
                 targetHeight = 5.5f; targetFootprint = 10f; return true;
             case "PowerPlant":
                 targetHeight = 6f; targetFootprint = 8f; return true;

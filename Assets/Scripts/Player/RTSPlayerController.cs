@@ -46,13 +46,35 @@ public class RTSPlayerController : MonoBehaviour
     private GameObject placementPrefab;
     private bool placementGhostHasValidPosition = false;
     private float placementFootprintRadius = 3f;
+    private Vector2 placementFootprintSize = Vector2.one * 6f;
+    private Vector2 placementFootprintCenter = Vector2.zero;
     private GameObject placementFootprintMarker;
     private Renderer placementFootprintRenderer;
+    private readonly List<Renderer> placementFootprintRenderers = new List<Renderer>();
     private GameObject placementBuildRangeMarker;
     private GameObject placementOccupiedFootprintRoot;
     private readonly List<GameObject> placementOccupiedFootprintMarkers = new List<GameObject>();
     private float placementOccupiedFootprintRefreshTimer = 0f;
-    private const float OccupiedFootprintRefreshInterval = 0.6f;
+    private const float OccupiedFootprintRefreshInterval = 0.25f;
+    private const float PlacementFootprintPadding = 0.55f;
+    private const float NavalYardFrontWaterProbeFactor = 0.68f;
+    private const float NavalYardBackLandProbeFactor = 0.55f;
+    private const float NavalYardWaterProbeInset = 0.2f;
+
+    private struct FootprintBounds2D
+    {
+        public Vector2 Center;
+        public Vector2 Size;
+        public float Radius;
+    }
+
+    private struct FootprintShape2D
+    {
+        public Vector2 Center;
+        public Vector2 AxisX;
+        public Vector2 AxisZ;
+        public Vector2 HalfSize;
+    }
 
     private RTSPlayerState playerState;
 
@@ -208,6 +230,19 @@ public class RTSPlayerController : MonoBehaviour
         if (tap)
         {
             if (bInPlacementMode) { ConfirmPlacement(tapPos); return; }
+            if (_bombingRunPending && selectedUnits.Count > 0)
+            {
+                TryIssueBombingRunAtPointer(tapPos);
+                bBoxSelectArmed = false;
+                return;
+            }
+            if (_attackGroundPending && selectedUnits.Count > 0)
+            {
+                TryIssueAttackGroundAtPointer(tapPos);
+                _attackGroundPending = false;
+                bBoxSelectArmed = false;
+                return;
+            }
             if (_attackMovePending && selectedUnits.Count > 0)
             {
                 TryIssueAttackMoveAtPointer(tapPos);
@@ -220,7 +255,56 @@ public class RTSPlayerController : MonoBehaviour
         }
         if (rightTap)
         {
+            if (_bombingRunPending)
+            {
+                CancelBombingRunMode();
+                return;
+            }
+            if (_attackGroundPending && selectedUnits.Count > 0)
+            {
+                TryIssueAttackGroundAtPointer(tapPos);
+                _attackGroundPending = false;
+                return;
+            }
             HandleRightClick(tapPos);
+        }
+    }
+
+    public void IssueContextCommand(string command, Vector2 screenPos)
+    {
+        if (string.IsNullOrEmpty(command))
+            return;
+
+        if (cam == null) cam = Camera.main;
+        if (cam == null) return;
+
+        switch (command)
+        {
+            case "move":
+                IssueMoveAtPointer(screenPos);
+                break;
+            case "attackMove":
+                TryIssueAttackMoveAtPointer(screenPos);
+                _attackMovePending = false;
+                break;
+            case "attackGround":
+                TryIssueAttackGroundAtPointer(screenPos);
+                _attackGroundPending = false;
+                break;
+            case "patrol":
+                TryIssuePatrolAtPointer(screenPos);
+                _patrolPending = false;
+                break;
+            case "guard":
+                TryIssueGuardAtPointer(screenPos);
+                _guardPending = false;
+                break;
+            case "stop":
+                StopSelectedUnits();
+                break;
+            case "park":
+                ParkSelectedAircraft();
+                break;
         }
     }
 
@@ -304,6 +388,13 @@ public class RTSPlayerController : MonoBehaviour
     void HandleRightClick(Vector2 screenPos)
     {
         if (cam == null) { cam = Camera.main; if (cam == null) return; }
+        RTSHUD.Instance?.HideRightClickCommandMenu();
+        if (_attackGroundPending && selectedUnits.Count > 0)
+        {
+            TryIssueAttackGroundAtPointer(screenPos);
+            _attackGroundPending = false;
+            return;
+        }
         // 攻击移动模式：右键点地图 → 单位攻击移动到该点
         if (_attackMovePending && selectedUnits.Count > 0)
         {
@@ -326,7 +417,6 @@ public class RTSPlayerController : MonoBehaviour
             }
         }
         if (selectedUnits.Count == 0) return;
-        Ray ray = cam.ScreenPointToRay(screenPos);
         // 检查是否点击敌方单位（攻击）
         if (TryPickUnitAtPointer(screenPos, false, out RTSUnit target))
         {
@@ -339,7 +429,25 @@ public class RTSPlayerController : MonoBehaviour
             IssueAttackBuilding(bldg);
             return;
         }
-        // 移动命令
+        if (RTSHUD.Instance != null)
+        {
+            RTSHUD.Instance.ShowRightClickCommandMenu(
+                screenPos,
+                HasSelectedAttackGroundUnits(),
+                HasSelectedAircraft(),
+                command => IssueContextCommand(command, screenPos));
+            return;
+        }
+
+        IssueMoveAtPointer(screenPos);
+    }
+
+    bool IssueMoveAtPointer(Vector2 screenPos)
+    {
+        if (cam == null) cam = Camera.main;
+        if (cam == null) return false;
+
+        Ray ray = cam.ScreenPointToRay(screenPos);
         if (Physics.Raycast(ray, out RaycastHit hit, 600f, GroundLayer))
         {
             Vector3 dest = hit.point;
@@ -347,12 +455,19 @@ public class RTSPlayerController : MonoBehaviour
             _UiClickAudio.PlayConfirm();
             for (int i = 0; i < selectedUnits.Count; i++)
             {
+                RTSUnit unit = selectedUnits[i];
+                if (unit == null || unit.IsDead() || !unit.IsPlayerOwned()) continue;
                 Vector3 offset = GetFormationOffset(i, selectedUnits.Count);
-                selectedUnits[i].ApplyMoveCommand(dest + offset);
-                if (GameNetworkSync.Instance?.IsNetworkGame == true && selectedUnits[i].NetId != 0)
-                    GameNetworkSync.Instance.SendMove(selectedUnits[i].NetId, dest + offset);
+                Vector3 finalDest = dest + offset;
+                unit.ApplyMoveCommand(finalDest);
+                if (GameNetworkSync.Instance?.IsNetworkGame == true && unit.NetId != 0)
+                    GameNetworkSync.Instance.SendMove(unit.NetId, finalDest);
             }
+            return true;
         }
+
+        _UiClickAudio.PlayDeny();
+        return false;
     }
 
     Vector3 GetFormationOffset(int index, int count)
@@ -412,18 +527,70 @@ public class RTSPlayerController : MonoBehaviour
         }
     }
 
+    bool TryIssueAttackGroundAtPointer(Vector2 screenPos)
+    {
+        if (cam == null) cam = Camera.main;
+        if (cam == null) return false;
+
+        Ray ray = cam.ScreenPointToRay(screenPos);
+        if (Physics.Raycast(ray, out RaycastHit hit, 600f, GroundLayer))
+        {
+            IssueAttackGround(hit.point);
+            return true;
+        }
+
+        _UiClickAudio.PlayDeny();
+        return false;
+    }
+
+    void IssueAttackGround(Vector3 point)
+    {
+        int issuedCount = 0;
+        var sync = GameNetworkSync.Instance;
+        for (int i = 0; i < selectedUnits.Count; i++)
+        {
+            RTSUnit unit = selectedUnits[i];
+            if (unit == null || unit.IsDead() || !unit.IsPlayerOwned() || !unit.CanAttackGroundPoint) continue;
+            if (!unit.ApplyAttackGroundCommand(point)) continue;
+
+            if (sync != null && sync.IsNetworkGame && unit.NetId != 0)
+                sync.SendAttackGround(unit.NetId, point);
+            issuedCount++;
+        }
+
+        if (issuedCount <= 0)
+        {
+            RTSHUD.Instance?.ShowAlert("当前选择中没有可炮击地点的单位");
+            _UiClickAudio.PlayDeny();
+            return;
+        }
+
+        SpawnCommandMarker(point, new Color(1f, 0.34f, 0.16f));
+        RTSHUD.Instance?.ShowAlert(issuedCount == 1 ? "已指定炮击地点" : $"{issuedCount} 个单位已指定炮击地点");
+        _UiClickAudio.PlayWarn();
+    }
+
     void IssueAttackUnit(RTSUnit target)
     {
         if (target == null || target.IsDead() || target.IsPlayerOwned()) return;
-        SpawnCommandMarker(target.transform.position, new Color(1f, 0.28f, 0.20f));
-        _UiClickAudio.PlayWarn();
+        int issuedCount = 0;
         foreach (var unit in selectedUnits)
         {
-            if (unit == null || unit.IsDead() || !unit.IsPlayerOwned()) continue;
+            if (unit == null || unit.IsDead() || !unit.IsPlayerOwned() || !unit.CanAttackUnit(target)) continue;
             unit.ApplyAttackCommand(target);
             if (GameNetworkSync.Instance?.IsNetworkGame == true && unit.NetId != 0)
                 GameNetworkSync.Instance.SendAttack(unit.NetId, target.NetId, false);
+            issuedCount++;
         }
+
+        if (issuedCount <= 0)
+        {
+            _UiClickAudio.PlayDeny();
+            return;
+        }
+
+        SpawnCommandMarker(target.transform.position, new Color(1f, 0.28f, 0.20f));
+        _UiClickAudio.PlayWarn();
     }
 
     void IssueAttackBuilding(RTSBuilding building)
@@ -468,6 +635,32 @@ public class RTSPlayerController : MonoBehaviour
             _UiClickAudio.PlayDeny();
         }
 
+        return issued;
+    }
+
+    bool TryIssuePatrolAtPointer(Vector2 screenPos)
+    {
+        if (cam == null) cam = Camera.main;
+        if (cam == null) return false;
+
+        Ray ray = cam.ScreenPointToRay(screenPos);
+        bool issued = false;
+        if (Physics.Raycast(ray, out RaycastHit hit, 600f, GroundLayer))
+        {
+            Vector3 dest = hit.point;
+            SpawnCommandMarker(dest, new Color(0.55f, 0.85f, 1f));
+            foreach (var u in selectedUnits)
+            {
+                if (u == null || u.IsDead() || !u.IsPlayerOwned()) continue;
+                u.ApplyPatrolCommand(u.transform.position, dest);
+                if (GameNetworkSync.Instance?.IsNetworkGame == true && u.NetId != 0)
+                    GameNetworkSync.Instance.SendPatrol(u.NetId, u.transform.position, dest);
+                issued = true;
+            }
+        }
+
+        if (issued) _UiClickAudio.PlayConfirm();
+        else _UiClickAudio.PlayDeny();
         return issued;
     }
 
@@ -600,9 +793,16 @@ public class RTSPlayerController : MonoBehaviour
 
     bool TryConsumePendingPrimaryTap(Vector2 screenPos)
     {
-        if (!_patrolPending && !_guardPending) return false;
+        if (!_attackGroundPending && !_patrolPending && !_guardPending) return false;
         if (cam == null) cam = Camera.main;
         if (cam == null) return true;
+
+        if (_attackGroundPending)
+        {
+            TryIssueAttackGroundAtPointer(screenPos);
+            _attackGroundPending = false;
+            return true;
+        }
 
         if (_guardPending)
         {
@@ -687,6 +887,18 @@ public class RTSPlayerController : MonoBehaviour
     {
         if (Input.GetKeyDown(KeyCode.Escape))
         {
+            if (_bombingRunPending)
+            {
+                CancelBombingRunMode();
+                return;
+            }
+            if (_attackGroundPending || _attackMovePending || _patrolPending || _guardPending)
+            {
+                ClearPendingCommandModes();
+                RTSHUD.Instance?.ShowAlert("已取消当前命令");
+                _UiClickAudio.PlayClick();
+                return;
+            }
             if (bInPlacementMode)
             {
                 CancelPlacement();
@@ -733,6 +945,10 @@ public class RTSPlayerController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.A) && selectedUnits.Count > 0)
         {
             RequestAttackMoveMode();
+        }
+        if (Input.GetKeyDown(KeyCode.B) && selectedUnits.Count > 0)
+        {
+            RequestBombingRunMode();
         }
         // 巡逻：选中单位后按 P → 进入巡逻设置模式，下一次左键点地图设置为 B 点（A 点 = 单位当前位置）
         if (Input.GetKeyDown(KeyCode.P) && selectedUnits.Count > 0)
@@ -900,18 +1116,45 @@ public class RTSPlayerController : MonoBehaviour
     void ClearPendingCommandModes()
     {
         _attackMovePending = false;
+        _attackGroundPending = false;
         _patrolPending = false;
         _guardPending = false;
+        _bombingRunPending = false;
+        _bombingRunHasStartPoint = false;
     }
 
     public void RequestAttackMoveMode()
     {
         if (!RequireSelectedUnits("请先选择单位")) return;
         _attackMovePending = true;
+        _attackGroundPending = false;
         _patrolPending = false;
         _guardPending = false;
         RTSHUD.Instance?.AppendChatMessage("司令部",
             "[攻击移动] 点击目标地点", new Color(1f, 0.62f, 0.28f));
+        _UiClickAudio.PlayClick();
+    }
+
+    public void RequestAttackGroundMode()
+    {
+        if (!RequireSelectedUnits("请先选择单位")) return;
+        if (!HasSelectedAttackGroundUnits())
+        {
+            RTSHUD.Instance?.ShowAlert("请选择坦克、炮兵或驱逐舰等范围攻击单位");
+            _UiClickAudio.PlayDeny();
+            return;
+        }
+
+        _attackGroundPending = true;
+        _attackMovePending = false;
+        _patrolPending = false;
+        _guardPending = false;
+        _bombingRunPending = false;
+        _bombingRunHasStartPoint = false;
+        bBoxSelectArmed = false;
+        RTSHUD.Instance?.AppendChatMessage("司令部",
+            "[炮击地点] 点击要持续攻击的位置", new Color(1f, 0.42f, 0.18f));
+        RTSHUD.Instance?.ShowAlert("炮击地点：点击地面指定持续攻击点");
         _UiClickAudio.PlayClick();
     }
 
@@ -920,6 +1163,7 @@ public class RTSPlayerController : MonoBehaviour
         if (!RequireSelectedUnits("请先选择单位")) return;
         _patrolPending = true;
         _attackMovePending = false;
+        _attackGroundPending = false;
         _guardPending = false;
         RTSHUD.Instance?.AppendChatMessage("司令部",
             "[巡逻] 点击巡逻终点", new Color(0.55f, 0.85f, 1f));
@@ -931,9 +1175,33 @@ public class RTSPlayerController : MonoBehaviour
         if (!RequireSelectedUnits("请先选择单位")) return;
         _guardPending = true;
         _attackMovePending = false;
+        _attackGroundPending = false;
         _patrolPending = false;
         RTSHUD.Instance?.AppendChatMessage("司令部",
             "[守卫] 点击要保护的友军单位", new Color(0.6f, 1f, 0.6f));
+        _UiClickAudio.PlayClick();
+    }
+
+    public void RequestBombingRunMode()
+    {
+        if (!RequireSelectedUnits("请先选择单位")) return;
+        if (!HasSelectedBombers())
+        {
+            RTSHUD.Instance?.ShowAlert("当前选择中没有轰炸机");
+            _UiClickAudio.PlayDeny();
+            return;
+        }
+
+        _bombingRunPending = true;
+        _bombingRunHasStartPoint = false;
+        _attackMovePending = false;
+        _attackGroundPending = false;
+        _patrolPending = false;
+        _guardPending = false;
+        bBoxSelectArmed = false;
+        RTSHUD.Instance?.AppendChatMessage("司令部",
+            "[区域轰炸] 先点轰炸起点，再点终点确定轰炸方向", new Color(1f, 0.72f, 0.28f));
+        RTSHUD.Instance?.ShowAlert("区域轰炸：先点起点，再点终点");
         _UiClickAudio.PlayClick();
     }
 
@@ -965,8 +1233,11 @@ public class RTSPlayerController : MonoBehaviour
     }
 
     public bool IsAttackMovePending => _attackMovePending;
+    public bool IsAttackGroundPending => _attackGroundPending;
     public bool IsPatrolPending => _patrolPending;
     public bool IsGuardPending => _guardPending;
+    public bool IsBombingRunPending => _bombingRunPending;
+    public bool IsBombingRunDirectionPending => _bombingRunPending && _bombingRunHasStartPoint;
     public bool IsInPlacementMode => bInPlacementMode;
     public bool IsBoxSelectArmed => bBoxSelectArmed;
 
@@ -974,8 +1245,14 @@ public class RTSPlayerController : MonoBehaviour
     private bool _patrolPending = false;
     // 攻击移动待设置标志（按 A 后等待右键点地图）
     private bool _attackMovePending = false;
+    // 炮击地点待设置标志（按钮后等待点地图）
+    private bool _attackGroundPending = false;
     // 守卫待设置标志（按 G 后等待左键点友军）
     private bool _guardPending = false;
+    // 区域轰炸待设置标志（按 B 或轰炸按钮后等待两次地面点选）
+    private bool _bombingRunPending = false;
+    private bool _bombingRunHasStartPoint = false;
+    private Vector3 _bombingRunStartPoint = Vector3.zero;
 
     // ── 编队系统（红警/星际经典快捷键）──
     private List<RTSUnit>[] _ctrlGroups = new List<RTSUnit>[5];
@@ -1045,10 +1322,148 @@ public class RTSPlayerController : MonoBehaviour
         if (building) building.SetSelected(true);
     }
 
+    bool HasSelectedBombers()
+    {
+        for (int i = 0; i < selectedUnits.Count; i++)
+            if (selectedUnits[i] is Bomber)
+                return true;
+        return false;
+    }
+
+    public bool HasSelectedAttackGroundUnits()
+    {
+        for (int i = 0; i < selectedUnits.Count; i++)
+        {
+            RTSUnit unit = selectedUnits[i];
+            if (unit != null && !unit.IsDead() && unit.IsPlayerOwned() && unit.CanAttackGroundPoint)
+                return true;
+        }
+        return false;
+    }
+
+    public bool HasSelectedAircraft()
+    {
+        for (int i = 0; i < selectedUnits.Count; i++)
+        {
+            RTSUnit unit = selectedUnits[i];
+            if (unit != null && !unit.IsDead() && unit.IsPlayerOwned() && unit is AirUnit)
+                return true;
+        }
+        return false;
+    }
+
+    void CancelBombingRunMode(bool notify = true)
+    {
+        bool hadPending = _bombingRunPending;
+        _bombingRunPending = false;
+        _bombingRunHasStartPoint = false;
+        if (!notify || !hadPending)
+            return;
+
+        RTSHUD.Instance?.ShowAlert("已取消区域轰炸");
+        _UiClickAudio.PlayClick();
+    }
+
+    bool TryIssueBombingRunAtPointer(Vector2 screenPos)
+    {
+        if (cam == null) cam = Camera.main;
+        if (cam == null) return false;
+
+        Ray ray = cam.ScreenPointToRay(screenPos);
+        if (!Physics.Raycast(ray, out RaycastHit hit, 600f, GroundLayer))
+        {
+            _UiClickAudio.PlayDeny();
+            return false;
+        }
+
+        Vector3 point = hit.point;
+        point.y = 0f;
+
+        if (!_bombingRunHasStartPoint)
+        {
+            _bombingRunStartPoint = point;
+            _bombingRunHasStartPoint = true;
+            SpawnCommandMarker(point, new Color(1f, 0.72f, 0.20f));
+            RTSHUD.Instance?.ShowAlert("已锁定起点，请点击终点确定轰炸方向");
+            RTSHUD.Instance?.AppendChatMessage("司令部",
+                "[区域轰炸] 起点已锁定，请点击终点", new Color(1f, 0.82f, 0.42f));
+            _UiClickAudio.PlayClick();
+            return true;
+        }
+
+        Vector3 delta = point - _bombingRunStartPoint;
+        delta.y = 0f;
+        if (delta.magnitude < 2f)
+        {
+            RTSHUD.Instance?.ShowAlert("终点太近，请重新点击更远一点的方向");
+            _UiClickAudio.PlayDeny();
+            return false;
+        }
+
+        IssueBombingRun(_bombingRunStartPoint, point);
+        return true;
+    }
+
+    void IssueBombingRun(Vector3 start, Vector3 end)
+    {
+        selectedUnits.RemoveAll(u => u == null || u.IsDead() || !u.IsPlayerOwned());
+
+        var bombers = new List<Bomber>(selectedUnits.Count);
+        for (int i = 0; i < selectedUnits.Count; i++)
+        {
+            Bomber bomber = selectedUnits[i] as Bomber;
+            if (bomber != null)
+                bombers.Add(bomber);
+        }
+
+        if (bombers.Count == 0)
+        {
+            CancelBombingRunMode(false);
+            RTSHUD.Instance?.ShowAlert("当前选择中没有可执行轰炸的轰炸机");
+            _UiClickAudio.PlayDeny();
+            return;
+        }
+
+        Vector3 delta = end - start;
+        delta.y = 0f;
+        Vector3 direction = delta.normalized;
+        float length = Mathf.Clamp(delta.magnitude, Bomber.MinBombingRunLength, Bomber.MaxBombingRunLength);
+        Vector3 finalEnd = start + direction * length;
+        Vector3 perpendicular = Vector3.Cross(Vector3.up, direction).normalized;
+
+        var sync = GameNetworkSync.Instance;
+        for (int i = 0; i < bombers.Count; i++)
+        {
+            Bomber bomber = bombers[i];
+            float laneIndex = i - (bombers.Count - 1) * 0.5f;
+            Vector3 laneOffset = perpendicular * (laneIndex * Bomber.BombingRunLaneSpacing);
+            Vector3 laneStart = start + laneOffset;
+            Vector3 laneEnd = finalEnd + laneOffset;
+
+            bomber.ApplyBombingRunCommand(laneStart, laneEnd);
+            if (sync != null && sync.IsNetworkGame && bomber.NetId != 0)
+                sync.SendBombingRun(bomber.NetId, laneStart, laneEnd);
+        }
+
+        SpawnCommandMarker(start, new Color(1f, 0.72f, 0.20f));
+        SpawnCommandMarker(finalEnd, new Color(1f, 0.32f, 0.18f));
+        RTSHUD.Instance?.ShowAlert(bombers.Count == 1 ? "轰炸机开始执行区域轰炸" : $"{bombers.Count}架轰炸机开始执行区域轰炸");
+        RTSHUD.Instance?.AppendChatMessage("司令部",
+            $"[区域轰炸] 已下达轰炸航线（{bombers.Count} 架）", new Color(1f, 0.72f, 0.28f));
+        _UiClickAudio.PlayWarn();
+        CancelBombingRunMode(false);
+    }
+
     // 建筑放置
     public void StartPlacement(GameObject prefab)
     {
         if (prefab == null) return;
+        RTSBuilding template = prefab.GetComponent<RTSBuilding>();
+        if (template != null && !MainBase.CanConstructBuilding(template, true, out string failureReason))
+        {
+            RTSHUD.Instance?.ShowAlert(failureReason);
+            return;
+        }
         if (bInPlacementMode) CancelPlacement(false);
         ClearPendingCommandModes();
         bInPlacementMode = true;
@@ -1056,7 +1471,10 @@ public class RTSPlayerController : MonoBehaviour
         placementGhost = Instantiate(prefab);
         var ghostB = placementGhost.GetComponent<RTSBuilding>();
         if (ghostB != null) ghostB.ApplyDefinitionDefaults();
-        placementFootprintRadius = ComputeFootprintRadius(placementGhost, 3f);
+        FootprintBounds2D ghostFootprint = ComputeFootprintBounds2D(placementGhost, 3f);
+        placementFootprintRadius = ghostFootprint.Radius;
+        placementFootprintSize = ghostFootprint.Size;
+        placementFootprintCenter = ghostFootprint.Center;
         // 禁用幽灵的逻辑组件和碰撞体，只保留视觉；防止注册到 GameManager 或干扰地面射线
         if (ghostB != null) ghostB.enabled = false;
         foreach (var ghostCol in placementGhost.GetComponentsInChildren<Collider>(true))
@@ -1110,7 +1528,10 @@ public class RTSPlayerController : MonoBehaviour
         Ray ray = cam.ScreenPointToRay(screenPos);
         if (Physics.Raycast(ray, out RaycastHit hit, 600f, GroundLayer))
         {
-            placementGhost.transform.position = hit.point;
+            Vector3 placementPos = hit.point;
+            Quaternion placementRot = placementGhost.transform.rotation;
+            AlignNavalYardPlacement(ref placementPos, ref placementRot);
+            placementGhost.transform.SetPositionAndRotation(placementPos, placementRot);
             placementGhostHasValidPosition = true;
             if (!placementGhost.activeSelf) placementGhost.SetActive(true);
             return true;
@@ -1118,20 +1539,85 @@ public class RTSPlayerController : MonoBehaviour
         return false;
     }
 
+    bool IsActivePlacementNavalYard()
+    {
+        return placementGhost != null && placementGhost.GetComponent<NavalYard>() != null;
+    }
+
+    void AlignNavalYardPlacement(ref Vector3 pos, ref Quaternion rot)
+    {
+        if (!IsActivePlacementNavalYard()) return;
+        if (!TryGetNearestWaterDirection(pos, out Vector3 waterDir, out _)) return;
+        rot = Quaternion.LookRotation(waterDir, Vector3.up);
+    }
+
+    bool TryGetNearestWaterDirection(Vector3 pos, out Vector3 waterDir, out float waterDistance)
+    {
+        Vector3 nearestWater = NavalWaterNavigator.ClampPointToWater(pos, NavalYardWaterProbeInset);
+        Vector3 planar = new Vector3(nearestWater.x - pos.x, 0f, nearestWater.z - pos.z);
+        waterDistance = planar.magnitude;
+        if (waterDistance <= 0.1f)
+        {
+            waterDir = Vector3.zero;
+            return false;
+        }
+
+        waterDir = planar / waterDistance;
+        return true;
+    }
+
+    bool IsNavalYardPlacementValid(Vector3 pos, float radius)
+    {
+        if (NavalWaterNavigator.IsPointOnWater(pos, NavalYardWaterProbeInset))
+            return false;
+        if (!TryGetNearestWaterDirection(pos, out Vector3 waterDir, out float waterDistance))
+            return false;
+
+        float frontProbeDistance = Mathf.Max(2.8f, radius * NavalYardFrontWaterProbeFactor);
+        float backProbeDistance = Mathf.Max(2.1f, radius * NavalYardBackLandProbeFactor);
+        float maxShoreDistance = Mathf.Max(frontProbeDistance + 1.2f, radius + 0.75f);
+        if (waterDistance > maxShoreDistance)
+            return false;
+
+        Vector3 frontProbe = pos + waterDir * frontProbeDistance;
+        Vector3 backProbe = pos - waterDir * backProbeDistance;
+        if (!NavalWaterNavigator.IsPointOnWater(frontProbe, NavalYardWaterProbeInset))
+            return false;
+        if (NavalWaterNavigator.IsPointOnWater(backProbe, NavalYardWaterProbeInset))
+            return false;
+
+        return true;
+    }
+
     /// <summary>放置位置是否超出主基地范围，或与现有建筑/地图范围冲突。</summary>
     bool HasPlacementConflict(Vector3 pos)
     {
         float radius = Mathf.Max(2.5f, placementFootprintRadius);
+        FootprintBounds2D activeFootprint = new FootprintBounds2D
+        {
+            Center = placementFootprintCenter,
+            Size = placementFootprintSize,
+            Radius = radius
+        };
+        FootprintShape2D placementShape = BuildFootprintShape(placementGhost != null ? placementGhost.transform : null, activeFootprint, PlacementFootprintPadding);
+        if (placementGhost != null)
+        {
+            Vector2 delta = new Vector2(pos.x - placementGhost.transform.position.x, pos.z - placementGhost.transform.position.z);
+            placementShape.Center += delta;
+        }
+
         if (!IsInsideMainBaseBuildRange(pos, radius)) return true;
+        if (IsActivePlacementNavalYard() && !IsNavalYardPlacementValid(pos, radius)) return true;
 
         var allBuildings = GameManager.Instance?.GetAllBuildings();
         if (allBuildings != null)
         {
             foreach (var b in allBuildings)
             {
-                if (b == null) continue;
-                float otherRadius = ComputeFootprintRadius(b.gameObject, 3f);
-                if (PlanarDistance(b.transform.position, pos) < radius + otherRadius + 0.75f) return true;
+                if (b == null || b.GetHP() <= 0 || b.gameObject == placementGhost) continue;
+                FootprintBounds2D otherFootprint = ComputeFootprintBounds2D(b.gameObject, 3f);
+                FootprintShape2D otherShape = BuildFootprintShape(b.transform, otherFootprint, PlacementFootprintPadding);
+                if (FootprintShapesOverlap(placementShape, otherShape)) return true;
             }
         }
 
@@ -1142,12 +1628,11 @@ public class RTSPlayerController : MonoBehaviour
             {
                 if (u == null || u.IsDead() || u.bFlying) continue;
                 float unitRadius = ComputeFootprintRadius(u.gameObject, 0.9f);
-                if (PlanarDistance(u.transform.position, pos) < radius + unitRadius + 0.35f) return true;
+                if (FootprintOverlapsCircle(placementShape, u.transform.position, unitRadius + 0.25f)) return true;
             }
         }
         // 地图边界（与 SceneBuilder 地面一致）
-        const float halfX = 200f, halfZ = 200f;
-        if (Mathf.Abs(pos.x) + radius > halfX - 4f || Mathf.Abs(pos.z) + radius > halfZ - 4f) return true;
+        if (!IsFootprintInsideMapBounds(placementShape, 4f)) return true;
         return false;
     }
 
@@ -1196,40 +1681,200 @@ public class RTSPlayerController : MonoBehaviour
 
     float ComputeFootprintRadius(GameObject go, float fallback)
     {
+        return ComputeFootprintBounds2D(go, fallback).Radius;
+    }
+
+    FootprintBounds2D ComputeFootprintBounds2D(GameObject go, float fallbackRadius)
+    {
+        float safeFallback = Mathf.Max(0.1f, fallbackRadius);
+        FootprintBounds2D fallback = new FootprintBounds2D
+        {
+            Center = Vector2.zero,
+            Size = Vector2.one * safeFallback * 2f,
+            Radius = safeFallback
+        };
         if (go == null) return fallback;
 
         bool hasBounds = false;
-        Bounds bounds = default;
+        Bounds localBounds = default;
+        Transform root = go.transform;
         foreach (var col in go.GetComponentsInChildren<Collider>(true))
         {
             if (col == null || col.isTrigger) continue;
-            if (IsEmptyBounds(col.bounds)) continue;
-            if (!hasBounds) { bounds = col.bounds; hasBounds = true; }
-            else bounds.Encapsulate(col.bounds);
+            if (ShouldIgnoreFootprintObject(col.gameObject)) continue;
+            if (col is BoxCollider box)
+                IncludeBoxColliderBounds(root, box, ref localBounds, ref hasBounds);
+            else
+                IncludeWorldBoundsAsLocal(root, col.bounds, ref localBounds, ref hasBounds);
         }
 
         if (!hasBounds)
         {
             foreach (var r in go.GetComponentsInChildren<Renderer>(true))
             {
-                if (r == null || r is LineRenderer || r is TrailRenderer) continue;
-                // 排除选中圈/小地图标记/血条等装饰部件，避免高估半径
-                string nm = r.gameObject.name;
-                if (nm.IndexOf("SelectionRing", System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                if (nm.IndexOf("MinimapDot",     System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                if (nm.IndexOf("HealthBar",      System.StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                if (IsEmptyBounds(r.bounds)) continue;
-                if (!hasBounds) { bounds = r.bounds; hasBounds = true; }
-                else bounds.Encapsulate(r.bounds);
+                if (r == null || r is LineRenderer || r is TrailRenderer || r is ParticleSystemRenderer) continue;
+                if (ShouldIgnoreFootprintObject(r.gameObject)) continue;
+                IncludeWorldBoundsAsLocal(root, r.bounds, ref localBounds, ref hasBounds);
             }
         }
 
         if (!hasBounds) return fallback;
-        // 对矩形 footprint 用 sqrt(x²+z²) 取外接圆半径，更精确；取代之前的 max(x,z)
-        float halfX = bounds.extents.x, halfZ = bounds.extents.z;
-        float radius = Mathf.Sqrt(halfX * halfX + halfZ * halfZ);
-        // 下限 1.2m（小建筑也能挤紧），上限 12m（巨型基地）
-        return Mathf.Clamp(radius, 1.2f, 12f);
+
+        float scaleX = Mathf.Max(0.01f, Mathf.Abs(root.lossyScale.x));
+        float scaleZ = Mathf.Max(0.01f, Mathf.Abs(root.lossyScale.z));
+        float worldWidth = Mathf.Clamp(localBounds.size.x * scaleX, 2.4f, 24f);
+        float worldDepth = Mathf.Clamp(localBounds.size.z * scaleZ, 2.4f, 24f);
+        return new FootprintBounds2D
+        {
+            Center = new Vector2(localBounds.center.x, localBounds.center.z),
+            Size = new Vector2(worldWidth / scaleX, worldDepth / scaleZ),
+            Radius = Mathf.Clamp(Mathf.Sqrt(worldWidth * worldWidth + worldDepth * worldDepth) * 0.5f, 1.2f, 12f)
+        };
+    }
+
+    void IncludeBoxColliderBounds(Transform root, BoxCollider box, ref Bounds localBounds, ref bool hasBounds)
+    {
+        if (root == null || box == null) return;
+        Vector3 half = box.size * 0.5f;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 boxLocal = box.center + new Vector3(half.x * ix, half.y * iy, half.z * iz);
+            IncludeLocalFootprintPoint(root.InverseTransformPoint(box.transform.TransformPoint(boxLocal)), ref localBounds, ref hasBounds);
+        }
+    }
+
+    void IncludeWorldBoundsAsLocal(Transform root, Bounds worldBounds, ref Bounds localBounds, ref bool hasBounds)
+    {
+        if (root == null || IsEmptyBounds(worldBounds)) return;
+        Vector3 c = worldBounds.center;
+        Vector3 e = worldBounds.extents;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 worldPoint = new Vector3(c.x + e.x * ix, c.y + e.y * iy, c.z + e.z * iz);
+            IncludeLocalFootprintPoint(root.InverseTransformPoint(worldPoint), ref localBounds, ref hasBounds);
+        }
+    }
+
+    void IncludeLocalFootprintPoint(Vector3 localPoint, ref Bounds localBounds, ref bool hasBounds)
+    {
+        if (!hasBounds)
+        {
+            localBounds = new Bounds(localPoint, Vector3.zero);
+            hasBounds = true;
+        }
+        else
+        {
+            localBounds.Encapsulate(localPoint);
+        }
+    }
+
+    bool ShouldIgnoreFootprintObject(GameObject obj)
+    {
+        if (obj == null) return true;
+        Transform current = obj.transform;
+        while (current != null)
+        {
+            string n = current.name;
+            if (n == "SelectionRing" || n == "MinimapDot" || n == "HPLabel" || n == "HealthBar"
+                || n == "ProductionBar" || n == "ConstructionDust" || n == "ProductionSteam"
+                || n == "DamageSmoke" || n == "PlacementFootprint" || n == "PlacementBuildRange"
+                || n == "MainBaseBuildRange" || n == "HealAura" || n == "GroundDisc" || n == "RangeDisc"
+                || n == "AoEDisc" || n == "FogDisc" || n == "ScanDisc")
+                return true;
+            if (n.StartsWith("Label_", System.StringComparison.OrdinalIgnoreCase)
+                || n.StartsWith("LabelOutline_", System.StringComparison.OrdinalIgnoreCase)
+                || n.StartsWith("OccupiedFootprint_", System.StringComparison.OrdinalIgnoreCase)
+                || n.StartsWith("Footprint", System.StringComparison.OrdinalIgnoreCase))
+                return true;
+            current = current.parent;
+        }
+        return false;
+    }
+
+    FootprintShape2D BuildFootprintShape(Transform owner, FootprintBounds2D bounds, float padding)
+    {
+        if (owner == null)
+        {
+            return new FootprintShape2D
+            {
+                Center = Vector2.zero,
+                AxisX = Vector2.right,
+                AxisZ = Vector2.up,
+                HalfSize = bounds.Size * 0.5f + Vector2.one * padding
+            };
+        }
+
+        Vector3 worldCenter = owner.TransformPoint(new Vector3(bounds.Center.x, 0f, bounds.Center.y));
+        Vector3 scale = owner.lossyScale;
+        return new FootprintShape2D
+        {
+            Center = new Vector2(worldCenter.x, worldCenter.z),
+            AxisX = PlanarAxis(owner.right, Vector2.right),
+            AxisZ = PlanarAxis(owner.forward, Vector2.up),
+            HalfSize = new Vector2(
+                Mathf.Max(0.1f, bounds.Size.x * Mathf.Abs(scale.x) * 0.5f + padding),
+                Mathf.Max(0.1f, bounds.Size.y * Mathf.Abs(scale.z) * 0.5f + padding))
+        };
+    }
+
+    Vector2 PlanarAxis(Vector3 axis, Vector2 fallback)
+    {
+        Vector2 planar = new Vector2(axis.x, axis.z);
+        return planar.sqrMagnitude > 0.0001f ? planar.normalized : fallback;
+    }
+
+    bool FootprintShapesOverlap(FootprintShape2D a, FootprintShape2D b)
+    {
+        return FootprintOverlapsOnAxis(a, b, a.AxisX)
+            && FootprintOverlapsOnAxis(a, b, a.AxisZ)
+            && FootprintOverlapsOnAxis(a, b, b.AxisX)
+            && FootprintOverlapsOnAxis(a, b, b.AxisZ);
+    }
+
+    bool FootprintOverlapsOnAxis(FootprintShape2D a, FootprintShape2D b, Vector2 axis)
+    {
+        if (axis.sqrMagnitude < 0.0001f) return true;
+        axis.Normalize();
+        float distance = Mathf.Abs(Vector2.Dot(b.Center - a.Center, axis));
+        return distance <= FootprintProjectionRadius(a, axis) + FootprintProjectionRadius(b, axis);
+    }
+
+    float FootprintProjectionRadius(FootprintShape2D shape, Vector2 axis)
+    {
+        return Mathf.Abs(Vector2.Dot(axis, shape.AxisX)) * shape.HalfSize.x
+            + Mathf.Abs(Vector2.Dot(axis, shape.AxisZ)) * shape.HalfSize.y;
+    }
+
+    bool FootprintOverlapsCircle(FootprintShape2D footprint, Vector3 circleCenterWorld, float circleRadius)
+    {
+        Vector2 center = new Vector2(circleCenterWorld.x, circleCenterWorld.z);
+        Vector2 diff = center - footprint.Center;
+        float x = Mathf.Abs(Vector2.Dot(diff, footprint.AxisX));
+        float z = Mathf.Abs(Vector2.Dot(diff, footprint.AxisZ));
+        float outsideX = Mathf.Max(0f, x - footprint.HalfSize.x);
+        float outsideZ = Mathf.Max(0f, z - footprint.HalfSize.y);
+        float radius = Mathf.Max(0f, circleRadius);
+        return outsideX * outsideX + outsideZ * outsideZ <= radius * radius;
+    }
+
+    bool IsFootprintInsideMapBounds(FootprintShape2D footprint, float edgeMargin)
+    {
+        const float halfX = 200f, halfZ = 200f;
+        Vector2 x = footprint.AxisX * footprint.HalfSize.x;
+        Vector2 z = footprint.AxisZ * footprint.HalfSize.y;
+        return IsFootprintCornerInsideMap(footprint.Center + x + z, halfX, halfZ, edgeMargin)
+            && IsFootprintCornerInsideMap(footprint.Center + x - z, halfX, halfZ, edgeMargin)
+            && IsFootprintCornerInsideMap(footprint.Center - x + z, halfX, halfZ, edgeMargin)
+            && IsFootprintCornerInsideMap(footprint.Center - x - z, halfX, halfZ, edgeMargin);
+    }
+
+    bool IsFootprintCornerInsideMap(Vector2 p, float halfX, float halfZ, float edgeMargin)
+    {
+        return Mathf.Abs(p.x) <= halfX - edgeMargin && Mathf.Abs(p.y) <= halfZ - edgeMargin;
     }
 
     bool IsEmptyBounds(Bounds bounds)
@@ -1252,12 +1897,101 @@ public class RTSPlayerController : MonoBehaviour
     void CreatePlacementFootprintMarker()
     {
         if (placementGhost == null) return;
-        // 实心底色比圆环更容易判断占地，和施工中的建筑底色区分开。
-        placementFootprintMarker = FxResources.MakeGroundDisc(placementGhost.transform,
-            "PlacementFootprint", placementFootprintRadius,
-            new Color(0.20f, 1f, 0.68f, 0.24f), FxResources.DiscStyle.SoftDisc, 0.055f);
-        placementFootprintRenderer = placementFootprintMarker.GetComponent<Renderer>();
+        placementFootprintRenderers.Clear();
+        Vector2 localSize = ExpandLocalFootprintSize(placementGhost.transform, placementFootprintSize, PlacementFootprintPadding);
+        placementFootprintMarker = CreatePlacementFootprintPlate(placementGhost.transform,
+            "PlacementFootprint", placementFootprintCenter, localSize,
+            new Color(0.13f, 0.92f, 0.62f, 0.30f),
+            new Color(0.58f, 1f, 0.82f, 0.72f), 0.055f, placementFootprintRenderers);
+        placementFootprintRenderer = placementFootprintRenderers.Count > 0 ? placementFootprintRenderers[0] : null;
         SetPlacementFootprintTint(false);
+    }
+
+    Vector2 ExpandLocalFootprintSize(Transform owner, Vector2 localSize, float worldPadding)
+    {
+        if (owner == null)
+            return new Vector2(Mathf.Max(0.4f, localSize.x + worldPadding * 2f),
+                Mathf.Max(0.4f, localSize.y + worldPadding * 2f));
+        Vector3 scale = owner.lossyScale;
+        float scaleX = Mathf.Max(0.01f, Mathf.Abs(scale.x));
+        float scaleZ = Mathf.Max(0.01f, Mathf.Abs(scale.z));
+        return new Vector2(
+            Mathf.Max(0.4f, localSize.x + worldPadding * 2f / scaleX),
+            Mathf.Max(0.4f, localSize.y + worldPadding * 2f / scaleZ));
+    }
+
+    Vector2 GetWorldFootprintSize(Transform owner, Vector2 localSize)
+    {
+        if (owner == null) return localSize;
+        Vector3 scale = owner.lossyScale;
+        return new Vector2(localSize.x * Mathf.Abs(scale.x), localSize.y * Mathf.Abs(scale.z));
+    }
+
+    GameObject CreatePlacementFootprintPlate(Transform parent, string name, Vector2 localCenter, Vector2 size,
+        Color fillColor, Color edgeColor, float yOffset, List<Renderer> rendererCollector = null)
+    {
+        GameObject root = new GameObject(name);
+        if (parent != null)
+        {
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = new Vector3(localCenter.x, yOffset, localCenter.y);
+            root.transform.localRotation = Quaternion.identity;
+        }
+
+        Vector2 safeSize = new Vector2(Mathf.Max(0.4f, size.x), Mathf.Max(0.4f, size.y));
+        Renderer fill = CreatePlacementFootprintQuad(root.transform, "Fill", Vector2.zero, safeSize, fillColor, 0f);
+        if (fill != null) rendererCollector?.Add(fill);
+
+        float edge = Mathf.Clamp(Mathf.Min(safeSize.x, safeSize.y) * 0.045f, 0.10f, 0.28f);
+        float halfX = safeSize.x * 0.5f - edge * 0.5f;
+        float halfZ = safeSize.y * 0.5f - edge * 0.5f;
+        AddPlacementFootprintEdge(root.transform, "EdgeN", new Vector2(0f, halfZ), new Vector2(safeSize.x, edge), edgeColor, rendererCollector);
+        AddPlacementFootprintEdge(root.transform, "EdgeS", new Vector2(0f, -halfZ), new Vector2(safeSize.x, edge), edgeColor, rendererCollector);
+        AddPlacementFootprintEdge(root.transform, "EdgeE", new Vector2(halfX, 0f), new Vector2(edge, safeSize.y), edgeColor, rendererCollector);
+        AddPlacementFootprintEdge(root.transform, "EdgeW", new Vector2(-halfX, 0f), new Vector2(edge, safeSize.y), edgeColor, rendererCollector);
+        return root;
+    }
+
+    void AddPlacementFootprintEdge(Transform parent, string name, Vector2 center, Vector2 size,
+        Color color, List<Renderer> rendererCollector)
+    {
+        Renderer edge = CreatePlacementFootprintQuad(parent, name, center, size, color, 0.006f);
+        if (edge != null) rendererCollector?.Add(edge);
+    }
+
+    Renderer CreatePlacementFootprintQuad(Transform parent, string name, Vector2 center, Vector2 size, Color color, float yOffset)
+    {
+        GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = name;
+        Collider col = quad.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        quad.transform.SetParent(parent, false);
+        quad.transform.localPosition = new Vector3(center.x, yOffset, center.y);
+        quad.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        quad.transform.localScale = new Vector3(Mathf.Max(0.01f, size.x), Mathf.Max(0.01f, size.y), 1f);
+
+        Renderer renderer = quad.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.sharedMaterial = CreatePlacementFootprintMaterial(color);
+        }
+        return renderer;
+    }
+
+    Material CreatePlacementFootprintMaterial(Color color)
+    {
+        Shader shader = Shader.Find("Sprites/Default")
+            ?? Shader.Find("Unlit/Transparent")
+            ?? Shader.Find("Mobile/Particles/Alpha Blended")
+            ?? Shader.Find("Standard");
+        Material mat = new Material(shader);
+        mat.mainTexture = Texture2D.whiteTexture;
+        RendererColorUtil.TrySetColor(mat, color);
+        ApplyTransparentMaterialSettings(mat);
+        mat.renderQueue = 3100;
+        return mat;
     }
 
     void CreatePlacementBuildRangeMarker()
@@ -1323,18 +2057,20 @@ public class RTSPlayerController : MonoBehaviour
             if (placementOccupiedFootprintRoot == null)
                 placementOccupiedFootprintRoot = new GameObject("PlacementOccupiedFootprints");
 
-            Vector3 pos = building.transform.position;
-            float radius = Mathf.Max(2.5f, ComputeFootprintRadius(building.gameObject, 3f));
+            FootprintBounds2D footprint = ComputeFootprintBounds2D(building.gameObject, 3f);
+            Vector2 worldSize = GetWorldFootprintSize(building.transform, footprint.Size);
+            Vector3 markerPos = building.transform.TransformPoint(new Vector3(footprint.Center.x, 0f, footprint.Center.y));
             GameObject markerRoot = new GameObject("OccupiedFootprint_" + building.name);
             markerRoot.transform.SetParent(placementOccupiedFootprintRoot.transform, false);
-            markerRoot.transform.position = new Vector3(pos.x, pos.y + 0.052f, pos.z);
+            markerRoot.transform.SetPositionAndRotation(
+                new Vector3(markerPos.x, building.transform.position.y + 0.052f, markerPos.z),
+                Quaternion.Euler(0f, building.transform.eulerAngles.y, 0f));
 
-            FxResources.MakeGroundDisc(markerRoot.transform,
-                "Fill", radius,
-                GetPlacementOccupiedFootprintFillColor(building), FxResources.DiscStyle.SoftDisc, 0f);
-            FxResources.MakeGroundDisc(markerRoot.transform,
-                "Ring", radius,
-                GetPlacementOccupiedFootprintRingColor(building), FxResources.DiscStyle.MediumRing, 0.003f);
+            CreatePlacementFootprintPlate(markerRoot.transform,
+                "Plate", Vector2.zero,
+                new Vector2(worldSize.x + PlacementFootprintPadding * 2f, worldSize.y + PlacementFootprintPadding * 2f),
+                GetPlacementOccupiedFootprintFillColor(building),
+                GetPlacementOccupiedFootprintRingColor(building), 0f);
 
             placementOccupiedFootprintMarkers.Add(markerRoot);
         }
@@ -1342,27 +2078,32 @@ public class RTSPlayerController : MonoBehaviour
 
     bool ShouldShowPlacementOccupiedFootprint(RTSBuilding building)
     {
-        return building != null
-            && building.bPlayerOwned
-            && building.GetHP() > 0;
+        if (building == null || building.GetHP() <= 0) return false;
+        if (building.gameObject == placementGhost) return false;
+        FogHideable fog = building.GetComponent<FogHideable>();
+        return fog == null || fog.IsVisibleForCommands;
     }
 
     Color GetPlacementOccupiedFootprintFillColor(RTSBuilding building)
     {
         if (building != null && building.bUnderConstruction)
-            return new Color(0.92f, 0.56f, 0.18f, 0.22f);
+            return new Color(0.95f, 0.58f, 0.16f, 0.30f);
+        if (building != null && !building.bPlayerOwned)
+            return new Color(1f, 0.22f, 0.12f, 0.22f);
         if (building != null && building.bIsMainBase)
-            return new Color(0.38f, 0.58f, 1f, 0.30f);
-        return new Color(0.45f, 0.38f, 1f, 0.26f);
+            return new Color(0.30f, 0.62f, 1f, 0.32f);
+        return new Color(0.38f, 0.34f, 1f, 0.28f);
     }
 
     Color GetPlacementOccupiedFootprintRingColor(RTSBuilding building)
     {
         if (building != null && building.bUnderConstruction)
-            return new Color(1f, 0.82f, 0.42f, 0.44f);
+            return new Color(1f, 0.84f, 0.42f, 0.72f);
+        if (building != null && !building.bPlayerOwned)
+            return new Color(1f, 0.48f, 0.34f, 0.62f);
         if (building != null && building.bIsMainBase)
-            return new Color(0.72f, 0.88f, 1f, 0.52f);
-        return new Color(0.78f, 0.72f, 1f, 0.46f);
+            return new Color(0.68f, 0.90f, 1f, 0.70f);
+        return new Color(0.78f, 0.72f, 1f, 0.62f);
     }
 
     void DestroyPlacementOccupiedFootprintMarkers()
@@ -1380,11 +2121,20 @@ public class RTSPlayerController : MonoBehaviour
 
     void SetPlacementFootprintTint(bool conflict)
     {
-        if (placementFootprintRenderer == null) return;
-        var mat = placementFootprintRenderer.material;
-        RendererColorUtil.TrySetColor(mat, conflict
-            ? new Color(1f, 0.16f, 0.10f, 0.34f)
-            : new Color(0.20f, 1f, 0.68f, 0.24f));
+        if (placementFootprintRenderers.Count == 0) return;
+        Color fill = conflict
+            ? new Color(1f, 0.12f, 0.08f, 0.36f)
+            : new Color(0.13f, 0.92f, 0.62f, 0.30f);
+        Color edge = conflict
+            ? new Color(1f, 0.34f, 0.24f, 0.82f)
+            : new Color(0.58f, 1f, 0.82f, 0.72f);
+        for (int i = 0; i < placementFootprintRenderers.Count; i++)
+        {
+            Renderer renderer = placementFootprintRenderers[i];
+            if (renderer == null) continue;
+            Material mat = renderer.material;
+            RendererColorUtil.TrySetColor(mat, i == 0 ? fill : edge);
+        }
     }
 
     void ApplyTransparentMaterialSettings(Material mat)
@@ -1416,6 +2166,11 @@ public class RTSPlayerController : MonoBehaviour
             RTSHUD.Instance?.ShowAlert(TryGetPlayerMainBase(out _) ? "必须在主基地建造范围内" : "主基地已失效，无法建造");
             return;
         }
+        if (IsActivePlacementNavalYard() && !IsNavalYardPlacementValid(pos, footprintRadius))
+        {
+            RTSHUD.Instance?.ShowAlert("船坞必须紧贴岸线建造");
+            return;
+        }
         // 拦截冲突位置（红色幽灵不允许确认）
         if (HasPlacementConflict(pos))
         {
@@ -1423,17 +2178,24 @@ public class RTSPlayerController : MonoBehaviour
             return;
         }
         RTSBuilding ghost = placementGhost.GetComponent<RTSBuilding>();
+        if (ghost != null && !MainBase.CanConstructBuilding(ghost, true, out string limitFailureReason))
+        {
+            RTSHUD.Instance?.ShowAlert(limitFailureReason);
+            return;
+        }
         if (ghost != null && playerState != null)
         {
             if (!playerState.SpendGold(ghost.GoldCost)) { RTSHUD.Instance?.ShowAlert("金币不足，无法建造！"); return; }
         }
+        Quaternion rot = placementGhost.transform.rotation;
         Destroy(placementGhost);
         placementGhost = null;
         placementFootprintMarker = null;
         placementFootprintRenderer = null;
+        placementFootprintRenderers.Clear();
         DestroyPlacementBuildRangeMarker();
         DestroyPlacementOccupiedFootprintMarkers();
-        GameObject building = Instantiate(placementPrefab, pos, Quaternion.identity);
+        GameObject building = Instantiate(placementPrefab, pos, rot);
         building.SetActive(true);
         RTSBuilding b = building.GetComponent<RTSBuilding>();
         if (b != null)
@@ -1444,13 +2206,19 @@ public class RTSPlayerController : MonoBehaviour
             {
                 int nid = NetIdTracker.NextLocalId();
                 NetIdTracker.RegisterBuilding(nid, b);
-                GameNetworkSync.Instance.SendPlace(placementPrefab.name.Replace("_P","").Replace("(Clone)",""), pos, nid);
+                GameNetworkSync.Instance.SendPlace(
+                    placementPrefab.name.Replace("_P","").Replace("(Clone)",""),
+                    pos,
+                    nid,
+                    rot.eulerAngles.y);
             }
         }
         bInPlacementMode = false;
         placementPrefab = null;
         placementGhostHasValidPosition = false;
         placementFootprintRadius = 3f;
+        placementFootprintSize = Vector2.one * 6f;
+        placementFootprintCenter = Vector2.zero;
     }
 
     public void CancelPlacement()
@@ -1463,6 +2231,7 @@ public class RTSPlayerController : MonoBehaviour
         if (placementGhost != null) { Destroy(placementGhost); placementGhost = null; }
         placementFootprintMarker = null;
         placementFootprintRenderer = null;
+        placementFootprintRenderers.Clear();
         DestroyPlacementBuildRangeMarker();
         DestroyPlacementOccupiedFootprintMarkers();
         bool wasInPlacementMode = bInPlacementMode;
@@ -1470,6 +2239,8 @@ public class RTSPlayerController : MonoBehaviour
         placementPrefab = null;
         placementGhostHasValidPosition = false;
         placementFootprintRadius = 3f;
+        placementFootprintSize = Vector2.one * 6f;
+        placementFootprintCenter = Vector2.zero;
         if (notify && wasInPlacementMode)
         {
             _UiClickAudio.PlayWarn();
