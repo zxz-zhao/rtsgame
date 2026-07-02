@@ -1,0 +1,17 @@
+{
+  "command": "%APPDATA%\\npm\\claude.cmd",
+  "shell": "auto",
+  "arguments": [],
+  "inheritEnvironment": true,
+  "workingDirectory": "${CLAUDE_WRAPPER_CONFIG_DIR}",
+  "apiBaseUrl": "https://api.anthropic.com",
+  "apiBaseUrlEnvName": "ANTHROPIC_BASE_URL",
+  "apiKey": "",
+  "apiKeyEnvName": "ANTHROPIC_API_KEY",
+  "model": "",
+  "modelEnvName": "ANTHROPIC_MODEL",
+  "environment": {
+    "CLAUDE_REAL_BIN": "${CLAUDE_BUNDLED_PATH}"
+  },
+  "logFile": "%LOCALAPPDATA%\\ClaudeCodeProcessWrapper\\wrapper.log"
+}

@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://1i1kng84t6de"
+path="res://.godot/imported/rock-flat.obj-64d646f1e94b16f91761d54e4db6b4dd.mesh"
+
+[deps]
+
+files=["res://.godot/imported/rock-flat.obj-64d646f1e94b16f91761d54e4db6b4dd.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/SurvivalKit/Models/OBJ format/rock-flat.obj"
+dest_files=["res://.godot/imported/rock-flat.obj-64d646f1e94b16f91761d54e4db6b4dd.mesh", "res://.godot/imported/rock-flat.obj-64d646f1e94b16f91761d54e4db6b4dd.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

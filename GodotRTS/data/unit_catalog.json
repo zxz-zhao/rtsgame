@@ -1,0 +1,42 @@
+{
+  "units": {
+    "infantry": {
+      "displayName": "Infantry",
+      "health": 75,
+      "moveSpeed": 5.5,
+      "attackDamage": 8,
+      "attackRange": 5
+    },
+    "tank": {
+      "displayName": "Tank",
+      "health": 160,
+      "moveSpeed": 7,
+      "attackDamage": 18,
+      "attackRange": 7.5
+    },
+    "artillery": {
+      "displayName": "Artillery",
+      "health": 110,
+      "moveSpeed": 4.5,
+      "attackDamage": 36,
+      "attackRange": 14
+    }
+  },
+  "buildings": {
+    "main_base": {
+      "displayName": "Main Base",
+      "health": 900,
+      "produces": ["infantry", "tank"]
+    },
+    "barracks": {
+      "displayName": "Barracks",
+      "health": 450,
+      "produces": ["infantry"]
+    },
+    "tank_factory": {
+      "displayName": "Tank Factory",
+      "health": 600,
+      "produces": ["tank", "artillery"]
+    }
+  }
+}

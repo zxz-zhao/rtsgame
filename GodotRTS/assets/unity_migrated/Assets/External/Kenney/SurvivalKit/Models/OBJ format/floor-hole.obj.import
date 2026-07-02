@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://bqbofcsj3fu8w"
+path="res://.godot/imported/floor-hole.obj-41c21ac79cbec8defa00e96e64e1453c.mesh"
+
+[deps]
+
+files=["res://.godot/imported/floor-hole.obj-41c21ac79cbec8defa00e96e64e1453c.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/SurvivalKit/Models/OBJ format/floor-hole.obj"
+dest_files=["res://.godot/imported/floor-hole.obj-41c21ac79cbec8defa00e96e64e1453c.mesh", "res://.godot/imported/floor-hole.obj-41c21ac79cbec8defa00e96e64e1453c.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

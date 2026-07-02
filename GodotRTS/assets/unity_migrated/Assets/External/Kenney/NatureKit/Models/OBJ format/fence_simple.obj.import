@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://cabf4wm2l8bxd"
+path="res://.godot/imported/fence_simple.obj-f93ae65220f5693bb0a03de430f5e3b2.mesh"
+
+[deps]
+
+files=["res://.godot/imported/fence_simple.obj-f93ae65220f5693bb0a03de430f5e3b2.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/OBJ format/fence_simple.obj"
+dest_files=["res://.godot/imported/fence_simple.obj-f93ae65220f5693bb0a03de430f5e3b2.mesh", "res://.godot/imported/fence_simple.obj-f93ae65220f5693bb0a03de430f5e3b2.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

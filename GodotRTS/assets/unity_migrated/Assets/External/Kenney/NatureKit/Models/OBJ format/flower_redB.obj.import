@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://b4d4jye8mq8wb"
+path="res://.godot/imported/flower_redB.obj-94bcb2e4be5e123958d7ab0eea9ebd87.mesh"
+
+[deps]
+
+files=["res://.godot/imported/flower_redB.obj-94bcb2e4be5e123958d7ab0eea9ebd87.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/OBJ format/flower_redB.obj"
+dest_files=["res://.godot/imported/flower_redB.obj-94bcb2e4be5e123958d7ab0eea9ebd87.mesh", "res://.godot/imported/flower_redB.obj-94bcb2e4be5e123958d7ab0eea9ebd87.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

@@ -39,6 +39,13 @@ hs_err_pid*.log
 *.jpeg
 *.webp
 *.xml
+!GodotRTS/**/*.png
+!GodotRTS/**/*.jpg
+!GodotRTS/**/*.jpeg
+!GodotRTS/**/*.webp
+!GodotRTS/**/*.xml
+!GodotRTS/**/*.csproj
+!GodotRTS/**/*.sln
 !Assets/**/*.png
 !Assets/**/*.jpg
 !Assets/**/*.jpeg

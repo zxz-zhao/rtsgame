@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://b5mk1gqk1e4c6"
+path="res://.godot/imported/bridge_side_wood.obj-611bd6c605fcb30b67d97454783961fe.mesh"
+
+[deps]
+
+files=["res://.godot/imported/bridge_side_wood.obj-611bd6c605fcb30b67d97454783961fe.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/OBJ format/bridge_side_wood.obj"
+dest_files=["res://.godot/imported/bridge_side_wood.obj-611bd6c605fcb30b67d97454783961fe.mesh", "res://.godot/imported/bridge_side_wood.obj-611bd6c605fcb30b67d97454783961fe.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

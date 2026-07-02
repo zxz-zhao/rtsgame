@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://qdgbc2yc3rro"
+path="res://.godot/imported/path_stoneCircle.obj-07b6f8d9b58a20177e3a01741ea7e5cc.mesh"
+
+[deps]
+
+files=["res://.godot/imported/path_stoneCircle.obj-07b6f8d9b58a20177e3a01741ea7e5cc.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/OBJ format/path_stoneCircle.obj"
+dest_files=["res://.godot/imported/path_stoneCircle.obj-07b6f8d9b58a20177e3a01741ea7e5cc.mesh", "res://.godot/imported/path_stoneCircle.obj-07b6f8d9b58a20177e3a01741ea7e5cc.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

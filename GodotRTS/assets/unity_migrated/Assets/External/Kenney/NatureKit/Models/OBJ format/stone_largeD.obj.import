@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://b112ldnh3qjxf"
+path="res://.godot/imported/stone_largeD.obj-df2d7d8fdc3b6f3f08938b08d57b3a95.mesh"
+
+[deps]
+
+files=["res://.godot/imported/stone_largeD.obj-df2d7d8fdc3b6f3f08938b08d57b3a95.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/OBJ format/stone_largeD.obj"
+dest_files=["res://.godot/imported/stone_largeD.obj-df2d7d8fdc3b6f3f08938b08d57b3a95.mesh", "res://.godot/imported/stone_largeD.obj-df2d7d8fdc3b6f3f08938b08d57b3a95.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

@@ -1,0 +1,36 @@
+[gd_scene load_steps=5 format=3 uid="uid://godotrtsmapstudio"]
+
+[ext_resource type="Script" path="res://scripts/map/BattleMapRenderer.cs" id="1_map_renderer"]
+[ext_resource type="Resource" path="res://data/maps/simulation_sandbox.tres" id="2_map_resource"]
+
+[node name="MapStudio" type="Node3D"]
+
+[node name="MapRenderer" type="Node3D" parent="."]
+script = ExtResource("1_map_renderer")
+PreviewMapName = "Simulation Sandbox"
+AuthoredMapResource = ExtResource("2_map_resource")
+ShowSpawnMarkers = true
+TintImportedAssets = false
+LivePreviewInEditor = true
+CameraPath = NodePath("../CameraRig/Camera3D")
+SunPath = NodePath("../Sun")
+
+[node name="TerrainRoot" type="Node3D" parent="."]
+
+[node name="GridMap" type="GridMap" parent="."]
+cell_size = Vector3(4, 2, 4)
+
+[node name="PropsRoot" type="Node3D" parent="."]
+
+[node name="VegetationRoot" type="Node3D" parent="."]
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.872665, -0.436332, 0)
+light_energy = 2.1
+
+[node name="CameraRig" type="Node3D" parent="."]
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.866025, 0, -0.866025, 0.5, 0, 70, 86)
+current = true
+fov = 44.0

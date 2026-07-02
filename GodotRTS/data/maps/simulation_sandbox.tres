@@ -1,0 +1,138 @@
+[gd_resource type="Resource" script_class="BattleMapResource" load_steps=16 format=3]
+
+[ext_resource type="Script" path="res://scripts/map/resources/BattleMapResource.cs" id="1_map"]
+[ext_resource type="Script" path="res://scripts/map/resources/MapSpawnPointResource.cs" id="2_spawn"]
+[ext_resource type="Script" path="res://scripts/map/resources/MapStripResource.cs" id="3_strip"]
+[ext_resource type="Script" path="res://scripts/map/resources/MapPatchResource.cs" id="4_patch"]
+
+[sub_resource type="Resource" id="Spawn_PlayerBase"]
+script = ExtResource("2_spawn")
+Label = "PlayerBase"
+Position = Vector3(-115, 0, -115)
+Yaw = 45.0
+IsPlayer = true
+TeamIndex = 0
+
+[sub_resource type="Resource" id="Spawn_PlayerForward"]
+script = ExtResource("2_spawn")
+Label = "PlayerForward"
+Position = Vector3(-82, 0, -72)
+Yaw = 45.0
+IsPlayer = true
+TeamIndex = 0
+
+[sub_resource type="Resource" id="Spawn_EnemyBase"]
+script = ExtResource("2_spawn")
+Label = "EnemyBase"
+Position = Vector3(115, 0, 115)
+Yaw = -135.0
+IsPlayer = false
+TeamIndex = 1
+
+[sub_resource type="Resource" id="Spawn_EnemyForward"]
+script = ExtResource("2_spawn")
+Label = "EnemyForward"
+Position = Vector3(82, 0, 72)
+Yaw = -135.0
+IsPlayer = false
+TeamIndex = 1
+
+[sub_resource type="Resource" id="Road_MainLane"]
+script = ExtResource("3_strip")
+Label = "MainLane"
+Center = Vector3(0, 0, 0)
+Size = Vector2(16, 330)
+Angle = 45.0
+
+[sub_resource type="Resource" id="Road_CrossLane"]
+script = ExtResource("3_strip")
+Label = "CrossLane"
+Center = Vector3(0, 0, 0)
+Size = Vector2(12, 210)
+Angle = -45.0
+
+[sub_resource type="Resource" id="Water_InlandRiverWest"]
+script = ExtResource("3_strip")
+Label = "InlandRiverWest"
+Center = Vector3(-74, 0, 64)
+Size = Vector2(18, 132)
+Angle = 66.0
+
+[sub_resource type="Resource" id="Water_InlandRiverEast"]
+script = ExtResource("3_strip")
+Label = "InlandRiverEast"
+Center = Vector3(74, 0, -64)
+Size = Vector2(18, 132)
+Angle = 66.0
+
+[sub_resource type="Resource" id="Patch_PlayerBasePad"]
+script = ExtResource("4_patch")
+Label = "PlayerBasePad"
+Center = Vector3(-115, 0, -115)
+Size = Vector2(82, 82)
+Angle = 0.0
+PaletteIndex = 2
+
+[sub_resource type="Resource" id="Patch_EnemyBasePad"]
+script = ExtResource("4_patch")
+Label = "EnemyBasePad"
+Center = Vector3(115, 0, 115)
+Size = Vector2(82, 82)
+Angle = 0.0
+PaletteIndex = 3
+
+[sub_resource type="Resource" id="Patch_CentralClearing"]
+script = ExtResource("4_patch")
+Label = "CentralClearing"
+Center = Vector3(0, 0, 0)
+Size = Vector2(70, 60)
+Angle = 45.0
+PaletteIndex = 1
+
+[sub_resource type="Resource" id="Patch_WestForest"]
+script = ExtResource("4_patch")
+Label = "WestForest"
+Center = Vector3(-118, 0, 34)
+Size = Vector2(72, 142)
+Angle = -8.0
+PaletteIndex = 0
+
+[sub_resource type="Resource" id="Patch_EastForest"]
+script = ExtResource("4_patch")
+Label = "EastForest"
+Center = Vector3(118, 0, -34)
+Size = Vector2(72, 142)
+Angle = -8.0
+PaletteIndex = 0
+
+[resource]
+script = ExtResource("1_map")
+MapName = "Simulation Sandbox"
+Description = "Starter authored map for Terrain3D, realistic vegetation, custom spawn points, and modular RTS layout work."
+RandomSeed = 7601
+GroundColor = Color(0.25, 0.36, 0.22, 1)
+RoadColor = Color(0.19, 0.2, 0.2, 1)
+RoadEdgeColor = Color(0.4, 0.38, 0.31, 1)
+WaterColor = Color(0.02, 0.24, 0.48, 1)
+PatchAColor = Color(0.18, 0.28, 0.16, 1)
+PatchBColor = Color(0.32, 0.35, 0.24, 1)
+PlayerBasePadColor = Color(0.43, 0.45, 0.46, 1)
+EnemyBasePadColor = Color(0.42, 0.41, 0.39, 1)
+RockColor = Color(0.42, 0.43, 0.4, 1)
+FoliageColor = Color(0.1, 0.34, 0.13, 1)
+TrunkColor = Color(0.24, 0.15, 0.08, 1)
+WallColor = Color(0.3, 0.36, 0.3, 1)
+RuinColor = Color(0.46, 0.42, 0.35, 1)
+SkyColor = Color(0.56, 0.71, 0.78, 1)
+FogColor = Color(0.58, 0.67, 0.64, 1)
+AmbientSkyColor = Color(0.61, 0.68, 0.64, 1)
+AmbientEquatorColor = Color(0.38, 0.43, 0.34, 1)
+AmbientGroundColor = Color(0.19, 0.21, 0.17, 1)
+FogStart = 220.0
+FogEnd = 520.0
+RockClusters = PackedVector3Array(-146, 0, 78, -104, 0, 64, 146, 0, -78, 104, 0, -64, -18, 0, 126, 18, 0, -126)
+TreePositions = PackedVector3Array(-132, 0, 36, -122, 0, -12, 132, 0, -36, 122, 0, 12, -70, 0, 142, 70, 0, -142, -24, 0, 148, 24, 0, -148)
+SpawnPoints = [SubResource("Spawn_PlayerBase"), SubResource("Spawn_PlayerForward"), SubResource("Spawn_EnemyBase"), SubResource("Spawn_EnemyForward")]
+Roads = [SubResource("Road_MainLane"), SubResource("Road_CrossLane")]
+Waters = [SubResource("Water_InlandRiverWest"), SubResource("Water_InlandRiverEast")]
+Patches = [SubResource("Patch_PlayerBasePad"), SubResource("Patch_EnemyBasePad"), SubResource("Patch_CentralClearing"), SubResource("Patch_WestForest"), SubResource("Patch_EastForest")]

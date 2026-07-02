@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://dwnp1nbyefs2k"
+path="res://.godot/imported/cliff_blockHalf_rock.obj-9ee3946d888b6ffe125f0a46fcc54caa.mesh"
+
+[deps]
+
+files=["res://.godot/imported/cliff_blockHalf_rock.obj-9ee3946d888b6ffe125f0a46fcc54caa.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/OBJ format/cliff_blockHalf_rock.obj"
+dest_files=["res://.godot/imported/cliff_blockHalf_rock.obj-9ee3946d888b6ffe125f0a46fcc54caa.mesh", "res://.godot/imported/cliff_blockHalf_rock.obj-9ee3946d888b6ffe125f0a46fcc54caa.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

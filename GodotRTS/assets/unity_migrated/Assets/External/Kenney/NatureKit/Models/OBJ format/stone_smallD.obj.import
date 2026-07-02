@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://dvjj6r6k0xgcv"
+path="res://.godot/imported/stone_smallD.obj-3be6e596cf94d2bc931bd84aca456e4d.mesh"
+
+[deps]
+
+files=["res://.godot/imported/stone_smallD.obj-3be6e596cf94d2bc931bd84aca456e4d.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/OBJ format/stone_smallD.obj"
+dest_files=["res://.godot/imported/stone_smallD.obj-3be6e596cf94d2bc931bd84aca456e4d.mesh", "res://.godot/imported/stone_smallD.obj-3be6e596cf94d2bc931bd84aca456e4d.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

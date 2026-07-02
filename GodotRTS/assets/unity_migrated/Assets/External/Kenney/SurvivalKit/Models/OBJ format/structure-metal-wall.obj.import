@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://4muaqul8bmx6"
+path="res://.godot/imported/structure-metal-wall.obj-f7d9b17fa70673f3390a2bba5b564cd8.mesh"
+
+[deps]
+
+files=["res://.godot/imported/structure-metal-wall.obj-f7d9b17fa70673f3390a2bba5b564cd8.mesh"]
+
+source_file="res://assets/unity_migrated/Assets/External/Kenney/SurvivalKit/Models/OBJ format/structure-metal-wall.obj"
+dest_files=["res://.godot/imported/structure-metal-wall.obj-f7d9b17fa70673f3390a2bba5b564cd8.mesh", "res://.godot/imported/structure-metal-wall.obj-f7d9b17fa70673f3390a2bba5b564cd8.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

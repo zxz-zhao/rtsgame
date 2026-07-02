@@ -1,0 +1,180 @@
+[gd_scene load_steps=27 format=3 uid="uid://battlegodotproto"]
+
+[ext_resource type="Script" path="res://scripts/battle/BattleBootstrap.cs" id="1_boot"]
+[ext_resource type="Script" path="res://scripts/battle/RtsCamera.cs" id="2_cam"]
+[ext_resource type="Script" path="res://scripts/battle/PlayerController.cs" id="3_player"]
+[ext_resource type="Script" path="res://scripts/battle/RtsUnit.cs" id="4_unit"]
+[ext_resource type="Script" path="res://scripts/battle/RtsBuilding.cs" id="5_building"]
+[ext_resource type="Script" path="res://scripts/ui/BattleHud.cs" id="6_hud"]
+[ext_resource type="Script" path="res://scripts/autoload/GameState.cs" id="7_state"]
+[ext_resource type="Script" path="res://scripts/network/NetClient.cs" id="8_net"]
+[ext_resource type="Script" path="res://scripts/network/GameRelay.cs" id="9_relay"]
+[ext_resource type="PackedScene" path="res://assets/units/panzer_iv/pzIV.glb" id="10_pziv"]
+[ext_resource type="PackedScene" path="res://assets/units/converted/light_tank.glb" id="15_lighttank"]
+[ext_resource type="PackedScene" path="res://assets/units/converted/heavy_tank.glb" id="16_heavytank"]
+[ext_resource type="PackedScene" path="res://assets/units/converted/artillery.glb" id="17_artillery"]
+[ext_resource type="PackedScene" path="res://assets/units/converted/scout_helicopter.glb" id="18_scoutheli"]
+[ext_resource type="PackedScene" path="res://assets/units/infantry/character_medium.glb" id="19_infantry"]
+[ext_resource type="PackedScene" path="res://assets/units/aircraft/fighter_speeder.fbx" id="20_fighter"]
+[ext_resource type="PackedScene" path="res://assets/units/aircraft/bomber_cargo.fbx" id="21_bomber"]
+[ext_resource type="Script" path="res://scripts/debug/PreviewCapture.cs" id="11_capture"]
+[ext_resource type="Script" path="res://scripts/map/BattleMapRenderer.cs" id="12_map"]
+[ext_resource type="Script" path="res://scripts/battle/BattleGameManager.cs" id="13_game"]
+[ext_resource type="Script" path="res://scripts/battle/BattleAiController.cs" id="14_ai"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_unit"]
+size = Vector3(1.4, 1.0, 2.0)
+
+[sub_resource type="BoxMesh" id="BoxMesh_unit"]
+size = Vector3(1.4, 1.0, 2.0)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_base"]
+size = Vector3(5, 4, 5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_base"]
+size = Vector3(5, 4, 5)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_base"]
+albedo_color = Color(0.22, 0.24, 0.27, 1)
+roughness = 0.8
+
+[node name="BattlePrototype" type="Node3D"]
+script = ExtResource("1_boot")
+
+[node name="PreviewCapture" type="Node" parent="."]
+script = ExtResource("11_capture")
+
+[node name="Services" type="Node" parent="."]
+
+[node name="GameState" type="Node" parent="Services"]
+script = ExtResource("7_state")
+
+[node name="NetClient" type="Node" parent="Services"]
+script = ExtResource("8_net")
+
+[node name="GameRelay" type="Node" parent="Services"]
+script = ExtResource("9_relay")
+
+[node name="BattleGameManager" type="Node" parent="Services"]
+script = ExtResource("13_game")
+UnitsPath = NodePath("../../Units")
+BuildingsPath = NodePath("../../Buildings")
+TankScene = ExtResource("10_pziv")
+LightTankScene = ExtResource("15_lighttank")
+HeavyTankScene = ExtResource("16_heavytank")
+ArtilleryScene = ExtResource("17_artillery")
+ScoutPlaneScene = ExtResource("18_scoutheli")
+InfantryScene = ExtResource("19_infantry")
+FighterScene = ExtResource("20_fighter")
+BomberScene = ExtResource("21_bomber")
+
+[node name="BattleAiController" type="Node" parent="Services"]
+script = ExtResource("14_ai")
+
+[node name="MapRenderer" type="Node3D" parent="."]
+script = ExtResource("12_map")
+PlayerBasePath = NodePath("../Buildings/MainBase")
+EnemyBasePath = NodePath("../Buildings/EnemyBase")
+PlayerUnitPath = NodePath("../Units/PlayerTank")
+EnemyUnitPath = NodePath("../Units/EnemyTank")
+SunPath = NodePath("../Sun")
+CameraPath = NodePath("../CameraRig/Camera3D")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.872665, -0.436332, 0)
+light_energy = 2.4
+
+[node name="CameraRig" type="Node3D" parent="."]
+script = ExtResource("2_cam")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.866025, 0, -0.866025, 0.5, 0, 62, 68)
+current = true
+fov = 44.0
+
+[node name="PlayerController" type="Node" parent="."]
+script = ExtResource("3_player")
+CameraPath = NodePath("../CameraRig/Camera3D")
+
+[node name="Units" type="Node3D" parent="."]
+
+[node name="PlayerTank" type="CharacterBody3D" parent="Units" groups=["rts_selectable", "rts_units", "player_owned"]]
+position = Vector3(-9, 0, -3)
+script = ExtResource("4_unit")
+DisplayName = "中型坦克"
+PlayerOwned = true
+MaxHealth = 160.0
+MoveSpeed = 7.0
+AttackDamage = 18.0
+AttackRange = 7.5
+GoldCost = 420
+PopCost = 3
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerTank"]
+position = Vector3(0, 0.5, 0)
+shape = SubResource("BoxShape3D_unit")
+
+[node name="PanzerIV" parent="Units/PlayerTank" instance=ExtResource("10_pziv")]
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, 0, 0, 0)
+
+[node name="EnemyTank" type="CharacterBody3D" parent="Units" groups=["rts_selectable", "rts_units", "enemy_owned"]]
+position = Vector3(9, 0, 4)
+script = ExtResource("4_unit")
+DisplayName = "敌方中型坦克"
+PlayerOwned = false
+MaxHealth = 160.0
+MoveSpeed = 6.5
+AttackDamage = 16.0
+AttackRange = 7.0
+GoldCost = 420
+PopCost = 3
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/EnemyTank"]
+position = Vector3(0, 0.5, 0)
+shape = SubResource("BoxShape3D_unit")
+
+[node name="PanzerIV" parent="Units/EnemyTank" instance=ExtResource("10_pziv")]
+transform = Transform3D(-0.9, 0, 0, 0, 0.9, 0, 0, 0, -0.9, 0, 0, 0)
+
+[node name="Buildings" type="Node3D" parent="."]
+
+[node name="MainBase" type="StaticBody3D" parent="Buildings" groups=["rts_selectable", "rts_buildings", "player_owned"]]
+position = Vector3(-18, 0, -12)
+script = ExtResource("5_building")
+DisplayName = "主基地"
+PlayerOwned = true
+MaxHealth = 1200.0
+IsMainBase = true
+PopCapBonus = 20
+GoldIncomeAmount = 50
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Buildings/MainBase"]
+position = Vector3(0, 2, 0)
+shape = SubResource("BoxShape3D_base")
+
+[node name="Mesh" type="MeshInstance3D" parent="Buildings/MainBase"]
+position = Vector3(0, 2, 0)
+mesh = SubResource("BoxMesh_base")
+surface_material_override/0 = SubResource("StandardMaterial3D_base")
+
+[node name="EnemyBase" type="StaticBody3D" parent="Buildings" groups=["rts_selectable", "rts_buildings", "enemy_owned"]]
+position = Vector3(18, 0, 12)
+script = ExtResource("5_building")
+DisplayName = "敌方主基地"
+PlayerOwned = false
+MaxHealth = 1200.0
+IsMainBase = true
+PopCapBonus = 20
+GoldIncomeAmount = 50
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Buildings/EnemyBase"]
+position = Vector3(0, 2, 0)
+shape = SubResource("BoxShape3D_base")
+
+[node name="Mesh" type="MeshInstance3D" parent="Buildings/EnemyBase"]
+position = Vector3(0, 2, 0)
+mesh = SubResource("BoxMesh_base")
+surface_material_override/0 = SubResource("StandardMaterial3D_base")
+
+[node name="HUD" type="CanvasLayer" parent="." groups=["debug_hide_for_capture"]]
+script = ExtResource("6_hud")

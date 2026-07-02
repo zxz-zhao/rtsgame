@@ -1,0 +1,11 @@
+.godot/
+.import/
+bin/
+obj/
+export_credentials.cfg
+assets_migrated/
+.codex-captures/
+.codex-tmp/
+PreviewOutput/
+*.tmp
+*.log
