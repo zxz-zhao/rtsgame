@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 
 
 public partial class GameRelay : Node
@@ -56,8 +56,12 @@ public partial class GameRelay : Node
         }
         else if (state == WebSocketPeer.State.Closed)
         {
+            var hadPeerConnection = PeerConnected;
             connected = false;
             IsNetworkGame = false;
+            PeerConnected = false;
+            if (hadPeerConnection)
+                EmitSignal(SignalName.PeerLeft);
         }
 
         while (socket.GetAvailablePacketCount() > 0)
@@ -221,6 +225,13 @@ public partial class GameRelay : Node
             ["id"] = buildingNetId
         });
 
+    public void SendOccupyMainBase(int buildingNetId)
+        => SendCommand(new Godot.Collections.Dictionary
+        {
+            ["action"] = "occupy_base",
+            ["id"] = buildingNetId
+        });
+
     public void SendBattleTech(string techKey, Vector3 point)
         => SendCommand(new Godot.Collections.Dictionary
         {
@@ -228,6 +239,23 @@ public partial class GameRelay : Node
             ["key"] = techKey,
             ["x"] = point.X,
             ["z"] = point.Z
+        });
+
+    public void SendBattleChat(string participantId, string speaker, string message)
+        => SendCommand(new Godot.Collections.Dictionary
+        {
+            ["action"] = "chat",
+            ["participantId"] = string.IsNullOrWhiteSpace(participantId) ? "local-player" : participantId.Trim(),
+            ["speaker"] = string.IsNullOrWhiteSpace(speaker) ? "我方指挥官" : speaker.Trim(),
+            ["message"] = string.IsNullOrWhiteSpace(message) ? "" : message.Trim()
+        });
+
+    public void SendBattleVoice(string participantId, string speaker)
+        => SendCommand(new Godot.Collections.Dictionary
+        {
+            ["action"] = "voice",
+            ["participantId"] = string.IsNullOrWhiteSpace(participantId) ? "local-player" : participantId.Trim(),
+            ["speaker"] = string.IsNullOrWhiteSpace(speaker) ? "我方指挥官" : speaker.Trim()
         });
 
     void Send(Godot.Collections.Dictionary data)

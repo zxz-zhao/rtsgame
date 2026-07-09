@@ -12,12 +12,24 @@ public partial class BattleAiController : Node
     [Export] public int MaxAliveAiUnits { get; set; } = 26;
     [Export] public float DefenseRadius { get; set; } = 42f;
 
+    // ---- 重建参数 ----
+    [Export] public int RebuildGoldCost { get; set; } = 600;
+
+    // ---- 科技参数 ----
+    [Export] public float TechCastInterval { get; set; } = 45f;
+
+    // ---- 升级参数 ----
+    [Export] public float UpgradeCheckInterval { get; set; } = 60f;
+    [Export] public int UpgradeGoldThreshold { get; set; } = 1200;
+
     readonly RandomNumberGenerator rng = new();
 
     float goldTimer;
     float waveTimer;
     float defenseTimer;
     float rebuildCheckTimer;
+    float techTimer;
+    float upgradeCheckTimer;
     int waveCount;
 
     public override void _Ready()
@@ -25,6 +37,10 @@ public partial class BattleAiController : Node
         rng.Seed = (ulong)(BattleMapCatalog.Get(GameState.Instance?.SelectedMapName).RandomSeed + 177);
         if (BattleGameManager.Instance is not null)
             BattleGameManager.Instance.AddGold(false, InitialGold - BattleGameManager.Instance.EnemyGold);
+
+        // 错开科技和升级的初始计时器，避免开局卡顿
+        techTimer = TechCastInterval * 0.5f;
+        upgradeCheckTimer = UpgradeCheckInterval * 0.7f;
     }
 
     public override void _Process(double delta)
@@ -38,6 +54,8 @@ public partial class BattleAiController : Node
         UpdateMainBaseRebuild(manager, dt);
         UpdateDefense(manager, dt);
         UpdateWave(manager, dt);
+        UpdateAiTech(manager, dt);
+        UpdateAiUpgrade(manager, dt);
     }
 
     void UpdateIncome(BattleGameManager manager, float delta)
@@ -54,14 +72,32 @@ public partial class BattleAiController : Node
     void UpdateMainBaseRebuild(BattleGameManager manager, float delta)
     {
         rebuildCheckTimer += delta;
-        if (rebuildCheckTimer < 1f)
+        if (rebuildCheckTimer < 2f)
             return;
 
         rebuildCheckTimer = 0f;
-        if (manager.FindOperationalMainBase(false) is not null)
+
+        // 找到所有处于废墟状态（可重建）的 AI 主基地
+        var ruinedBases = manager.GetMainBases(playerOwned: false, includeRuined: true)
+            .Where(b => b.CanStartRebuild())
+            .ToList();
+
+        if (ruinedBases.Count == 0)
             return;
 
-        manager.TryStartFactionMainBaseRebuild(false, out _);
+        // 金币充足时触发重建（优先于攻击波次）
+        if (manager.EnemyGold < RebuildGoldCost)
+            return;
+
+        foreach (var ruinedBase in ruinedBases)
+        {
+            if (ruinedBase.StartRebuild())
+            {
+                // 扣除重建金币（视为消耗）
+                manager.TrySpendEnemyGold(RebuildGoldCost);
+                GD.Print($"[AI] 主基地开始重建：{ruinedBase.Name}");
+            }
+        }
     }
 
     void UpdateDefense(BattleGameManager manager, float delta)
@@ -119,6 +155,62 @@ public partial class BattleAiController : Node
                 flank = new Vector3(rng.RandfRange(-45f, 45f), 0f, rng.RandfRange(-45f, 45f));
             TrySpawnAttacker(manager, target + flank, 1f);
         }
+    }
+
+    /// <summary>AI 定期向主基地附近释放战场科技，增强防御和攻击能力。</summary>
+    void UpdateAiTech(BattleGameManager manager, float delta)
+    {
+        if (manager.GameTime < 60f)
+            return; // 开局 60 秒后才开始使用科技
+
+        techTimer += delta;
+        if (techTimer < TechCastInterval)
+            return;
+
+        techTimer = 0f;
+
+        var enemyBase = manager.FindOperationalMainBase(playerOwned: false);
+        if (enemyBase is null)
+            return;
+
+        // 按照战场状态选择科技：攻击波次多时选火力，否则选防御/修复
+        string techKey;
+        if (waveCount >= 6)
+            techKey = rng.RandiRange(0, 1) == 0 ? "firepower" : "rapid";
+        else if (waveCount >= 3)
+            techKey = rng.RandiRange(0, 1) == 0 ? "armor" : "repair";
+        else
+            techKey = "speed";
+
+        if (manager.CanCastBattleTechForFaction(techKey, playerOwned: false, out _))
+        {
+            // 在主基地附近释放，覆盖防御单位
+            var castPoint = enemyBase.GlobalPosition + new Vector3(
+                rng.RandfRange(-6f, 6f), 0f, rng.RandfRange(-6f, 6f));
+            manager.TryCastBattleTechForFaction(techKey, castPoint, playerOwned: false, out _, out _);
+        }
+    }
+
+    /// <summary>AI 金币充裕时尝试升级主基地，提升战斗力。</summary>
+    void UpdateAiUpgrade(BattleGameManager manager, float delta)
+    {
+        upgradeCheckTimer += delta;
+        if (upgradeCheckTimer < UpgradeCheckInterval)
+            return;
+
+        upgradeCheckTimer = 0f;
+
+        // 金币不足时跳过
+        if (manager.EnemyGold < UpgradeGoldThreshold)
+            return;
+
+        var enemyBase = manager.FindOperationalMainBase(playerOwned: false);
+        if (enemyBase is null || !enemyBase.IsMainBase)
+            return;
+
+        // 尝试升级主基地
+        if (manager.TryUpgradeBuildingForFaction(enemyBase, playerOwned: false, out var msg))
+            GD.Print($"[AI] 主基地升级成功：{msg}");
     }
 
     bool TrySpawnAttacker(BattleGameManager manager, Vector3 target, float budgetScale)

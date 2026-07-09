@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -44,6 +44,10 @@ public partial class GameState : Node
     public int Gold { get; private set; } = 1000;
     public int Gems { get; private set; } = 100;
     public string RankTitle { get; private set; } = "列兵";
+    public string GuildName { get; private set; } = "无工会";
+    public int GuildLevel { get; private set; } = 1;
+    public bool ShowMainBaseIdentity { get; private set; } = true;
+    public string SelectedAvatarPath { get; private set; } = "res://assets/unity_migrated/Assets/Resources/LobbyGen/WW2Portraits/officer_avatar_01_field_commander.png";
     public string SelectedMapName { get; private set; } = BattleMapCatalog.DefaultMapName;
     public string SelectedMode { get; private set; } = "快速匹配";
     public string GlobalConquestStarterUnitKey { get; private set; } = "tank";
@@ -75,6 +79,8 @@ public partial class GameState : Node
         Gold = data.GetInt("gold", Gold);
         Gems = data.GetInt("gems", Gems);
         RankTitle = data.GetString("rankTitle", RankTitle);
+        GuildName = NormalizeGuildName(data.GetString("guildName", data.GetString("guild", GuildName)));
+        GuildLevel = Mathf.Max(1, data.GetInt("guildLevel", data.GetInt("guildLv", GuildLevel)));
         SaveSession();
         EmitSignal(SignalName.SessionChanged);
     }
@@ -84,6 +90,54 @@ public partial class GameState : Node
         Gold = data.GetInt("gold", Gold);
         Gems = data.GetInt("gems", Gems);
         RankTitle = data.GetString("rankTitle", RankTitle);
+        GuildName = NormalizeGuildName(data.GetString("guildName", data.GetString("guild", GuildName)));
+        GuildLevel = Mathf.Max(1, data.GetInt("guildLevel", data.GetInt("guildLv", GuildLevel)));
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+    }
+
+    public void SetShowMainBaseIdentity(bool show)
+    {
+        ShowMainBaseIdentity = true;
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+    }
+
+    public void SetSelectedAvatarPath(string avatarPath)
+    {
+        var normalized = string.IsNullOrWhiteSpace(avatarPath)
+            ? "res://assets/unity_migrated/Assets/Resources/LobbyGen/WW2Portraits/officer_avatar_01_field_commander.png"
+            : avatarPath.Trim();
+        if (normalized == SelectedAvatarPath)
+            return;
+
+        SelectedAvatarPath = normalized;
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+    }
+
+    public bool TrySpendCurrency(int goldCost, int gemCost)
+    {
+        var normalizedGold = Mathf.Max(0, goldCost);
+        var normalizedGems = Mathf.Max(0, gemCost);
+        if (Gold < normalizedGold || Gems < normalizedGems)
+            return false;
+
+        Gold -= normalizedGold;
+        Gems -= normalizedGems;
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+        return true;
+    }
+    public void AddCurrency(int goldAmount, int gemAmount)
+    {
+        var normalizedGold = Mathf.Max(0, goldAmount);
+        var normalizedGems = Mathf.Max(0, gemAmount);
+        if (normalizedGold == 0 && normalizedGems == 0)
+            return;
+
+        Gold += normalizedGold;
+        Gems += normalizedGems;
         SaveSession();
         EmitSignal(SignalName.SessionChanged);
     }
@@ -98,6 +152,10 @@ public partial class GameState : Node
         Wins = 0;
         Losses = 0;
         RankTitle = "列兵";
+        GuildName = "无工会";
+        GuildLevel = 1;
+        ShowMainBaseIdentity = true;
+        SelectedAvatarPath = "res://assets/unity_migrated/Assets/Resources/LobbyGen/WW2Portraits/officer_avatar_01_field_commander.png";
         CurrentRoomId = "";
         GlobalConquestStarterUnitKey = "tank";
         HasBattleEntry = false;
@@ -209,6 +267,15 @@ public partial class GameState : Node
             EmitSignal(SignalName.BattleCommunicationChanged);
     }
 
+    public void ClearBattleCommunicationPreferences()
+    {
+        if (battleCommunicationPreferences.Count == 0)
+            return;
+
+        battleCommunicationPreferences.Clear();
+        EmitSignal(SignalName.BattleCommunicationChanged);
+    }
+
     public BattleCommunicationPreference GetBattleCommunicationPreference(string participantId, string displayName = "")
     {
         var key = NormalizeBattleParticipantKey(participantId, displayName);
@@ -261,6 +328,8 @@ public partial class GameState : Node
 
     public void SetSelection(IEnumerable<Node> nodes)
     {
+        var hadSameSelection = Selected.Where(GodotObject.IsInstanceValid).SequenceEqual(nodes.Where(GodotObject.IsInstanceValid));
+
         foreach (var old in Selected.Where(GodotObject.IsInstanceValid))
         {
             if (old.HasMethod("SetSelected"))
@@ -274,6 +343,25 @@ public partial class GameState : Node
         {
             if (item.HasMethod("SetSelected"))
                 item.Call("SetSelected", true);
+        }
+
+        if (!hadSameSelection && Selected.Count > 0)
+        {
+            var containsPlayerOwned = Selected.Any(item =>
+                item switch
+                {
+                    RtsUnit unit => unit.PlayerOwned,
+                    RtsBuilding building => building.PlayerOwned,
+                    _ => false
+                });
+            var containsEnemy = Selected.Any(item =>
+                item switch
+                {
+                    RtsUnit unit => !unit.PlayerOwned,
+                    RtsBuilding building => !building.PlayerOwned,
+                    _ => false
+                });
+            BattleFeedback.Selection(this, Selected.Count, containsPlayerOwned, containsEnemy);
         }
 
         EmitSignal(SignalName.SelectionChanged, new Godot.Collections.Array<Node>(Selected));
@@ -294,6 +382,10 @@ public partial class GameState : Node
         Gold = cfg.GetValue("session", "gold", Gold).AsInt32();
         Gems = cfg.GetValue("session", "gems", Gems).AsInt32();
         RankTitle = cfg.GetValue("session", "rank_title", RankTitle).AsString();
+        GuildName = NormalizeGuildName(cfg.GetValue("session", "guild_name", GuildName).AsString());
+        GuildLevel = Mathf.Max(1, cfg.GetValue("session", "guild_level", GuildLevel).AsInt32());
+        ShowMainBaseIdentity = true;
+        SelectedAvatarPath = cfg.GetValue("session", "selected_avatar_path", SelectedAvatarPath).AsString();
         SelectedMapName = cfg.GetValue("battle", "selected_map", SelectedMapName).AsString();
         if (!BattleMapCatalog.IsKnownMap(SelectedMapName))
             SelectedMapName = BattleMapCatalog.DefaultMapName;
@@ -322,6 +414,10 @@ public partial class GameState : Node
         cfg.SetValue("session", "gold", Gold);
         cfg.SetValue("session", "gems", Gems);
         cfg.SetValue("session", "rank_title", RankTitle);
+        cfg.SetValue("session", "guild_name", GuildName);
+        cfg.SetValue("session", "guild_level", GuildLevel);
+        cfg.SetValue("session", "selected_avatar_path", SelectedAvatarPath);
+        cfg.SetValue("settings", "show_main_base_identity", ShowMainBaseIdentity);
         cfg.SetValue("battle", "selected_map", SelectedMapName);
         cfg.SetValue("battle", "selected_mode", SelectedMode);
         cfg.SetValue("battle", "global_conquest_starter", GlobalConquestStarterUnitKey);
@@ -331,6 +427,9 @@ public partial class GameState : Node
         cfg.SetValue("battle", "last_battle_map", LastBattleMapName);
         cfg.Save(SessionPath);
     }
+
+    static string NormalizeGuildName(string value)
+        => string.IsNullOrWhiteSpace(value) ? "无工会" : value.Trim();
 
     void UpdateBattleCommunicationPreference(string participantId, string displayName, System.Func<BattleCommunicationPreference, BattleCommunicationPreference> updater)
     {

@@ -28,7 +28,7 @@ public static class BattleBuildingCatalog
         true, false, 0f, 0f, 0f, 0, 0, new Color(0.31f, 0.38f, 0.42f));
 
     public static readonly BattleBuildingDefinition Barracks = new(
-        "barracks", "兵工厂", 300, 800f, new Vector3(5.6f, 3.0f, 6.4f),
+        "barracks", "兵营", 300, 800f, new Vector3(5.6f, 3.0f, 6.4f),
         0, 0, 5f, new[] { "infantry", "infantry_artillery", "infantry_flamethrower" },
         false, false, 0f, 0f, 0f, 0, 20, new Color(0.35f, 0.40f, 0.32f));
 

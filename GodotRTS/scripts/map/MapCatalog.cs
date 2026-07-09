@@ -10,9 +10,9 @@ public readonly record struct SpawnPointSpec(string Name, Vector3 Position, floa
 
 public sealed class BattleMapDefinition
 {
-    public string Name { get; init; } = BattleMapCatalog.DefaultMapName;
-    public string Description { get; init; } = "";
-    public int RandomSeed { get; init; }
+    public string Name { get; set; } = BattleMapCatalog.DefaultMapName;
+    public string Description { get; set; } = "";
+    public int RandomSeed { get; set; }
     public float MapHalfSize { get; set; } = BattleMapCatalog.DefaultMapHalfSize;
     public float BaseSpawnOffset { get; set; } = BattleMapCatalog.DefaultBaseSpawnOffset;
     public float ForwardSpawnOffset { get; set; } = BattleMapCatalog.DefaultForwardSpawnOffset;
@@ -77,6 +77,8 @@ public static class BattleMapCatalog
     public const float DefaultMapHalfSize = 200f;
     public const float DefaultBaseSpawnOffset = 140f;
     public const float DefaultForwardSpawnOffset = 98f;
+    public const float GlobalConquestScale = 2.0f;
+    public const float GlobalConquestBuildRadius = 160f;
     public const float MapHalfSize = DefaultMapHalfSize;
     public const float BaseSpawnOffset = DefaultBaseSpawnOffset;
     public const float ForwardSpawnOffset = DefaultForwardSpawnOffset;
@@ -89,6 +91,8 @@ public static class BattleMapCatalog
         CityRuinsName,
         SeaChartName
     };
+
+    public static string[] GetCustomRoomMapNames() => GetPlayableMapNames();
 
     public static string[] GetAllMapNames() => new[]
     {
@@ -121,6 +125,23 @@ public static class BattleMapCatalog
         }
         return false;
     }
+
+    public static bool IsCustomRoomMap(string? mapName)
+    {
+        if (string.IsNullOrWhiteSpace(mapName))
+            return false;
+
+        foreach (var name in GetCustomRoomMapNames())
+        {
+            if (string.Equals(name, mapName, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    public static string NormalizeCustomRoomMap(string? mapName)
+        => IsCustomRoomMap(mapName) ? mapName! : DefaultMapName;
 
     public static string RequestedMapName(string? fallback = null)
     {
@@ -287,8 +308,8 @@ public static class BattleMapCatalog
     static BattleMapDefinition CreateSandOasis()
     {
         var map = CreateBase(DefaultMapName, 7601, "标准陆战战场，河道、林地与双基地推进线。");
-        map.GroundColor = new Color(0.22f, 0.40f, 0.21f);
-        map.RoadColor = new Color(0.24f, 0.29f, 0.23f);
+        map.GroundColor = new Color(0.85f, 0.72f, 0.47f);
+        map.RoadColor = new Color(0.55f, 0.47f, 0.38f);
         map.RoadEdgeColor = new Color(0.40f, 0.38f, 0.31f);
         map.WaterColor = new Color(0.02f, 0.24f, 0.48f);
         map.PatchAColor = new Color(0.20f, 0.38f, 0.20f);
@@ -314,10 +335,10 @@ public static class BattleMapCatalog
         };
         map.Waters = new[]
         {
-            new TerrainStripSpec("WestOcean", new Vector3(-180f, 0f, 0f), new Vector2(64f, 400f), 0f),
-            new TerrainStripSpec("EastOcean", new Vector3(180f, 0f, 0f), new Vector2(64f, 400f), 0f),
-            new TerrainStripSpec("NorthBay", new Vector3(0f, 0f, 180f), new Vector2(238f, 44f), 0f),
-            new TerrainStripSpec("SouthBay", new Vector3(0f, 0f, -180f), new Vector2(238f, 44f), 0f),
+            new TerrainStripSpec("WestOcean", new Vector3(-200f, 0f, 0f), new Vector2(64f, 400f), 0f),
+            new TerrainStripSpec("EastOcean", new Vector3(200f, 0f, 0f), new Vector2(64f, 400f), 0f),
+            new TerrainStripSpec("NorthBay", new Vector3(0f, 0f, 200f), new Vector2(238f, 44f), 0f),
+            new TerrainStripSpec("SouthBay", new Vector3(0f, 0f, -200f), new Vector2(238f, 44f), 0f),
             new TerrainStripSpec("InlandRiverWest", new Vector3(-74f, 0f, 64f), new Vector2(18f, 132f), 66f),
             new TerrainStripSpec("InlandRiverEast", new Vector3(74f, 0f, -64f), new Vector2(18f, 132f), 66f),
         };
@@ -474,9 +495,58 @@ public static class BattleMapCatalog
         return map;
     }
 
+    static Vector3 ScaleFlat(Vector3 value, float scale)
+        => new(value.X * scale, value.Y, value.Z * scale);
+
+    static Vector2 ScaleSize(Vector2 value, float scale)
+        => new(value.X * scale, value.Y * scale);
+
     static BattleMapDefinition CreateGlobalConquest()
     {
         var map = CreateSandOasis();
+        var scale = GlobalConquestScale;
+        map.Name = GlobalConquestName;
+        map.RandomSeed = 11550;
+        map.Description = "Global conquest battlefield with a wider frontline and longer routes.";
+        map.IsGlobalConquest = true;
+        map.MapHalfSize = DefaultMapHalfSize * scale;
+        map.BaseSpawnOffset = DefaultBaseSpawnOffset * scale;
+        map.ForwardSpawnOffset = DefaultForwardSpawnOffset * scale;
+        map.BuildRadius = GlobalConquestBuildRadius;
+        map.FogStart = 260f;
+        map.FogEnd = 620f;
+        map.RockClusters = Array.ConvertAll(map.RockClusters, position => ScaleFlat(position, scale));
+        map.TreePositions = Array.ConvertAll(map.TreePositions, position => ScaleFlat(position, scale));
+        map.SpawnPoints = Array.ConvertAll(map.SpawnPoints, spawn => spawn with
+        {
+            Position = ScaleFlat(spawn.Position, scale)
+        });
+        map.RuinWalls = Array.ConvertAll(map.RuinWalls, wall => wall with
+        {
+            Center = ScaleFlat(wall.Center, scale)
+        });
+        map.SandbagRings = Array.ConvertAll(map.SandbagRings, ring => new SandbagRingSpec(
+            ScaleFlat(ring.Center, scale),
+            ring.Radius * scale,
+            ring.Count,
+            ring.IsEnemy));
+        map.Roads = Array.ConvertAll(map.Roads, road => road with
+        {
+            Center = ScaleFlat(road.Center, scale),
+            Size = ScaleSize(road.Size, scale)
+        });
+        map.Waters = Array.ConvertAll(map.Waters, water => water with
+        {
+            Center = ScaleFlat(water.Center, scale),
+            Size = ScaleSize(water.Size, scale)
+        });
+        map.Patches = Array.ConvertAll(map.Patches, patch => patch with
+        {
+            Center = ScaleFlat(patch.Center, scale),
+            Size = ScaleSize(patch.Size, scale)
+        });
+        return map;
+#if false
         return new BattleMapDefinition
         {
             Name = GlobalConquestName,
@@ -511,6 +581,7 @@ public static class BattleMapCatalog
             Waters = map.Waters,
             Patches = map.Patches
         };
+#endif
     }
 
     static BattleMapDefinition CreateSeaChartIslands()

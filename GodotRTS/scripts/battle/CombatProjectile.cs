@@ -100,7 +100,11 @@ public partial class CombatProjectile : Node3D
     public override void _Ready()
     {
         Name = "CombatProjectile";
-        BattleFeedback.WeaponFire(this, start, splashRadius > 0.05f || arcHeight > 2.5f);
+        BattleFeedback.WeaponFire(this, start, ResolveWeaponAudioProfile(), splashRadius > 0.05f || arcHeight > 2.5f);
+        
+        var direction = (lastTarget - start).Normalized();
+        SpawnMuzzleFlash(this, start, direction, tint);
+
         var longRange = arcHeight > 2.5f;
         AddChild(new MeshInstance3D
         {
@@ -122,7 +126,7 @@ public partial class CombatProjectile : Node3D
 
     public override void _Process(double delta)
     {
-        if (applied)
+        if (applied || !IsInsideTree())
             return;
 
         elapsed += (float)delta;
@@ -133,7 +137,7 @@ public partial class CombatProjectile : Node3D
         var next = start.Lerp(lastTarget, t) + Vector3.Up * (Mathf.Sin(t * Mathf.Pi) * arcHeight);
         var travel = next - GlobalPosition;
         GlobalPosition = next;
-        if (travel.LengthSquared() > 0.0001f)
+        if (travel.LengthSquared() > 0.0001f && IsInsideTree())
             LookAt(GlobalPosition + travel.Normalized(), Vector3.Up, true);
 
         if (t >= 1f)
@@ -148,16 +152,29 @@ public partial class CombatProjectile : Node3D
         if (!groundAttack && GodotObject.IsInstanceValid(target) && target!.HasMethod("ApplyDamage"))
         {
             if (target is RtsUnit targetUnit)
+            {
+                var wasDeadBefore = targetUnit.IsDead || targetUnit.Health <= 0f;
                 BattleGameManager.Instance?.RecordDamage(projectilePlayerOwned, targetUnit.PlayerOwned, damageAmount);
-            else if (target is RtsBuilding targetBuilding)
-                BattleGameManager.Instance?.RecordDamage(projectilePlayerOwned, targetBuilding.PlayerOwned, damageAmount);
-            target.Call("ApplyDamage", damage);
+                targetUnit.ApplyDamage(damage);
+                var isDeadNow = targetUnit.IsDead || targetUnit.Health <= 0f;
+                if (!wasDeadBefore && isDeadNow)
+                {
+                    ProcessKillGoldLoot(targetUnit);
+                }
+            }
+            else
+            {
+                if (target is RtsBuilding targetBuilding)
+                    BattleGameManager.Instance?.RecordDamage(projectilePlayerOwned, targetBuilding.PlayerOwned, damageAmount);
+                target.Call("ApplyDamage", damage);
+            }
             directTarget = target;
         }
 
         if (splashRadius > 0.05f)
             ApplyAreaDamage(lastTarget, directTarget);
 
+        SpawnExplosion(this, lastTarget, tint, splashRadius > 0.05f || arcHeight > 2.5f);
         SpawnImpactEffect(this, lastTarget, tint, impactRadius);
         BattleFeedback.Impact(this, lastTarget, splashRadius > 0.05f || arcHeight > 2.5f);
         QueueFree();
@@ -180,8 +197,14 @@ public partial class CombatProjectile : Node3D
                 continue;
 
             var dealt = DamageAtDistance(distance);
+            var wasDeadBefore = unit.IsDead || unit.Health <= 0f;
             BattleGameManager.Instance?.RecordDamage(projectilePlayerOwned, unit.PlayerOwned, Mathf.RoundToInt(dealt));
             unit.ApplyDamage(dealt);
+            var isDeadNow = unit.IsDead || unit.Health <= 0f;
+            if (!wasDeadBefore && isDeadNow)
+            {
+                ProcessKillGoldLoot(unit);
+            }
         }
 
         foreach (var building in manager.GetBuildings(!projectilePlayerOwned))
@@ -236,5 +259,279 @@ public partial class CombatProjectile : Node3D
             Emission = color,
             EmissionEnergyMultiplier = emissive ? 1.8f : 0f
         };
+    }
+
+    string ResolveWeaponAudioProfile()
+    {
+        if (attacker is RtsUnit unit)
+        {
+            if (unit.UnitKey == "fighter")
+                return "machinegun";
+            if (unit.UnitKey == "anti_air_gun")
+                return "aa";
+            if (unit.UnitKey == "bomber")
+                return "bomb";
+            if (BattleUnitCatalog.IsInfantryLike(unit.UnitKey))
+            {
+                if (unit.UnitKey is "infantry_flamethrower" or "flamethrower")
+                    return "flame";
+                if (unit.UnitKey == "infantry")
+                    return "rifle";
+                return "artillery";
+            }
+
+            if (BattleUnitCatalog.IsNavalUnit(unit.UnitKey))
+                return "naval";
+            if (BattleUnitCatalog.IsArtilleryLike(unit.UnitKey))
+                return "artillery";
+        }
+
+        if (attacker is RtsBuilding building && building.IsDefenseTurret)
+            return "artillery";
+
+        return splashRadius > 0.05f || arcHeight > 2.5f ? "artillery" : "cannon";
+    }
+
+    void ProcessKillGoldLoot(RtsUnit deadUnit)
+    {
+        var starterKey = projectilePlayerOwned 
+            ? (GameState.Instance?.GlobalConquestStarterUnitKey ?? "tank")
+            : "tank";
+            
+        var faction = BattleUnitCatalog.GetGlobalConquestFactionByStarter(starterKey);
+        if (faction.Key == "resistance_army")
+        {
+            var def = BattleUnitCatalog.Get(deadUnit.UnitKey);
+            var lootAmount = Mathf.RoundToInt(def.GoldCost * 0.20f);
+            if (lootAmount > 0)
+            {
+                if (BattleGameManager.Instance is { } manager)
+                {
+                    manager.AddGold(projectilePlayerOwned, lootAmount);
+                    if (projectilePlayerOwned)
+                    {
+                        BattleFeedback.Loot(deadUnit, deadUnit.GlobalPosition, lootAmount);
+                    }
+                }
+            }
+        }
+    }
+
+    static void SpawnMuzzleFlash(Node owner, Vector3 position, Vector3 direction, Color color)
+    {
+        var root = owner.GetTree().CurrentScene ?? owner;
+        
+        var container = new Node3D { Name = "MuzzleFlashEffect" };
+        root.AddChild(container);
+        container.GlobalPosition = position;
+
+        var normalizedDir = direction.Normalized();
+
+        var fireParticles = new CpuParticles3D
+        {
+            Name = "MuzzleFire",
+            Amount = 10,
+            Lifetime = 0.16f,
+            OneShot = true,
+            Explosiveness = 0.95f,
+            Direction = normalizedDir,
+            Spread = 30f,
+            Gravity = Vector3.Zero,
+            InitialVelocityMin = 4f,
+            InitialVelocityMax = 7f,
+            ScaleAmountMin = 0.15f,
+            ScaleAmountMax = 0.4f
+        };
+
+        var sphere = new SphereMesh
+        {
+            Radius = 0.2f,
+            Height = 0.4f,
+            RadialSegments = 6,
+            Rings = 4
+        };
+        fireParticles.Mesh = sphere;
+
+        var fireMat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = color,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+        };
+        fireParticles.MaterialOverride = fireMat;
+
+        var scaleCurve = new Curve();
+        scaleCurve.AddPoint(new Vector2(0f, 1f));
+        scaleCurve.AddPoint(new Vector2(1f, 0f));
+        fireParticles.ScaleAmountCurve = scaleCurve;
+
+        var fireRamp = new Gradient();
+        fireRamp.AddPoint(0f, new Color(color.R, color.G, color.B, 1f));
+        fireRamp.AddPoint(1f, new Color(color.R * 0.4f, color.G * 0.2f, color.B * 0.05f, 0f));
+        fireParticles.ColorRamp = fireRamp;
+
+        container.AddChild(fireParticles);
+        fireParticles.Emitting = true;
+
+        var smokeParticles = new CpuParticles3D
+        {
+            Name = "MuzzleSmoke",
+            Amount = 12,
+            Lifetime = 0.65f,
+            OneShot = true,
+            Explosiveness = 0.9f,
+            Direction = normalizedDir + Vector3.Up * 0.35f,
+            Spread = 40f,
+            Gravity = new Vector3(0f, 0.8f, 0f),
+            InitialVelocityMin = 1.5f,
+            InitialVelocityMax = 3.5f,
+            ScaleAmountMin = 0.25f,
+            ScaleAmountMax = 0.85f
+        };
+        smokeParticles.Mesh = sphere;
+
+        var smokeMat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = new Color(0.26f, 0.26f, 0.26f, 0.6f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+        };
+        smokeParticles.MaterialOverride = smokeMat;
+        smokeParticles.ScaleAmountCurve = scaleCurve;
+
+        var smokeRamp = new Gradient();
+        smokeRamp.AddPoint(0f, new Color(0.35f, 0.35f, 0.35f, 0.6f));
+        smokeRamp.AddPoint(1f, new Color(0.18f, 0.18f, 0.18f, 0f));
+        smokeParticles.ColorRamp = smokeRamp;
+
+        container.AddChild(smokeParticles);
+        smokeParticles.Emitting = true;
+
+        var timer = container.CreateTween();
+        timer.TweenInterval(0.75);
+        timer.TweenCallback(Callable.From(container.QueueFree));
+    }
+
+    static void SpawnExplosion(Node owner, Vector3 position, Color color, bool heavy)
+    {
+        var root = owner.GetTree().CurrentScene ?? owner;
+        
+        var container = new Node3D { Name = "ExplosionEffect" };
+        root.AddChild(container);
+        container.GlobalPosition = position;
+
+        var fireParticles = new CpuParticles3D
+        {
+            Name = "FireParticles",
+            Amount = heavy ? 24 : 12,
+            Lifetime = 0.45f,
+            OneShot = true,
+            Explosiveness = 0.85f,
+            Direction = Vector3.Up,
+            Spread = 60f,
+            Gravity = new Vector3(0f, 1.8f, 0f),
+            InitialVelocityMin = 2.5f,
+            InitialVelocityMax = 5.5f,
+            ScaleAmountMin = 0.18f,
+            ScaleAmountMax = 0.55f
+        };
+
+        var sphere = new SphereMesh
+        {
+            Radius = 0.25f,
+            Height = 0.5f,
+            RadialSegments = 6,
+            Rings = 4
+        };
+        fireParticles.Mesh = sphere;
+
+        var fireMat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = color,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+        };
+        fireParticles.MaterialOverride = fireMat;
+
+        var scaleCurve = new Curve();
+        scaleCurve.AddPoint(new Vector2(0f, 1f));
+        scaleCurve.AddPoint(new Vector2(1f, 0f));
+        fireParticles.ScaleAmountCurve = scaleCurve;
+        
+        var colorRamp = new Gradient();
+        colorRamp.AddPoint(0f, new Color(color.R, color.G, color.B, 1f));
+        colorRamp.AddPoint(0.4f, new Color(color.R * 0.8f, color.G * 0.35f, color.B * 0.1f, 0.8f));
+        colorRamp.AddPoint(1f, new Color(0.18f, 0.18f, 0.18f, 0f));
+        fireParticles.ColorRamp = colorRamp;
+
+        container.AddChild(fireParticles);
+        fireParticles.Emitting = true;
+
+        var smokeParticles = new CpuParticles3D
+        {
+            Name = "SmokeParticles",
+            Amount = heavy ? 20 : 10,
+            Lifetime = 0.75f,
+            OneShot = true,
+            Explosiveness = 0.9f,
+            Direction = Vector3.Up,
+            Spread = 45f,
+            Gravity = new Vector3(0f, 1.2f, 0f),
+            InitialVelocityMin = 1.2f,
+            InitialVelocityMax = 3.0f,
+            ScaleAmountMin = 0.25f,
+            ScaleAmountMax = 0.72f
+        };
+        smokeParticles.Mesh = sphere;
+
+        var smokeMat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = new Color(0.22f, 0.22f, 0.22f, 0.65f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+        };
+        smokeParticles.MaterialOverride = smokeMat;
+        smokeParticles.ScaleAmountCurve = scaleCurve;
+
+        var smokeColorRamp = new Gradient();
+        smokeColorRamp.AddPoint(0f, new Color(0.28f, 0.28f, 0.28f, 0.6f));
+        smokeColorRamp.AddPoint(1f, new Color(0.12f, 0.12f, 0.12f, 0f));
+        smokeParticles.ColorRamp = smokeColorRamp;
+
+        container.AddChild(smokeParticles);
+        smokeParticles.Emitting = true;
+
+        var sparkParticles = new CpuParticles3D
+        {
+            Name = "SparkParticles",
+            Amount = heavy ? 16 : 8,
+            Lifetime = 0.35f,
+            OneShot = true,
+            Explosiveness = 0.95f,
+            Direction = Vector3.Up,
+            Spread = 80f,
+            Gravity = new Vector3(0f, -9.8f, 0f),
+            InitialVelocityMin = 3.5f,
+            InitialVelocityMax = 7.0f,
+            ScaleAmountMin = 0.04f,
+            ScaleAmountMax = 0.12f
+        };
+        sparkParticles.Mesh = sphere;
+
+        var sparkMat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = new Color(1f, 0.88f, 0.55f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+        };
+        sparkParticles.MaterialOverride = sparkMat;
+        sparkParticles.ScaleAmountCurve = scaleCurve;
+
+        container.AddChild(sparkParticles);
+        sparkParticles.Emitting = true;
+
+        var timer = container.CreateTween();
+        timer.TweenInterval(0.9);
+        timer.TweenCallback(Callable.From(container.QueueFree));
     }
 }

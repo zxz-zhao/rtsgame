@@ -32,7 +32,7 @@ public static class BattleTechCatalog
         "范围内友军获得更高机动能力。",
         0,
         "main_base",
-        "机",
+        "速",
         TechTextureRoot + "tech_bg_speed_wings.png",
         13f,
         14f,
@@ -149,7 +149,7 @@ public static class BattleTechCatalog
     public static readonly BattleTechDefinition HoldBoost = new(
         "hold",
         "阵地坚守",
-        "范围内友军稍微降低机动，但更耐打。",
+        "范围内友军略微降低机动，但会更耐打。",
         0,
         "main_base",
         "守",

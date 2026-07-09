@@ -23,6 +23,13 @@ public partial class LoginScreen : Control
     Label briefingBody = null!;
     Label footerLabel = null!;
     bool uiReady;
+    bool isRegisterMode;
+    LineEdit idCardInput = null!;
+    LineEdit phoneInput = null!;
+    LineEdit smsInput = null!;
+    Button sendSmsButton = null!;
+    int smsCountdown = 0;
+    Godot.Timer smsTimer = null!;
 
     public override void _Ready()
     {
@@ -45,16 +52,38 @@ public partial class LoginScreen : Control
 
         usernameInput.Text = "test";
         passwordInput.Text = "123456";
+
+        idCardInput = new LineEdit { Name = "IdCardInput", Visible = false };
+        loginPanel.AddChild(idCardInput);
+        idCardInput.PlaceholderText = "  \u8eab\u4efd\u8bc1\u53f7"; // "  身份证号"
+        idCardInput.Size = new Vector2(420f, 56f);
+
+        phoneInput = new LineEdit { Name = "PhoneInput", Visible = false };
+        loginPanel.AddChild(phoneInput);
+        phoneInput.PlaceholderText = "  \u624b\u673a\u53f7\u7801"; // "  手机号码"
+        phoneInput.Size = new Vector2(420f, 56f);
+
+        smsInput = new LineEdit { Name = "SmsInput", Visible = false };
+        loginPanel.AddChild(smsInput);
+        smsInput.PlaceholderText = "  \u9a8c\u8bc1\u7801"; // "  验证码"
+        smsInput.Size = new Vector2(260f, 56f);
+
+        sendSmsButton = new Button { Name = "SendSmsButton", Visible = false };
+        loginPanel.AddChild(sendSmsButton);
+        sendSmsButton.Text = "\u83b7\u53d6\u9a8c\u8bc1\u7801"; // "获取验证码"
+        sendSmsButton.Size = new Vector2(150f, 46f);
+        sendSmsButton.Pressed += () => StartSmsCountdown();
+
         ApplyLocalizedText();
 
-        loginButton.Pressed += () => _ = Login();
-        registerButton.Pressed += () => _ = Register();
+        loginButton.Pressed += () => _ = OnBigButtonPressed();
+        registerButton.Pressed += () => SetRegisterMode(!isRegisterMode);
         guestButton.Pressed += () => _ = GuestLogin();
 
         ApplyServer();
         StyleUi();
         uiReady = true;
-        LayoutFromUnityAnchors();
+        SetRegisterMode(false);
     }
 
     public override void _Notification(int what)
@@ -96,9 +125,15 @@ public partial class LoginScreen : Control
         ApplyServer();
         var user = usernameInput.Text.Trim();
         var pass = passwordInput.Text;
-        if (user.Length < 3)
+        int weight = GetNameWeight(user);
+        if (weight < 4 || weight > 14)
         {
-            SetStatus("\u8d26\u53f7\u81f3\u5c11 3 \u4e2a\u5b57\u7b26");
+            SetStatus("\u8d26\u53f7\u957f\u5ea6\u4e0d\u7b26\u5408\u8981\u6c42\uff08\u4e2d\u6587\u5b57\u7b26\u7b972\uff0c\u82f1\u6587\u7b971\uff0c\u8981\u6c424-14\uff09");
+            return;
+        }
+        if (ContainsBlockedName(user))
+        {
+            SetStatus("\u8d26\u53f7\u5305\u542b\u654f\u611f\u8bcd\u6216\u4e0d\u5f53\u8a00\u8bba");
             return;
         }
         if (pass.Length < 6)
@@ -107,12 +142,34 @@ public partial class LoginScreen : Control
             return;
         }
 
+        var idCard = idCardInput.Text.Trim();
+        if (idCard.Length != 18)
+        {
+            SetStatus("\u8bf7\u8f93\u5165\u6b63\u786e\u7684\u0031\u0038\u4f4d\u8eab\u4efd\u8bc1\u53f7"); // "请输入正确的18位身份证号"
+            return;
+        }
+
+        var phone = phoneInput.Text.Trim();
+        if (phone.Length != 11 || !phone.StartsWith("1"))
+        {
+            SetStatus("\u8bf7\u8f93\u5165\u6b63\u786e\u7684\u0031\u0031\u4f4d\u624b\u673a\u53f7\u7801"); // "请输入正确的11位手机号码"
+            return;
+        }
+
+        var code = smsInput.Text.Trim();
+        if (code != "123456")
+        {
+            SetStatus("\u77ed\u4fe1\u9a8c\u8bc1\u7801\u9519\u8bef\u6216\u5df2\u8fc7\u671f"); // "短信验证码错误或已过期"
+            return;
+        }
+
         SetBusy(true, "\u6ce8\u518c\u4e2d...");
-        var result = await (NetClient.Instance?.Register(user, pass) ?? Task.FromResult(Failure("\u7f51\u7edc\u6a21\u5757\u672a\u521d\u59cb\u5316")));
+        var result = await (NetClient.Instance?.Register(user, pass, idCard) ?? Task.FromResult(Failure("\u7f51\u7edc\u6a21\u5757\u672a\u521d\u59cb\u5316")));
         if (result.GetBool("success"))
         {
-            SetStatus("\u6ce8\u518c\u6210\u529f\uff0c\u6b63\u5728\u8fdb\u5165\u5927\u5385...");
-            EnterLobby();
+            SetBusy(false, "");
+            SetRegisterMode(false);
+            SetStatus("\u6ce8\u518c\u6210\u529f\uff0c\u8bf7\u767b\u5f55\uff01"); // "注册成功，请登录！"
             return;
         }
 
@@ -155,6 +212,10 @@ public partial class LoginScreen : Control
 
     void SetStatus(string status)
     {
+        if (status == "NETWORK_UNAVAILABLE")
+        {
+            status = "服务器未连接，请启动 C++ 服务端，或点击“游客登录”直接进入单机演练。";
+        }
         statusLabel.Text = status;
         statusLabel.Visible = !string.IsNullOrWhiteSpace(status);
     }
@@ -191,7 +252,8 @@ public partial class LoginScreen : Control
         var size = GetViewportRect().Size;
         var scale = Mathf.Clamp(Mathf.Min(size.X / 1280f, size.Y / 720f), 0.78f, 1f);
 
-        var loginBase = new Vector2(520f, 476f);
+        var loginHeight = isRegisterMode ? 620f : 476f;
+        var loginBase = new Vector2(520f, loginHeight);
         var briefingBase = new Vector2(520f, 360f);
         var gap = Mathf.Max(44f, 48f * scale);
         var loginWidth = loginBase.X * scale;
@@ -229,9 +291,13 @@ public partial class LoginScreen : Control
 
         StyleInput(usernameInput);
         StyleInput(passwordInput);
+        StyleInput(idCardInput);
+        StyleInput(phoneInput);
+        StyleInput(smsInput);
         StyleActionButton(loginButton, ButtonTone.Primary);
         StyleActionButton(guestButton, ButtonTone.Steel);
         StyleActionButton(registerButton, ButtonTone.Green);
+        StyleActionButton(sendSmsButton, ButtonTone.Steel);
 
         statusLabel.AddThemeFontSizeOverride("font_size", 15);
         statusLabel.AddThemeColorOverride("font_color", new Color(1f, 0.42f, 0.28f));
@@ -342,5 +408,137 @@ public partial class LoginScreen : Control
             new Color(0.06f, 0.04f, 0.02f, 0.92f),
             tone == ButtonTone.Primary ? new Color(0.95f, 0.77f, 0.24f, 0.25f) : new Color(border.R, border.G, border.B, 0.12f));
         MetalUiStyle.ApplyMetalButton(button, palette, fontSize, tone == ButtonTone.Primary);
+    }
+
+    static readonly string[] BlockedNames = new[]
+    {
+        "傻逼", "煞笔", "沙比", "操你妈", "肏", "妈的", "特么的", "王八蛋", "滚蛋", "垃圾", "废柴", "混蛋", "二百五", "婊子", "贱人",
+        "fuck", "bitch", "shit", "asshole", "bastard", "sb", "wocao", "caonima"
+    };
+
+    static bool ContainsBlockedName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        var lower = name.ToLowerInvariant();
+        foreach (var word in BlockedNames)
+        {
+            if (lower.Contains(word))
+                return true;
+        }
+        return false;
+    }
+
+    static int GetNameWeight(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return 0;
+        int weight = 0;
+        foreach (char c in name)
+        {
+            weight += c > 127 ? 2 : 1;
+        }
+        return weight;
+    }
+
+    async Task OnBigButtonPressed()
+    {
+        if (isRegisterMode)
+        {
+            await Register();
+        }
+        else
+        {
+            await Login();
+        }
+    }
+
+    void SetRegisterMode(bool registerMode)
+    {
+        isRegisterMode = registerMode;
+        if (isRegisterMode)
+        {
+            titleLabel.Text = "\u25aa  \u6ce8\u518c\u65b0\u8d26\u53f7"; // "▪  注册新账号"
+            loginButton.Text = "\u6ce8  \u518c"; // "注  册"
+            registerButton.Text = "\u8fd4\u56de\u767b\u5f55"; // "返回登录"
+            guestButton.Visible = false;
+
+            idCardInput.Visible = true;
+            phoneInput.Visible = true;
+            smsInput.Visible = true;
+            sendSmsButton.Visible = true;
+
+            usernameInput.Position = new Vector2(50f, 120f);
+            passwordInput.Position = new Vector2(50f, 178f);
+            idCardInput.Position = new Vector2(50f, 236f);
+            phoneInput.Position = new Vector2(50f, 294f);
+            smsInput.Position = new Vector2(50f, 352f);
+            sendSmsButton.Position = new Vector2(320f, 357f);
+            loginButton.Position = new Vector2(50f, 428f);
+            registerButton.Position = new Vector2(281f, 512f);
+            statusLabel.Position = new Vector2(50f, 568f);
+
+            SetStatus("");
+        }
+        else
+        {
+            titleLabel.Text = "\u25aa  \u4f5c\u6218\u8eab\u4efd\u9a8c\u8bc1"; // "▪  作战身份验证"
+            loginButton.Text = "\u767b  \u5f55"; // "登  录"
+            registerButton.Text = "\u6ce8\u518c\u8d26\u53f7"; // "注册账号"
+            guestButton.Visible = true;
+
+            idCardInput.Visible = false;
+            phoneInput.Visible = false;
+            smsInput.Visible = false;
+            sendSmsButton.Visible = false;
+
+            usernameInput.Position = new Vector2(50f, 146f);
+            passwordInput.Position = new Vector2(50f, 204f);
+            loginButton.Position = new Vector2(50f, 274f);
+            guestButton.Position = new Vector2(57f, 364f);
+            registerButton.Position = new Vector2(281f, 364f);
+            statusLabel.Position = new Vector2(50f, 420f);
+
+            SetStatus("");
+        }
+        LayoutFromUnityAnchors();
+    }
+
+    void StartSmsCountdown()
+    {
+        var phone = phoneInput.Text.Trim();
+        if (phone.Length != 11 || !phone.StartsWith("1"))
+        {
+            SetStatus("\u8bf7\u8f93\u5165\u6b63\u786e\u7684\u0031\u0031\u4f4d\u624b\u673a\u53f7\u7801"); // "请输入正确的11位手机号码"
+            return;
+        }
+
+        smsCountdown = 60;
+        sendSmsButton.Disabled = true;
+        sendSmsButton.Text = $"{smsCountdown}s";
+        SetStatus("\u9a8c\u8bc1\u7801\u5df2\u53d1\u9001\uff08\u6a21\u62df\u9a8c\u8bc1\u7801\u4e3a\u0031\u0032\u0033\u0034\u0035\u0036\uff09"); // "验证码已发送（模拟验证码为123456）"
+
+        if (smsTimer is null)
+        {
+            smsTimer = new Godot.Timer();
+            AddChild(smsTimer);
+            smsTimer.Timeout += OnSmsTimerTimeout;
+        }
+        smsTimer.WaitTime = 1.0f;
+        smsTimer.OneShot = false;
+        smsTimer.Start();
+    }
+
+    void OnSmsTimerTimeout()
+    {
+        smsCountdown--;
+        if (smsCountdown <= 0)
+        {
+            smsTimer.Stop();
+            sendSmsButton.Disabled = false;
+            sendSmsButton.Text = "\u83b7\u53d6\u9a8c\u8bc1\u7801"; // "获取验证码"
+        }
+        else
+        {
+            sendSmsButton.Text = $"{smsCountdown}s";
+        }
     }
 }

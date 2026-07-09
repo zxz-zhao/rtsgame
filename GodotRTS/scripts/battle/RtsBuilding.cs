@@ -5,6 +5,18 @@ using System.Linq;
 
 public partial class RtsBuilding : StaticBody3D
 {
+    sealed class RuntimeTechBuff
+    {
+        public string SourceId { get; set; } = "";
+        public float Remaining { get; set; }
+        public float DamageMultiplier { get; set; } = 1f;
+        public float AttackRangeBonus { get; set; }
+        public float AttackCooldownMultiplier { get; set; } = 1f;
+        public float DefenseReduction { get; set; }
+        public float VisionBonus { get; set; }
+        public float RegenPerSecond { get; set; }
+    }
+
     const float MainBaseSupportInterval = 1f;
     const float MainBaseHealRadius = 50f;
     const float MainBaseRepairRadius = 60f;
@@ -49,6 +61,8 @@ public partial class RtsBuilding : StaticBody3D
     public float Health { get; private set; }
     public bool Selected { get; private set; }
     public bool FogRevealed { get; private set; } = true;
+    /// <summary>曾经被玩家视野探索过（战争迷雾记忆）。</summary>
+    public bool FogExplored { get; private set; } = true;
     public MainBaseState MainBaseState { get; private set; } = MainBaseState.Active;
     public bool IsRuined => MainBaseState == MainBaseState.Ruined;
     public bool IsDestroyed => Health <= 0f || MainBaseState == MainBaseState.Ruined;
@@ -64,6 +78,7 @@ public partial class RtsBuilding : StaticBody3D
     public float ConstructionProgress => ConstructionDuration <= 0f
         ? 1f
         : Mathf.Clamp(1f - constructionTimeLeft / ConstructionDuration, 0f, 1f);
+    public float VisionBonus { get; private set; }
 
     readonly Queue<string> queue = new();
     readonly List<string> productionRoster = new();
@@ -81,11 +96,16 @@ public partial class RtsBuilding : StaticBody3D
     float baseAttackCooldown;
     int basePowerProvided;
     float productionSpeedMultiplier = 1f;
+    float techDamageReduction;
+    float techRegenPerSecond;
+    float techRegenCarry;
     uint originalCollisionLayer;
     uint originalCollisionMask;
     MeshInstance3D? selectionRing;
     Node3D? rallyMarker;
     Label3D? levelBadge;
+    Label3D? mainBaseIdentityLabel;
+    readonly List<RuntimeTechBuff> techBuffs = new();
 
     public override void _Ready()
     {
@@ -106,6 +126,7 @@ public partial class RtsBuilding : StaticBody3D
 
         ProcessIncome(dt);
         ProcessMainBaseSupport(dt);
+        UpdateTechBuffs(dt);
         ProcessDefense(dt);
         ProcessProduction(dt);
     }
@@ -146,6 +167,7 @@ public partial class RtsBuilding : StaticBody3D
         productionRoster.AddRange(def.ProductionRoster);
         if (!HasRallyPoint)
             RallyPoint = GlobalPosition + RallyOffset;
+        RefreshMainBaseIdentity();
     }
 
     public void BeginConstruction(float duration)
@@ -197,17 +219,70 @@ public partial class RtsBuilding : StaticBody3D
         return productionRoster.ToArray();
     }
 
+    public string[] GetProductionQueueSnapshot()
+        => queue.ToArray();
+
+    public void ApplyTechBuff(
+        string sourceId,
+        float duration,
+        float damageMultiplier,
+        float attackRangeBonus,
+        float attackCooldownMultiplier,
+        float defenseReduction,
+        float visionBonus,
+        float regenPerSecond)
+        => ApplyTechBuff(
+            sourceId,
+            duration,
+            damageMultiplier,
+            attackRangeBonus,
+            attackCooldownMultiplier,
+            defenseReduction,
+            visionBonus,
+            regenPerSecond,
+            Colors.White);
+
+    public void ApplyTechBuff(
+        string sourceId,
+        float duration,
+        float damageMultiplier,
+        float attackRangeBonus,
+        float attackCooldownMultiplier,
+        float defenseReduction,
+        float visionBonus,
+        float regenPerSecond,
+        Color tint)
+    {
+        techBuffs.RemoveAll(buff => buff.SourceId == sourceId);
+        techBuffs.Add(new RuntimeTechBuff
+        {
+            SourceId = sourceId,
+            Remaining = Mathf.Max(0.1f, duration),
+            DamageMultiplier = Mathf.Max(0.01f, damageMultiplier),
+            AttackRangeBonus = attackRangeBonus,
+            AttackCooldownMultiplier = Mathf.Max(0.01f, attackCooldownMultiplier),
+            DefenseReduction = Mathf.Max(0f, defenseReduction),
+            VisionBonus = visionBonus,
+            RegenPerSecond = Mathf.Max(0f, regenPerSecond)
+        });
+        RecalculateTechBuffStats();
+    }
+
     public void ApplyDamage(float amount)
     {
         if (Health <= 0f || IsRebuilding)
             return;
+
+        if (amount > 0f && techDamageReduction > 0f)
+            amount *= Mathf.Clamp(1f - techDamageReduction, 0.25f, 1f);
 
         var before = Health;
         Health = Mathf.Max(0f, Health - amount);
         BattleFeedback.Damage(this, GlobalPosition, before - Health, PlayerOwned, Health <= 0f);
         if (Health <= 0f)
         {
-            if (CanBeRebuilt)
+            BattleFeedback.Destroyed(this, GlobalPosition, true);
+            if (IsMainBase || CanBeRebuilt)
                 EnterRuinedState();
             else
             {
@@ -217,7 +292,7 @@ public partial class RtsBuilding : StaticBody3D
         }
     }
 
-    public float Repair(float amount)
+    public float Repair(float amount, bool showFeedback = true)
     {
         if (IsDestroyed || amount <= 0f)
             return 0f;
@@ -225,12 +300,13 @@ public partial class RtsBuilding : StaticBody3D
         var before = Health;
         Health = Mathf.Min(MaxHealth, Health + amount);
         var repaired = Health - before;
-        BattleFeedback.Repair(this, GlobalPosition, repaired);
+        if (showFeedback)
+            BattleFeedback.Repair(this, GlobalPosition, repaired);
         return repaired;
     }
 
     public bool CanStartRebuild()
-        => CanBeRebuilt && MainBaseState == MainBaseState.Ruined;
+        => IsMainBase && CanBeRebuilt && MainBaseState == MainBaseState.Ruined;
 
     public bool StartRebuild(float? rebuildDuration = null)
     {
@@ -283,6 +359,31 @@ public partial class RtsBuilding : StaticBody3D
         return 0f;
     }
 
+    public void RestoreRuinedMainBase(bool playerOwned, int? level = null, float? healthFraction = null)
+    {
+        if (!IsMainBase)
+            return;
+
+        var definition = BattleBuildingCatalog.Get(BuildKey);
+        var targetLevel = Mathf.Max(1, level ?? BuildingLevel);
+        var targetHealthFraction = Mathf.Clamp(healthFraction ?? RebuildHealthFraction, 0.1f, 1f);
+        Configure(definition, playerOwned);
+        ApplyUpgradeLevel(targetLevel, preserveHealthRatio: false);
+        UnderConstruction = false;
+        MainBaseState = MainBaseState.Active;
+        rebuildTimeLeft = 0f;
+        Health = Mathf.Clamp(MaxHealth * targetHealthFraction, 1f, MaxHealth);
+        EnsureOwnerVisuals();
+        SetFogRevealed(FogRevealed);
+        EmitMainBaseStateChanged();
+    }
+
+    public void RefreshMainBaseIdentity()
+    {
+        EnsureMainBaseIdentityLabel();
+        UpdateMainBaseIdentityLabel();
+    }
+
     public void SetSelected(bool value)
     {
         Selected = value;
@@ -295,11 +396,40 @@ public partial class RtsBuilding : StaticBody3D
     public void SetFogRevealed(bool revealed)
     {
         FogRevealed = PlayerOwned || revealed;
-        Visible = FogRevealed;
-        CollisionLayer = FogRevealed ? originalCollisionLayer : 0;
-        CollisionMask = FogRevealed ? originalCollisionMask : 0;
-        if (!FogRevealed)
+        if (FogRevealed)
+            FogExplored = true;
+
+        if (PlayerOwned)
+        {
+            Visible = true;
+            CollisionLayer = originalCollisionLayer;
+            CollisionMask = originalCollisionMask;
+        }
+        else if (FogRevealed)
+        {
+            Visible = true;
+            SetVisualModulate(Colors.White);
+            CollisionLayer = originalCollisionLayer;
+            CollisionMask = originalCollisionMask;
+        }
+        else if (FogExplored)
+        {
+            // 已探索但不在视野：半透明幽灵
+            Visible = true;
+            SetVisualModulate(new Color(0.72f, 0.82f, 1f, 0.28f));
+            CollisionLayer = 0;
+            CollisionMask = 0;
             SetSelected(false);
+        }
+        else
+        {
+            Visible = false;
+            SetVisualModulate(Colors.White);
+            CollisionLayer = 0;
+            CollisionMask = 0;
+            SetSelected(false);
+        }
+        UpdateMainBaseIdentityLabel();
     }
 
     void ProcessConstruction(float delta)
@@ -363,7 +493,7 @@ public partial class RtsBuilding : StaticBody3D
             if (unit.GlobalPosition.DistanceTo(GlobalPosition) > MainBaseHealRadius)
                 continue;
 
-            unit.Repair(MainBaseHealAmount);
+            unit.Repair(MainBaseHealAmount, false);
         }
 
         foreach (var building in manager.GetBuildings(PlayerOwned))
@@ -371,7 +501,42 @@ public partial class RtsBuilding : StaticBody3D
             if (building == this || building.GlobalPosition.DistanceTo(GlobalPosition) > MainBaseRepairRadius)
                 continue;
 
-            building.Repair(MainBaseRepairAmount);
+            building.Repair(MainBaseRepairAmount, false);
+        }
+    }
+
+    void UpdateTechBuffs(float delta)
+    {
+        if (techBuffs.Count == 0)
+            return;
+
+        var changed = false;
+        for (var i = techBuffs.Count - 1; i >= 0; i--)
+        {
+            techBuffs[i].Remaining -= delta;
+            if (techBuffs[i].Remaining > 0f)
+                continue;
+
+            techBuffs.RemoveAt(i);
+            changed = true;
+        }
+
+        if (changed)
+            RecalculateTechBuffStats();
+
+        if (techRegenPerSecond > 0f && Health < MaxHealth && Health > 0f)
+        {
+            techRegenCarry += techRegenPerSecond * delta;
+            if (techRegenCarry >= 1f)
+            {
+                var repair = Mathf.Floor(techRegenCarry);
+                techRegenCarry -= repair;
+                Health = Mathf.Clamp(Health + repair, 1f, MaxHealth);
+            }
+        }
+        else if (techRegenCarry > 0f)
+        {
+            techRegenCarry = 0f;
         }
     }
 
@@ -399,6 +564,9 @@ public partial class RtsBuilding : StaticBody3D
 
     void AimDefenseTarget(Vector3 targetPosition)
     {
+        if (!IsInsideTree())
+            return;
+
         var flat = targetPosition - GlobalPosition;
         flat.Y = 0f;
         if (flat.LengthSquared() <= 0.0001f)
@@ -412,7 +580,7 @@ public partial class RtsBuilding : StaticBody3D
                 ?? visualRoot.FindChild("Turret", true, false) as Node3D
                 ?? visualRoot.FindChild("Cannon", true, false) as Node3D;
 
-            if (turret is not null)
+            if (turret is not null && GodotObject.IsInstanceValid(turret) && turret.IsInsideTree())
             {
                 turret.LookAt(lookTarget, Vector3.Up, true);
                 return;
@@ -427,6 +595,8 @@ public partial class RtsBuilding : StaticBody3D
         if (queue.Count == 0)
             return;
         if (RequiresPower() && !Powered)
+            return;
+        if (BattleGameManager.Instance is { } manager && manager.GetMainBaseLevel(PlayerOwned) <= 0)
             return;
 
         productionTimeLeft -= delta;
@@ -515,6 +685,8 @@ public partial class RtsBuilding : StaticBody3D
         productionSpeedMultiplier = upgrade.ProductionSpeedMultiplier;
         Health = Mathf.Clamp(MaxHealth * healthRatio, 1f, MaxHealth);
         EnsureLevelBadge();
+        UpdateMainBaseIdentityLabel();
+        RecalculateTechBuffStats();
     }
 
     public bool RequiresPower()
@@ -525,6 +697,36 @@ public partial class RtsBuilding : StaticBody3D
 
     public bool CanSetRallyPoint()
         => PlayerOwned && !UnderConstruction && !IsRuined && !IsRebuilding && GetProductionRoster().Length > 0;
+
+    void RecalculateTechBuffStats()
+    {
+        var healthRatio = MaxHealth > 0f ? Mathf.Clamp(Health / MaxHealth, 0f, 1f) : 1f;
+        var damageMultiplier = 1f;
+        var attackRangeBonus = 0f;
+        var attackCooldownMultiplier = 1f;
+        var defenseReduction = 0f;
+        var visionBonus = 0f;
+        var regenPerSecond = 0f;
+
+        for (var i = 0; i < techBuffs.Count; i++)
+        {
+            var buff = techBuffs[i];
+            damageMultiplier *= buff.DamageMultiplier;
+            attackRangeBonus += buff.AttackRangeBonus;
+            attackCooldownMultiplier *= buff.AttackCooldownMultiplier;
+            defenseReduction += buff.DefenseReduction;
+            visionBonus += buff.VisionBonus;
+            regenPerSecond += buff.RegenPerSecond;
+        }
+
+        AttackDamage = Mathf.Round(baseAttackDamage * damageMultiplier);
+        AttackRange = baseAttackRange + attackRangeBonus;
+        AttackCooldown = Mathf.Max(0.12f, baseAttackCooldown * attackCooldownMultiplier);
+        techDamageReduction = Mathf.Clamp(defenseReduction, 0f, 0.75f);
+        VisionBonus = visionBonus;
+        techRegenPerSecond = regenPerSecond;
+        Health = Mathf.Clamp(MaxHealth * healthRatio, 1f, MaxHealth);
+    }
 
     public void SetRallyPoint(Vector3 worldPosition)
     {
@@ -546,6 +748,8 @@ public partial class RtsBuilding : StaticBody3D
         EnsureProductionRoster();
         if (productionRoster.Count > 0 && BattleGameManager.Instance is { } manager)
             return manager.NormalizeUnitTarget(productionRoster[0], worldPosition);
+        if (BattleGameManager.Instance is { } fallbackManager)
+            return fallbackManager.ClampToPlayableMap(new Vector3(worldPosition.X, 0f, worldPosition.Z));
         return BattleMapCatalog.ClampToMap(new Vector3(worldPosition.X, 0f, worldPosition.Z), 4f);
     }
 
@@ -564,7 +768,10 @@ public partial class RtsBuilding : StaticBody3D
 
         selectionRing = GetNodeOrNull<MeshInstance3D>("SelectionRing");
         if (selectionRing is not null)
+        {
+            EnsureMainBaseIdentityLabel();
             return;
+        }
 
         selectionRing = new MeshInstance3D
         {
@@ -590,6 +797,7 @@ public partial class RtsBuilding : StaticBody3D
         AddChild(selectionRing);
         EnsureRallyMarker();
         EnsureLevelBadge();
+        EnsureMainBaseIdentityLabel();
     }
 
     void EnsureLevelBadge()
@@ -613,6 +821,103 @@ public partial class RtsBuilding : StaticBody3D
 
         levelBadge.Text = $"{BuildingLevel}级";
         levelBadge.Visible = BuildingLevel > 1;
+    }
+
+
+    void EnsureMainBaseIdentityLabel()
+    {
+        mainBaseIdentityLabel = GetNodeOrNull<Label3D>("MainBaseIdentityLabel");
+        if (!IsMainBase)
+        {
+            if (mainBaseIdentityLabel is not null)
+                mainBaseIdentityLabel.Visible = false;
+            return;
+        }
+
+        if (mainBaseIdentityLabel is null)
+        {
+            mainBaseIdentityLabel = new Label3D
+            {
+                Name = "MainBaseIdentityLabel",
+                Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+                NoDepthTest = true,
+                FixedSize = true,
+                FontSize = 22,
+                PixelSize = 0.001f,
+                OutlineSize = 4,
+                OutlineModulate = new Color(0.01f, 0.015f, 0.02f, 0.92f),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Position = new Vector3(0f, 6.65f, 0f)
+            };
+            AddChild(mainBaseIdentityLabel);
+        }
+
+        UpdateMainBaseIdentityLabel();
+    }
+
+    void UpdateMainBaseIdentityLabel()
+    {
+        mainBaseIdentityLabel ??= GetNodeOrNull<Label3D>("MainBaseIdentityLabel");
+        if (mainBaseIdentityLabel is null)
+            return;
+
+        if (!IsMainBase)
+        {
+            mainBaseIdentityLabel.Visible = false;
+            return;
+        }
+
+        mainBaseIdentityLabel.FixedSize = true;
+        mainBaseIdentityLabel.FontSize = 22;
+        mainBaseIdentityLabel.PixelSize = 0.001f;
+        mainBaseIdentityLabel.OutlineSize = 4;
+        mainBaseIdentityLabel.Position = new Vector3(0f, 6.65f, 0f);
+
+        var showIdentity = FogRevealed && (GameState.Instance?.ShowMainBaseIdentity ?? true);
+        mainBaseIdentityLabel.Visible = showIdentity;
+        if (!showIdentity)
+            return;
+
+        mainBaseIdentityLabel.Text = BuildMainBaseIdentityText();
+        mainBaseIdentityLabel.Modulate = PlayerOwned
+            ? new Color(0.68f, 0.96f, 1f, 0.96f)
+            : new Color(1f, 0.58f, 0.38f, 0.96f);
+    }
+
+    string BuildMainBaseIdentityText()
+    {
+        var commanderName = PlayerOwned ? LocalCommanderName() : "敌方指挥官";
+        var rawGuild = PlayerOwned ? (GameState.Instance?.GuildName ?? "") : "";
+        var hasGuild = !string.IsNullOrWhiteSpace(rawGuild) && rawGuild.Trim() != "无工会";
+        return hasGuild ? $"{rawGuild.Trim()}★{commanderName}" : commanderName;
+    }
+
+    static string LocalCommanderName()
+    {
+        var username = GameState.Instance?.Username ?? "";
+        return string.IsNullOrWhiteSpace(username) ? "我方指挥官" : username.Trim();
+    }
+
+    static string LocalGuildName()
+    {
+        var guildName = GameState.Instance?.GuildName ?? "";
+        return string.IsNullOrWhiteSpace(guildName) ? "无工会" : guildName.Trim();
+    }
+    void EnsureOwnerVisuals()
+    {
+        selectionRing ??= GetNodeOrNull<MeshInstance3D>("SelectionRing");
+        if (selectionRing?.MaterialOverride is StandardMaterial3D selectionMaterial)
+        {
+            selectionMaterial.AlbedoColor = PlayerOwned
+                ? new Color(0.18f, 0.80f, 1f, 0.90f)
+                : new Color(1f, 0.28f, 0.18f, 0.90f);
+        }
+
+        levelBadge ??= GetNodeOrNull<Label3D>("LevelBadge");
+        if (levelBadge is not null)
+            levelBadge.Modulate = PlayerOwned ? new Color(0.44f, 0.95f, 1f) : new Color(1f, 0.42f, 0.28f);
+        UpdateMainBaseIdentityLabel();
     }
 
     void EnsureRallyMarker()
@@ -650,5 +955,50 @@ public partial class RtsBuilding : StaticBody3D
                 Roughness = 0.74f
             }
         });
+    }
+
+    /// <summary>
+    /// 通过对自身下的所有 GeometryInstance3D 子节点临时叠加材质，
+    /// 模拟战争迷雾的颜色调制效果（3D 节点不支持 Modulate）。
+    /// </summary>
+    void SetVisualModulate(Color color)
+    {
+        SetNodeModulateRecursive(this, color);
+    }
+
+    static void SetNodeModulateRecursive(Node3D node, Color color)
+    {
+        foreach (var child in node.GetChildren())
+        {
+            // 跳过选择环和等级标签等已手动管理颜色的节点
+            if (child is Label3D || child.Name == "SelectionRing" || child.Name == "RallyMarker")
+                continue;
+            if (child is GeometryInstance3D geom)
+            {
+                if (color == Colors.White)
+                {
+                    geom.MaterialOverlay = null;
+                }
+                else
+                {
+                    if (geom.MaterialOverlay is not StandardMaterial3D overlay
+                        || overlay.ResourceName != "_fog_ghost_overlay")
+                    {
+                        overlay = new StandardMaterial3D
+                        {
+                            ResourceName = "_fog_ghost_overlay",
+                            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                            BlendMode = BaseMaterial3D.BlendModeEnum.Mix,
+                            NoDepthTest = false
+                        };
+                        geom.MaterialOverlay = overlay;
+                    }
+                    overlay.AlbedoColor = color;
+                }
+            }
+            if (child is Node3D child3d)
+                SetNodeModulateRecursive(child3d, color);
+        }
     }
 }

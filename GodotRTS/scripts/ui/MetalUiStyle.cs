@@ -121,7 +121,7 @@ public static class MetalUiStyle
         button.AddThemeStyleboxOverride("disabled", disabled);
     }
 
-    public static void ApplyMetalPanel(Panel panel, MetalPalette palette, int borderWidth = 1, int shadowSize = 10, int cornerRadius = 4)
+    public static void ApplyMetalPanel(Control panel, MetalPalette palette, int borderWidth = 1, int shadowSize = 10, int cornerRadius = 4)
     {
         panel.AddThemeStyleboxOverride("panel", MakePanelStyle(palette, borderWidth, shadowSize, cornerRadius));
         AddEdgeHighlights(panel, palette, cornerRadius);
@@ -139,6 +139,9 @@ public static class MetalUiStyle
             Position = new Vector2(4f, 3f),
             Size = new Vector2(Mathf.Max(0f, panel.Size.X - 8f), 2f),
             Color = palette.Highlight,
+            CustomMinimumSize = new Vector2(0, 2),
+            SizeFlagsVertical = Control.SizeFlags.ShrinkBegin,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         panel.AddChild(top);
@@ -150,6 +153,9 @@ public static class MetalUiStyle
             Position = new Vector2(4f, Mathf.Max(0f, panel.Size.Y - 4f)),
             Size = new Vector2(Mathf.Max(0f, panel.Size.X - 8f), 1f),
             Color = new Color(palette.Shadow.R, palette.Shadow.G, palette.Shadow.B, 0.88f),
+            CustomMinimumSize = new Vector2(0, 1),
+            SizeFlagsVertical = Control.SizeFlags.ShrinkEnd,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         panel.AddChild(bottom);

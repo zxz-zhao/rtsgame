@@ -63,6 +63,11 @@ public partial class BattleGameManager : Node
     public static BattleGameManager? Instance { get; private set; }
 
     public int PlayerGold { get; private set; }
+    public void AddPlayerGold(int amount)
+    {
+        PlayerGold += amount;
+        EmitSignal(SignalName.EconomyChanged);
+    }
     public int EnemyGold { get; private set; }
     public int PlayerPopUsed { get; private set; }
     public int EnemyPopUsed { get; private set; }
@@ -418,6 +423,11 @@ public partial class BattleGameManager : Node
     bool CanPlaceBuildingWithUnityRules(Vector3 position, BattleBuildingDefinition def, bool playerOwned, out string message)
     {
         message = "";
+        if (GetMainBaseLevel(playerOwned) <= 0)
+        {
+            message = playerOwned ? "\u4e3b\u57fa\u5730\u5df2\u5931\u6548\uff0c\u65e0\u6cd5\u5efa\u9020\u5efa\u7b51" : "\u57fa\u5730\u5df2\u5931\u6548";
+            return false;
+        }
         if (Mathf.Abs(position.X) > BattleMapCatalog.MapHalfSize - 18f || Mathf.Abs(position.Z) > BattleMapCatalog.MapHalfSize - 18f)
         {
             message = "\u5efa\u9020\u4f4d\u7f6e\u8d85\u51fa\u5730\u56fe\u8fb9\u754c";
@@ -444,10 +454,17 @@ public partial class BattleGameManager : Node
             return false;
         }
 
-        var radius = Mathf.Max(def.CollisionSize.X, def.CollisionSize.Z) * 0.72f;
+        var w1 = def.CollisionSize.X;
+        var h1 = def.CollisionSize.Z;
+        const float minSpacing = 0.5f;
         foreach (var building in GetBuildings())
         {
-            if (building.GlobalPosition.DistanceTo(position) < radius + 4.5f)
+            var otherDef = BattleBuildingCatalog.Get(building.BuildKey);
+            var w2 = otherDef.CollisionSize.X;
+            var h2 = otherDef.CollisionSize.Z;
+            float dx = Mathf.Abs(position.X - building.GlobalPosition.X);
+            float dz = Mathf.Abs(position.Z - building.GlobalPosition.Z);
+            if (dx < (w1 + w2) * 0.5f + minSpacing && dz < (h1 + h2) * 0.5f + minSpacing)
             {
                 message = "\u8fd9\u91cc\u79bb\u5df2\u6709\u5efa\u7b51\u592a\u8fd1";
                 return false;
@@ -460,6 +477,11 @@ public partial class BattleGameManager : Node
     public bool TryQueueProduction(RtsBuilding building, string unitKey, out string message)
     {
         message = "";
+        if (GetMainBaseLevel(building.PlayerOwned) <= 0)
+        {
+            message = building.PlayerOwned ? "\u4e3b\u57fa\u5730\u5df2\u5931\u6548\uff0c\u65e0\u6cd5\u751f\u4ea7\u5355\u4f4d" : "\u4e3b\u57fa\u5730\u5df2\u5931\u6548";
+            return false;
+        }
         if (GameOver)
         {
             message = "战斗已经结束";
@@ -475,6 +497,12 @@ public partial class BattleGameManager : Node
             message = building.RequiresPower() && !building.Powered
                 ? $"{building.DisplayName}电力不足，生产暂停"
                 : $"{building.DisplayName}不能生产该单位";
+            return false;
+        }
+
+        if (building.QueueCount >= 8)
+        {
+            message = "生产队列已满（最多 8 个）";
             return false;
         }
 
@@ -530,6 +558,12 @@ public partial class BattleGameManager : Node
         if (!building.CanProduce(unitKey))
         {
             message = "该建筑不能生产这个单位";
+            return false;
+        }
+
+        if (building.QueueCount >= 8)
+        {
+            message = "生产队列已满（最多 8 个）";
             return false;
         }
 
@@ -2040,6 +2074,11 @@ public partial class BattleGameManager : Node
     bool CanPlaceBuilding(Vector3 position, BattleBuildingDefinition def, bool playerOwned, out string message)
     {
         message = "";
+        if (GetMainBaseLevel(playerOwned) <= 0)
+        {
+            message = "\u4e3b\u57fa\u5730\u5df2\u5931\u6548\uff0c\u65e0\u6cd5\u5efa\u9020\u5efa\u7b51";
+            return false;
+        }
         if (Mathf.Abs(position.X) > BattleMapCatalog.MapHalfSize - 18f || Mathf.Abs(position.Z) > BattleMapCatalog.MapHalfSize - 18f)
         {
             message = "建造位置超出地图边界";
@@ -2065,10 +2104,17 @@ public partial class BattleGameManager : Node
             return false;
         }
 
-        var radius = Mathf.Max(def.CollisionSize.X, def.CollisionSize.Z) * 0.72f;
+        var w1 = def.CollisionSize.X;
+        var h1 = def.CollisionSize.Z;
+        const float minSpacing = 0.5f;
         foreach (var building in GetBuildings())
         {
-            if (building.GlobalPosition.DistanceTo(position) < radius + 4.5f)
+            var otherDef = BattleBuildingCatalog.Get(building.BuildKey);
+            var w2 = otherDef.CollisionSize.X;
+            var h2 = otherDef.CollisionSize.Z;
+            float dx = Mathf.Abs(position.X - building.GlobalPosition.X);
+            float dz = Mathf.Abs(position.Z - building.GlobalPosition.Z);
+            if (dx < (w1 + w2) * 0.5f + minSpacing && dz < (h1 + h2) * 0.5f + minSpacing)
             {
                 message = "这里离已有建筑太近";
                 return false;
@@ -2216,7 +2262,7 @@ public partial class BattleGameManager : Node
             var soldierRoot = new Node3D
             {
                 Name = $"Infantry_{i}",
-                Position = new Vector3((i - centerOffset) * 0.42f, 0f, i == 1 ? -0.22f : 0.20f),
+                Position = new Vector3((i - centerOffset) * 0.65f, 0f, i == 1 ? -0.34f : 0.30f),
                 Scale = Vector3.One * InfantryModelScale(def.Key),
                 Rotation = new Vector3(0f, playerOwned ? 0f : Mathf.Pi, 0f)
             };
@@ -2225,7 +2271,8 @@ public partial class BattleGameManager : Node
             soldierRoot.AddChild(model);
             CenterImportedModel(model);
             TintImportedModel(soldierRoot, infantryTint);
-            AddInfantryStrideRig(soldierRoot, infantryTint);
+            // 注入 Mixamo 骨骼动画（idle / walk / fire）
+            InfantryAnimationBridge.InjectAnimations(model);
             squad.AddChild(soldierRoot);
         }
         unit.ConfigureVisualRig(def.Key, squad);
@@ -2233,9 +2280,9 @@ public partial class BattleGameManager : Node
 
     static float InfantryModelScale(string key) => key switch
     {
-        "infantry_artillery" => 0.56f,
-        "infantry_flamethrower" or "flamethrower" => 0.60f,
-        _ => 0.54f
+        "infantry_artillery" => 0.87f,
+        "infantry_flamethrower" or "flamethrower" => 0.93f,
+        _ => 0.84f
     };
 
     void AddProceduralInfantryVisual(RtsUnit unit, BattleUnitDefinition def, bool playerOwned)
@@ -2250,7 +2297,8 @@ public partial class BattleGameManager : Node
             var soldierRoot = new Node3D
             {
                 Name = $"Infantry_{i}",
-                Position = new Vector3((i - centerOffset) * 0.38f, 0f, i == 1 ? -0.22f : 0.18f),
+                Position = new Vector3((i - centerOffset) * 0.58f, 0f, i == 1 ? -0.34f : 0.28f),
+                Scale = Vector3.One * 1.55f, // 积木小兵同样等比放大 1.55 倍
                 Rotation = new Vector3(0f, playerOwned ? 0f : Mathf.Pi, 0f)
             };
             soldierRoot.AddChild(new MeshInstance3D
@@ -2373,6 +2421,8 @@ public partial class BattleGameManager : Node
     {
         "artillery" => new Vector3(-Mathf.Pi * 0.5f, 0f, 0f),
         "heavy_tank" => new Vector3(0f, Mathf.Pi, 0f),
+        "tank" => new Vector3(0f, Mathf.Pi, 0f),
+        "medium_tank" => new Vector3(0f, Mathf.Pi, 0f),
         _ => Vector3.Zero
     };
 
@@ -2436,7 +2486,36 @@ public partial class BattleGameManager : Node
         foreach (var child in node.FindChildren("*", "MeshInstance3D", true, false))
         {
             if (child is MeshInstance3D mesh)
-                mesh.MaterialOverride = Material(tint, 0.76f);
+            {
+                var materialCount = mesh.GetSurfaceOverrideMaterialCount();
+                var successfullyTintedAny = false;
+                if (materialCount > 0)
+                {
+                    for (int s = 0; s < materialCount; s++)
+                    {
+                        var mat = mesh.GetActiveMaterial(s) as BaseMaterial3D;
+                        if (mat is not null)
+                        {
+                            var dupMat = mat.Duplicate() as BaseMaterial3D;
+                            if (dupMat is not null)
+                            {
+                                dupMat.AlbedoColor = new Color(
+                                    dupMat.AlbedoColor.R * tint.R,
+                                    dupMat.AlbedoColor.G * tint.G,
+                                    dupMat.AlbedoColor.B * tint.B,
+                                    dupMat.AlbedoColor.A * tint.A
+                                );
+                                mesh.SetSurfaceOverrideMaterial(s, dupMat);
+                                successfullyTintedAny = true;
+                            }
+                        }
+                    }
+                }
+                if (!successfullyTintedAny)
+                {
+                    mesh.MaterialOverride = Material(tint, 0.76f);
+                }
+            }
         }
 
         if (node is MeshInstance3D self)
@@ -2584,66 +2663,136 @@ public partial class BattleGameManager : Node
 
         if (building.GetNodeOrNull<MeshInstance3D>("Mesh") is { } oldMesh)
             oldMesh.Visible = false;
-
+ 
         var visual = new Node3D { Name = "BuildingVisual" };
         building.AddChild(visual);
-        switch (def.Key)
+        
+        var key = def.Key;
+        var isMechanical = key.StartsWith("int_");
+        if (isMechanical)
         {
-            case "barracks":
-                AddSizedImportedProp(visual, MilitaryFbxRoot + "structure.fbx", "BarracksStructure", Vector3.Zero, 4.8f, 5.2f, Vector3.Zero, def.Tint);
-                AddSizedImportedProp(visual, MilitaryFbxRoot + "structure-roof.fbx", "BarracksRoofModel", new Vector3(0f, 1.95f, 0f), 1.8f, 5.1f, Vector3.Zero, new Color(0.18f, 0.24f, 0.21f));
-                AddSizedImportedProp(visual, MilitaryFbxRoot + "crate.fbx", "BarracksCrateA", new Vector3(-2.2f, 0f, 1.8f), 0.9f, 1.1f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.44f, 0.34f, 0.22f));
-                AddSizedImportedProp(visual, MilitaryFbxRoot + "crate-bottles.fbx", "BarracksCrateB", new Vector3(2.0f, 0f, 1.6f), 1.1f, 1.3f, new Vector3(0f, Mathf.DegToRad(-18f), 0f), new Color(0.42f, 0.32f, 0.20f));
-                break;
-            case "tank_factory":
-                AddSizedImportedProp(visual, CityIndustrialRoot + "building-b.fbx", "TankFactoryHall", Vector3.Zero, 4.8f, 7.8f, Vector3.Zero, def.Tint);
-                AddSizedImportedProp(visual, FactoryKitRoot + "conveyor-long.fbx", "TankFactoryConveyor", new Vector3(0f, 1.35f, 2.4f), 1.2f, 5.6f, new Vector3(0f, Mathf.DegToRad(90f), 0f), new Color(0.44f, 0.48f, 0.42f));
-                AddSizedImportedProp(visual, FactoryKitRoot + "crane.fbx", "TankFactoryCrane", new Vector3(-2.8f, 0f, -1.6f), 5.2f, 3.8f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.62f, 0.52f, 0.20f));
-                AddSizedImportedProp(visual, CityIndustrialRoot + "chimney-medium.fbx", "TankFactoryChimney", new Vector3(2.7f, 0f, 2.4f), 4.0f, 2.2f, Vector3.Zero, new Color(0.26f, 0.28f, 0.28f));
-                break;
-            case "armor_factory":
-                AddSizedImportedProp(visual, CityIndustrialRoot + "building-m.fbx", "ArmorFactoryHall", Vector3.Zero, 5.0f, 8.4f, new Vector3(0f, Mathf.DegToRad(90f), 0f), def.Tint);
-                AddSizedImportedProp(visual, FactoryKitRoot + "machine-fortified.fbx", "ArmorFactoryMachine", new Vector3(0f, 0f, 1.9f), 2.0f, 3.8f, Vector3.Zero, new Color(0.34f, 0.36f, 0.38f));
-                AddSizedImportedProp(visual, FactoryKitRoot + "crane-magnet.fbx", "ArmorFactoryCrane", new Vector3(-2.9f, 0f, -2.0f), 4.9f, 3.2f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.60f, 0.48f, 0.20f));
-                AddSizedImportedProp(visual, CityIndustrialRoot + "detail-tank.fbx", "ArmorFactoryTank", new Vector3(2.2f, 0f, 2.1f), 1.6f, 2.8f, new Vector3(0f, Mathf.DegToRad(40f), 0f), new Color(0.36f, 0.42f, 0.30f));
-                break;
-            case "airfield":
-                AddBlock(visual, "Runway", new Vector3(8.8f, 0.16f, 9.6f), new Vector3(0f, 0.08f, 0f), new Color(0.10f, 0.12f, 0.13f));
-                AddBlock(visual, "RunwayStripe", new Vector3(0.28f, 0.18f, 7.6f), new Vector3(0f, 0.2f, 0f), new Color(0.86f, 0.82f, 0.62f));
-                AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_large.fbx", "AirfieldTower", new Vector3(-3.1f, 0f, 2.6f), 4.6f, 2.0f, new Vector3(0f, Mathf.DegToRad(-25f), 0f), def.Tint);
-                AddSizedImportedProp(visual, SpaceKitRoot + "craft_cargoA.fbx", "AirfieldParkedCraft", new Vector3(1.6f, 0.18f, -1.4f), 1.4f, 2.6f, new Vector3(0f, Mathf.DegToRad(90f), 0f), new Color(0.46f, 0.48f, 0.50f));
-                break;
-            case "air_factory":
-                AddSizedImportedProp(visual, SpaceKitRoot + "hangar_largeA.fbx", "AirFactoryHangar", Vector3.Zero, 4.8f, 8.0f, new Vector3(0f, Mathf.DegToRad(90f), 0f), def.Tint);
-                AddSizedImportedProp(visual, SpaceKitRoot + "hangar_smallB.fbx", "AirFactoryControl", new Vector3(2.7f, 0f, 2.2f), 2.8f, 2.6f, new Vector3(0f, Mathf.DegToRad(180f), 0f), def.Tint.Lightened(0.08f));
-                AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish.fbx", "AirFactoryDish", new Vector3(-2.8f, 0f, -2.0f), 3.0f, 2.0f, new Vector3(0f, Mathf.DegToRad(30f), 0f), new Color(0.58f, 0.66f, 0.72f));
-                break;
-            case "naval_yard":
-                AddSizedImportedProp(visual, MilitaryFbxRoot + "structure-platform-dock.fbx", "ImportedDock", new Vector3(0f, 0.02f, 0f), 2.2f, 8.8f, Vector3.Zero, def.Tint);
-                AddBlock(visual, "DockWater", new Vector3(5.4f, 0.08f, 6.6f), new Vector3(0f, 0.08f, 0f), new Color(0.05f, 0.36f, 0.48f));
-                AddSizedImportedProp(visual, FactoryKitRoot + "crane.fbx", "DockCrane", new Vector3(-2.8f, 0f, -2.5f), 4.8f, 3.2f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.22f, 0.20f, 0.14f));
-                break;
-            case "turret":
-                AddSizedImportedProp(visual, MilitaryFbxRoot + "cannon-mobile.fbx", "ImportedCannon", new Vector3(0f, 2.2f, -0.25f), 1.75f, 2.6f, new Vector3(0f, Mathf.Pi, 0f), new Color(0.26f, 0.28f, 0.25f));
-                AddCylinder(visual, "TurretBase", 1.45f, 2.4f, new Vector3(0f, 1.2f, 0f), def.Tint);
-                break;
-            case "power_plant":
-                AddSizedImportedProp(visual, SpaceKitRoot + "machine_generatorLarge.fbx", "PlantGenerator", Vector3.Zero, 4.8f, 5.0f, Vector3.Zero, def.Tint);
-                AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "PlantGeneratorA", new Vector3(-1.6f, 0f, 1.6f), 2.2f, 1.8f, new Vector3(0f, Mathf.DegToRad(18f), 0f), new Color(0.22f, 0.52f, 0.58f));
-                AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "PlantGeneratorB", new Vector3(1.6f, 0f, -1.4f), 2.2f, 1.8f, new Vector3(0f, Mathf.DegToRad(-18f), 0f), new Color(0.22f, 0.52f, 0.58f));
-                AddSizedImportedProp(visual, SpaceKitRoot + "chimney_detailed.fbx", "PlantChimney", new Vector3(0f, 0f, 2.2f), 3.8f, 1.6f, Vector3.Zero, new Color(0.18f, 0.20f, 0.22f));
-                break;
-            case "gold_mine":
-                AddSizedImportedProp(visual, SurvivalFbxRoot + "structure.fbx", "MineShed", new Vector3(0f, 0f, 0.35f), 3.4f, 4.6f, Vector3.Zero, def.Tint);
-                AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeA.fbx", "ResourceCore", new Vector3(0f, 0f, -1.55f), 1.8f, 2.4f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.95f, 0.72f, 0.22f));
-                AddSizedImportedProp(visual, FactoryKitRoot + "crane-lift.fbx", "MineCrane", new Vector3(2.3f, 0f, 0f), 4.0f, 2.4f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.22f, 0.19f, 0.12f));
-                break;
-            default:
-                AddSizedImportedProp(visual, MilitaryFbxRoot + "tower-complete-large.fbx", "ImportedCommandTower", new Vector3(-1.4f, 0f, -1.0f), 5.6f, 3.6f, Vector3.Zero, new Color(0.22f, 0.28f, 0.31f));
-                AddSizedImportedProp(visual, CityIndustrialRoot + "building-a.fbx", "CommandBase", new Vector3(1.1f, 0f, 1.1f), 4.6f, 6.4f, new Vector3(0f, Mathf.DegToRad(90f), 0f), def.Tint);
-                AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_detailed.fbx", "Radar", new Vector3(2.0f, 0f, 1.8f), 2.8f, 1.6f, new Vector3(0f, Mathf.DegToRad(20f), 0f), new Color(0.58f, 0.70f, 0.72f));
-                AddBlock(visual, "LandingPad", new Vector3(4.8f, 0.18f, 4.8f), new Vector3(1.2f, 2.52f, 1.2f), new Color(0.10f, 0.13f, 0.13f));
-                break;
+            key = key.Substring(4);
+        }
+        
+        var tint = isMechanical ? new Color(0.2f, 0.75f, 1.0f) : def.Tint;
+
+        if (isMechanical)
+        {
+            switch (key)
+            {
+                case "barracks":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_smallB.fbx", "MechBarracksDome", Vector3.Zero, 4.2f, 5.0f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "MechBarracksPower", new Vector3(-2.0f, 0f, 1.8f), 2.2f, 2.0f, Vector3.Zero, tint.Lightened(0.1f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "barrel.fbx", "MechBarracksCylinder", new Vector3(2.0f, 0f, 1.6f), 1.4f, 1.2f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
+                    break;
+                case "tank_factory":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_largeA.fbx", "MechTankFactoryHangar", Vector3.Zero, 4.8f, 8.0f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generatorLarge.fbx", "MechTankFactoryCore", new Vector3(2.7f, 0f, 2.4f), 3.2f, 3.0f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wirelessCable.fbx", "MechTankFactoryDish", new Vector3(-2.8f, 0f, -1.6f), 3.8f, 2.2f, Vector3.Zero, tint.Lightened(0.15f));
+                    break;
+                case "armor_factory":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_largeB.fbx", "MechArmorFactoryHangar", Vector3.Zero, 4.8f, 8.0f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_barrelLarge.fbx", "MechArmorFactoryTankA", new Vector3(-2.5f, 0f, -2.0f), 2.5f, 2.0f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_barrelLarge.fbx", "MechArmorFactoryTankB", new Vector3(2.5f, 0f, 2.0f), 2.5f, 2.0f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish.fbx", "MechArmorFactoryRadar", new Vector3(0f, 0f, 2.2f), 3.4f, 2.2f, Vector3.Zero, tint.Lightened(0.08f));
+                    break;
+                case "airfield":
+                    AddBlock(visual, "RunwayPad", new Vector3(8.8f, 0.16f, 9.6f), new Vector3(0f, 0.08f, 0f), new Color(0.12f, 0.18f, 0.22f));
+                    AddBlock(visual, "RunwayGlowLine", new Vector3(0.36f, 0.18f, 8.2f), new Vector3(0f, 0.1f, 0f), tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wireless.fbx", "MechAirfieldDish", new Vector3(-3.1f, 0f, 2.6f), 4.8f, 2.0f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "craft_cargoB.fbx", "MechAirfieldFighter", new Vector3(1.6f, 0.18f, -1.4f), 1.5f, 2.8f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint.Lightened(0.1f));
+                    break;
+                case "air_factory":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_roundA.fbx", "MechAirFactoryHangar", Vector3.Zero, 4.8f, 8.0f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_large.fbx", "MechAirFactoryRadar", new Vector3(2.8f, 0f, -2.0f), 4.2f, 2.6f, Vector3.Zero, tint.Lightened(0.1f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wireless.fbx", "MechAirFactoryTower", new Vector3(-2.8f, 0f, 2.2f), 3.8f, 1.8f, Vector3.Zero, new Color(0.22f, 0.25f, 0.28f));
+                    break;
+                case "naval_yard":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "platform_large.fbx", "MechDockPlatform", new Vector3(0f, 0.02f, 0f), 2.2f, 8.8f, Vector3.Zero, tint);
+                    AddBlock(visual, "DockWater", new Vector3(5.4f, 0.08f, 6.6f), new Vector3(0f, 0.08f, 0f), new Color(0.08f, 0.22f, 0.32f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_smallA.fbx", "MechDockHangar", new Vector3(-2.6f, 0f, 1.8f), 3.4f, 3.8f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
+                    break;
+                case "turret":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "turret_double.fbx", "MechTurretGun", new Vector3(0f, 2.2f, 0f), 2.2f, 3.2f, Vector3.Zero, tint);
+                    AddCylinder(visual, "TurretBase", 1.45f, 2.4f, new Vector3(0f, 1.2f, 0f), new Color(0.18f, 0.22f, 0.25f));
+                    break;
+                case "power_plant":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generatorLarge.fbx", "MechPlantReactor", Vector3.Zero, 4.8f, 5.0f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeB.fbx", "MechPlantCrystalA", new Vector3(-1.8f, 0.1f, 1.8f), 3.2f, 2.2f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeB.fbx", "MechPlantCrystalB", new Vector3(1.8f, 0.1f, -1.8f), 3.2f, 2.2f, Vector3.Zero, tint);
+                    break;
+                case "gold_mine":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "MechMineDrill", Vector3.Zero, 4.2f, 4.2f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystals.fbx", "MechMineCrystals", new Vector3(0f, 0.1f, -1.8f), 2.5f, 3.0f, Vector3.Zero, new Color(0.95f, 0.78f, 0.24f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wireless.fbx", "MechMineUplink", new Vector3(2.0f, 0f, 1.6f), 3.2f, 1.6f, Vector3.Zero, tint.Lightened(0.12f));
+                    break;
+                default:
+                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_roundGlass.fbx", "MechCommandDome", Vector3.Zero, 5.2f, 6.4f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_detailed.fbx", "MechCommandRadar", new Vector3(2.2f, 0f, 2.2f), 3.6f, 2.2f, Vector3.Zero, tint.Lightened(0.1f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wireless.fbx", "MechCommandAntenna", new Vector3(-2.2f, 0f, -2.2f), 4.8f, 2.0f, Vector3.Zero, tint.Lightened(0.15f));
+                    break;
+            }
+        }
+        else
+        {
+            switch (key)
+            {
+                case "barracks":
+                    AddSizedImportedProp(visual, MilitaryFbxRoot + "structure.fbx", "BarracksStructure", Vector3.Zero, 4.8f, 5.2f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, MilitaryFbxRoot + "structure-roof.fbx", "BarracksRoofModel", new Vector3(0f, 1.95f, 0f), 1.8f, 5.1f, Vector3.Zero, new Color(0.18f, 0.24f, 0.21f));
+                    AddSizedImportedProp(visual, MilitaryFbxRoot + "crate.fbx", "BarracksCrateA", new Vector3(-2.2f, 0f, 1.8f), 0.9f, 1.1f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.44f, 0.34f, 0.22f));
+                    AddSizedImportedProp(visual, MilitaryFbxRoot + "crate-bottles.fbx", "BarracksCrateB", new Vector3(2.0f, 0f, 1.6f), 1.1f, 1.3f, new Vector3(0f, Mathf.DegToRad(-18f), 0f), new Color(0.42f, 0.32f, 0.20f));
+                    break;
+                case "tank_factory":
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-b.fbx", "TankFactoryHall", Vector3.Zero, 4.8f, 7.8f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, FactoryKitRoot + "conveyor-long.fbx", "TankFactoryConveyor", new Vector3(0f, 1.35f, 2.4f), 1.2f, 5.6f, new Vector3(0f, Mathf.DegToRad(90f), 0f), new Color(0.44f, 0.48f, 0.42f));
+                    AddSizedImportedProp(visual, FactoryKitRoot + "crane.fbx", "TankFactoryCrane", new Vector3(-2.8f, 0f, -1.6f), 5.2f, 3.8f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.62f, 0.52f, 0.20f));
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "chimney-medium.fbx", "TankFactoryChimney", new Vector3(2.7f, 0f, 2.4f), 4.0f, 2.2f, Vector3.Zero, new Color(0.26f, 0.28f, 0.28f));
+                    break;
+                case "armor_factory":
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-m.fbx", "ArmorFactoryHall", Vector3.Zero, 5.0f, 8.4f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
+                    AddSizedImportedProp(visual, FactoryKitRoot + "machine-fortified.fbx", "ArmorFactoryMachine", new Vector3(0f, 0f, 1.9f), 2.0f, 3.8f, Vector3.Zero, new Color(0.34f, 0.36f, 0.38f));
+                    AddSizedImportedProp(visual, FactoryKitRoot + "crane-magnet.fbx", "ArmorFactoryCrane", new Vector3(-2.9f, 0f, -2.0f), 4.9f, 3.2f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.60f, 0.48f, 0.20f));
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "detail-tank.fbx", "ArmorFactoryTank", new Vector3(2.2f, 0f, 2.1f), 1.6f, 2.8f, new Vector3(0f, Mathf.DegToRad(40f), 0f), new Color(0.36f, 0.42f, 0.30f));
+                    break;
+                case "airfield":
+                    AddBlock(visual, "Runway", new Vector3(8.8f, 0.16f, 9.6f), new Vector3(0f, 0.08f, 0f), new Color(0.10f, 0.12f, 0.13f));
+                    AddBlock(visual, "RunwayStripe", new Vector3(0.28f, 0.18f, 7.6f), new Vector3(0f, 0.2f, 0f), new Color(0.86f, 0.82f, 0.62f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_large.fbx", "AirfieldTower", new Vector3(-3.1f, 0f, 2.6f), 4.6f, 2.0f, new Vector3(0f, Mathf.DegToRad(-25f), 0f), tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "craft_cargoA.fbx", "AirfieldParkedCraft", new Vector3(1.6f, 0.18f, -1.4f), 1.4f, 2.6f, new Vector3(0f, Mathf.DegToRad(90f), 0f), new Color(0.46f, 0.48f, 0.50f));
+                    break;
+                case "air_factory":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_largeA.fbx", "AirFactoryHangar", Vector3.Zero, 4.8f, 8.0f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_smallB.fbx", "AirFactoryControl", new Vector3(2.7f, 0f, 2.2f), 2.8f, 2.6f, new Vector3(0f, Mathf.DegToRad(180f), 0f), tint.Lightened(0.08f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish.fbx", "AirFactoryDish", new Vector3(-2.8f, 0f, -2.0f), 3.0f, 2.0f, new Vector3(0f, Mathf.DegToRad(30f), 0f), new Color(0.58f, 0.66f, 0.72f));
+                    break;
+                case "naval_yard":
+                    AddSizedImportedProp(visual, MilitaryFbxRoot + "structure-platform-dock.fbx", "ImportedDock", new Vector3(0f, 0.02f, 0f), 2.2f, 8.8f, Vector3.Zero, tint);
+                    AddBlock(visual, "DockWater", new Vector3(5.4f, 0.08f, 6.6f), new Vector3(0f, 0.08f, 0f), new Color(0.05f, 0.36f, 0.48f));
+                    AddSizedImportedProp(visual, FactoryKitRoot + "crane.fbx", "DockCrane", new Vector3(-2.8f, 0f, -2.5f), 4.8f, 3.2f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.22f, 0.20f, 0.14f));
+                    break;
+                case "turret":
+                    AddSizedImportedProp(visual, MilitaryFbxRoot + "cannon-mobile.fbx", "ImportedCannon", new Vector3(0f, 2.2f, -0.25f), 1.75f, 2.6f, new Vector3(0f, Mathf.Pi, 0f), new Color(0.26f, 0.28f, 0.25f));
+                    AddCylinder(visual, "TurretBase", 1.45f, 2.4f, new Vector3(0f, 1.2f, 0f), tint);
+                    break;
+                case "power_plant":
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generatorLarge.fbx", "PlantGenerator", Vector3.Zero, 4.8f, 5.0f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "PlantGeneratorA", new Vector3(-1.6f, 0f, 1.6f), 2.2f, 1.8f, new Vector3(0f, Mathf.DegToRad(18f), 0f), new Color(0.22f, 0.52f, 0.58f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "PlantGeneratorB", new Vector3(1.6f, 0f, -1.4f), 2.2f, 1.8f, new Vector3(0f, Mathf.DegToRad(-18f), 0f), new Color(0.22f, 0.52f, 0.58f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "chimney_detailed.fbx", "PlantChimney", new Vector3(0f, 0f, 2.2f), 3.8f, 1.6f, Vector3.Zero, new Color(0.18f, 0.20f, 0.22f));
+                    break;
+                case "gold_mine":
+                    AddSizedImportedProp(visual, SurvivalFbxRoot + "structure.fbx", "MineShed", new Vector3(0f, 0f, 0.35f), 3.4f, 4.6f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeA.fbx", "ResourceCore", new Vector3(0f, 0f, -1.55f), 1.8f, 2.4f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.95f, 0.72f, 0.22f));
+                    AddSizedImportedProp(visual, FactoryKitRoot + "crane-lift.fbx", "MineCrane", new Vector3(2.3f, 0f, 0f), 4.0f, 2.4f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.22f, 0.19f, 0.12f));
+                    break;
+                default:
+                    AddSizedImportedProp(visual, MilitaryFbxRoot + "tower-complete-large.fbx", "ImportedCommandTower", new Vector3(-1.4f, 0f, -1.0f), 5.6f, 3.6f, Vector3.Zero, new Color(0.22f, 0.28f, 0.31f));
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-a.fbx", "CommandBase", new Vector3(1.1f, 0f, 1.1f), 4.6f, 6.4f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_detailed.fbx", "Radar", new Vector3(2.0f, 0f, 1.8f), 2.8f, 1.6f, new Vector3(0f, Mathf.DegToRad(20f), 0f), new Color(0.58f, 0.70f, 0.72f));
+                    AddBlock(visual, "LandingPad", new Vector3(4.8f, 0.18f, 4.8f), new Vector3(1.2f, 2.52f, 1.2f), new Color(0.10f, 0.13f, 0.13f));
+                    break;
+            }
         }
     }
 
@@ -2767,5 +2916,166 @@ public partial class BattleGameManager : Node
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             CullMode = BaseMaterial3D.CullModeEnum.Disabled
         };
+    }
+
+    public bool TryOccupyGlobalConquestMainBaseForFaction(bool playerOwned, out string message)
+    {
+        message = "";
+        if (currentMap.Name != BattleMapCatalog.GlobalConquestName)
+        {
+            message = "该功能仅在全球征服模式可用";
+            return false;
+        }
+
+        var enemyBase = FindMainBase(!playerOwned);
+        if (enemyBase is null || enemyBase.Health > 0f)
+        {
+            message = playerOwned ? "敌方主基地尚未被摧毁" : "我方主基地尚未被摧毁";
+            return false;
+        }
+
+        EndGame(playerOwned, playerOwned ? "占领敌方主基地" : "敌方占领了我方主基地");
+        return true;
+    }
+
+    public Node3D? CreateBuildingPlacementPreview(string buildKey)
+    {
+        var def = BattleBuildingCatalog.Get(buildKey);
+        var preview = new Node3D { Name = "BuildingPreview" };
+        var mesh = new MeshInstance3D
+        {
+            Name = "MeshInstance3D",
+            Mesh = new BoxMesh { Size = def.CollisionSize },
+            Position = new Vector3(0f, def.CollisionSize.Y * 0.5f, 0f),
+            MaterialOverride = new StandardMaterial3D
+            {
+                AlbedoColor = new Color(0.2f, 0.8f, 0.2f, 0.45f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            }
+        };
+        preview.AddChild(mesh);
+        return preview;
+    }
+
+    public bool IsWithinBuildPlacementRange(Vector3 position, bool playerOwned)
+    {
+        var mainBase = FindOperationalMainBase(playerOwned);
+        if (mainBase is null)
+            return false;
+        return position.DistanceTo(mainBase.GlobalPosition) <= 60f;
+    }
+
+    public void ApplyBuildingPlacementPreviewAppearance(Node3D preview, bool canPlace)
+    {
+        var mesh = preview.GetNodeOrNull<MeshInstance3D>("MeshInstance3D")
+                   ?? preview.GetChildren().OfType<MeshInstance3D>().FirstOrDefault();
+
+        if (mesh is not null)
+        {
+            if (mesh.MaterialOverride is StandardMaterial3D mat)
+            {
+                mat.AlbedoColor = canPlace
+                    ? new Color(0.2f, 0.8f, 0.2f, 0.45f)
+                    : new Color(0.96f, 0.24f, 0.18f, 0.45f);
+            }
+            else
+            {
+                mesh.MaterialOverride = new StandardMaterial3D
+                {
+                    AlbedoColor = canPlace
+                        ? new Color(0.2f, 0.8f, 0.2f, 0.45f)
+                        : new Color(0.96f, 0.24f, 0.18f, 0.45f),
+                    Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+                };
+            }
+        }
+    }
+
+    public Vector3 ClampToPlayableMap(Vector3 position)
+    {
+        return BattleMapCatalog.ClampToMap(position, 4f);
+    }
+
+    public Node3D[] CreateOccupiedPlacementOverlays(string buildKey)
+    {
+        var overlays = new List<Node3D>();
+        foreach (var building in GetBuildings())
+        {
+            var def = BattleBuildingCatalog.Get(building.BuildKey);
+            var overlay = new Node3D
+            {
+                Name = "OccupiedOverlay",
+                Position = building.GlobalPosition + new Vector3(0f, 0.08f, 0f), // 稍微抬高防止Z-fighting
+                Rotation = building.Rotation // 同步旋转角度，确保完美覆盖斜放建筑
+            };
+
+            var mesh = new MeshInstance3D
+            {
+                Mesh = new BoxMesh 
+                { 
+                    Size = new Vector3(def.CollisionSize.X + 1.0f, 0.05f, def.CollisionSize.Z + 1.0f) 
+                },
+                MaterialOverride = new StandardMaterial3D
+                {
+                    AlbedoColor = new Color(0.96f, 0.24f, 0.18f, 0.28f), // 鲜明半透明红
+                    Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                    ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded, // 自发光高亮
+                    CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+                    NoDepthTest = true // 强制透视最上层，避免被已有建筑模型遮蔽
+                }
+            };
+            overlay.AddChild(mesh);
+            overlays.Add(overlay);
+        }
+        return overlays.ToArray();
+    }
+
+    public (Vector3 center, float radius)[] GetBuildPlacementRanges(bool playerOwned)
+    {
+        var ranges = new List<(Vector3, float)>();
+        var mainBase = FindOperationalMainBase(playerOwned);
+        if (mainBase is not null)
+        {
+            ranges.Add((mainBase.GlobalPosition, 60f));
+        }
+        return ranges.ToArray();
+    }
+
+    public bool CanOccupyGlobalConquestMainBase(bool playerOwned, out string message)
+    {
+        message = "";
+        if (currentMap.Name != BattleMapCatalog.GlobalConquestName)
+        {
+            message = "该功能仅在全球征服模式可用";
+            return false;
+        }
+
+        var enemyBase = FindMainBase(!playerOwned);
+        if (enemyBase is null || enemyBase.Health > 0f)
+        {
+            message = playerOwned ? "敌方主基地尚未被摧毁" : "我方主基地尚未被摧毁";
+            return false;
+        }
+
+        return true;
+    }
+
+    public bool TryOccupyGlobalConquestMainBase(out string message)
+    {
+        return TryOccupyGlobalConquestMainBaseForFaction(true, out message);
+    }
+
+    public bool TrySurrender(out string message)
+    {
+        message = "";
+        if (GameOver)
+        {
+            message = "战斗已经结束";
+            return false;
+        }
+
+        EndGame(false, "投降");
+        message = "已投降";
+        return true;
     }
 }

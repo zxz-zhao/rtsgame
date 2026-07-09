@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 
 
 public partial class BattleBootstrap : Node3D
@@ -120,6 +120,10 @@ public partial class BattleBootstrap : Node3D
             case "rebuild":
                 if (FindByNetId(data.GetInt("id")) is RtsBuilding rebuildBuilding)
                     BattleGameManager.Instance?.TryStartFactionMainBaseRebuild(rebuildBuilding.PlayerOwned, out _);
+                break;
+            case "occupy_base":
+                if (FindByNetId(data.GetInt("id")) is RtsBuilding occupiedBase)
+                    BattleGameManager.Instance?.TryOccupyGlobalConquestMainBaseForFaction(true, out _);
                 break;
             case "tech":
                 BattleGameManager.Instance?.TryCastBattleTechForFaction(

@@ -41,6 +41,9 @@ public partial class PreviewCapture : Node
     string selectedMap = "";
     bool openBuildMenu;
     bool parkSpawned;
+    bool dumpPanzerNodes;
+    string previewBuildKey = "";
+    Vector3? previewBuildPosition;
 
     public override void _Ready()
     {
@@ -180,6 +183,16 @@ public partial class PreviewCapture : Node
                 openBuildMenu = true;
             else if (args[i] == "--park-spawned")
                 parkSpawned = true;
+            else if (args[i] == "--dump-panzer-nodes")
+                dumpPanzerNodes = true;
+            else if (args[i] == "--preview-build" && i + 1 < args.Length)
+                previewBuildKey = args[i + 1];
+            else if (args[i] == "--preview-pos" && i + 2 < args.Length)
+            {
+                float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x);
+                float.TryParse(args[i + 2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var z);
+                previewBuildPosition = new Vector3(x, 0f, z);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(selectedMap))
@@ -188,7 +201,7 @@ public partial class PreviewCapture : Node
         if (disableAi)
             CallDeferred(MethodName.DisableAiDeferred);
 
-        if (showGameOver || selectPlayerBase || selectEnemyBase || !string.IsNullOrWhiteSpace(queueUnit) || !string.IsNullOrWhiteSpace(damageTarget) || buildOrders.Count > 0 || spawnOrders.Count > 0 || researchOrders.Count > 0 || techOrders.Count > 0 || repairSelectedUnit || upgradeSelectedBuilding || damageSpawnedPlayer > 0f || openBuildMenu || parkSpawned)
+        if (showGameOver || selectPlayerBase || selectEnemyBase || !string.IsNullOrWhiteSpace(queueUnit) || !string.IsNullOrWhiteSpace(damageTarget) || buildOrders.Count > 0 || spawnOrders.Count > 0 || researchOrders.Count > 0 || techOrders.Count > 0 || repairSelectedUnit || upgradeSelectedBuilding || damageSpawnedPlayer > 0f || openBuildMenu || parkSpawned || dumpPanzerNodes || !string.IsNullOrWhiteSpace(previewBuildKey))
             _ = ApplyDebugActions();
         if (hideHud)
             CallDeferred(MethodName.HideHudDeferred);
@@ -290,6 +303,12 @@ public partial class PreviewCapture : Node
         {
             manager.TryCastBattleTech(key, position, out var techMessage, out var affected);
             GD.Print($"Tech {key}: {techMessage} (affected {affected})");
+        }
+
+        if (!string.IsNullOrWhiteSpace(previewBuildKey))
+        {
+            var previewPosition = previewBuildPosition ?? building.GlobalPosition + new Vector3(8f, 0f, 0f);
+            ShowBuildPlacementPreview(manager, previewBuildKey, previewPosition);
         }
 
         if (!string.IsNullOrWhiteSpace(focusUnitKey))
@@ -422,6 +441,13 @@ public partial class PreviewCapture : Node
             if (selectedUnit is not null)
                 manager.TryRepairUnit(selectedUnit, out _);
         }
+
+        if (dumpPanzerNodes)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            foreach (var unit in GetTree().GetNodesInGroup("rts_units").OfType<RtsUnit>())
+                unit.DebugDumpPanzerVisibleNodes();
+        }
     }
 
     void FocusCamera(System.Collections.Generic.IReadOnlyList<RtsUnit> units, float zoom)
@@ -450,6 +476,23 @@ public partial class PreviewCapture : Node
         camera.GlobalPosition = center + new Vector3(0f, 14f, -19f) * Mathf.Max(0.25f, zoom);
         camera.LookAt(center, Vector3.Up);
         camera.Fov = 30f;
+    }
+
+    void ShowBuildPlacementPreview(BattleGameManager manager, string buildKey, Vector3 position)
+    {
+        var scene = GetTree().CurrentScene;
+        if (scene is null)
+            return;
+
+        foreach (var overlay in manager.CreateOccupiedPlacementOverlays(buildKey))
+            scene.AddChild(overlay);
+
+        var preview = manager.CreateBuildingPlacementPreview(buildKey);
+        preview.Position = new Vector3(position.X, 0f, position.Z);
+        preview.Visible = true;
+        var canPlace = manager.CanPlaceBuildingAt(buildKey, position, true, out _);
+        manager.ApplyBuildingPlacementPreviewAppearance(preview, canPlace);
+        scene.AddChild(preview);
     }
 
     public override void _Process(double delta)

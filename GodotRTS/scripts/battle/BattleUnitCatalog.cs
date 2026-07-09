@@ -15,6 +15,13 @@ public readonly record struct BattleUnitDefinition(
     float VisualScale,
     Color Tint);
 
+public readonly record struct GlobalConquestFactionDefinition(
+    string Key,
+    string DisplayName,
+    string Description,
+    string StarterUnitKey,
+    Color Tint);
+
 public static class BattleUnitCatalog
 {
     public static readonly BattleUnitDefinition Infantry = new(
@@ -46,7 +53,7 @@ public static class BattleUnitCatalog
         new Color(0.44f, 0.42f, 0.34f));
 
     public static readonly BattleUnitDefinition AntiAirGun = new(
-        "anti_air_gun", "防空车", 260, 2, 320f, 5.6f, 52f, 16f, 0.45f, 9f, 0.86f,
+        "anti_air_gun", "防空炮车", 260, 2, 320f, 5.6f, 52f, 16f, 0.45f, 9f, 0.86f,
         new Color(0.34f, 0.40f, 0.37f));
 
     public static readonly BattleUnitDefinition ScoutPlane = new(
@@ -84,6 +91,23 @@ public static class BattleUnitCatalog
     public static BattleUnitDefinition[] GlobalConquestStarterRoster { get; } =
     {
         LightTank, Tank, HeavyTank, Artillery
+    };
+
+    public static readonly GlobalConquestFactionDefinition GuardArmy = new(
+        "guard_army", "联盟", "正面推进最稳，适合稳扎稳打与阵地扩张。", "tank",
+        new Color(0.74f, 0.84f, 0.68f));
+
+    public static readonly GlobalConquestFactionDefinition ResistanceArmy = new(
+        "resistance_army", "反抗", "机动穿插最快，擅长侦察、抢点和侧翼牵制。", "light_tank",
+        new Color(0.90f, 0.76f, 0.46f));
+
+    public static readonly GlobalConquestFactionDefinition IntelligenceArmy = new(
+        "intelligence_army", "机械", "精英火力更强，适合高压推进与重点突破。", "heavy_tank",
+        new Color(0.64f, 0.84f, 0.94f));
+
+    public static GlobalConquestFactionDefinition[] GlobalConquestFactions { get; } =
+    {
+        GuardArmy, ResistanceArmy, IntelligenceArmy
     };
 
     public static BattleUnitDefinition[] AiEarlyRoster { get; } =
@@ -124,6 +148,21 @@ public static class BattleUnitCatalog
 
     public static bool IsGlobalConquestStarter(string key)
         => key is "light_tank" or "tank" or "heavy_tank" or "artillery";
+
+    public static GlobalConquestFactionDefinition GetGlobalConquestFaction(string key) => key switch
+    {
+        "resistance_army" => ResistanceArmy,
+        "intelligence_army" => IntelligenceArmy,
+        _ => GuardArmy
+    };
+
+    public static GlobalConquestFactionDefinition GetGlobalConquestFactionByStarter(string unitKey) => unitKey switch
+    {
+        "light_tank" => ResistanceArmy,
+        "heavy_tank" or "artillery" => IntelligenceArmy,
+        "tank" or "medium_tank" => GuardArmy,
+        _ => GuardArmy
+    };
 
     public static bool IsInfantryLike(string key)
         => key is "infantry" or "infantry_artillery" or "infantry_flamethrower" or "flamethrower";

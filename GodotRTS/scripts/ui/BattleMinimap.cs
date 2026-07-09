@@ -3,10 +3,12 @@ using System.Linq;
 
 public partial class BattleMinimap : Control
 {
-    const float MapHalfSize = BattleMapCatalog.MapHalfSize;
+    const float CameraMarkerHitPadding = 6f;
 
     BattleMapDefinition map = BattleMapCatalog.Get(BattleMapCatalog.DefaultMapName);
     RtsCamera? rtsCamera;
+    bool draggingCameraMarker;
+    Vector2 cameraMarkerDragOffset;
 
     public override void _Ready()
     {
@@ -24,15 +26,20 @@ public partial class BattleMinimap : Control
     {
         if (evt is InputEventMouseButton button)
         {
-            if (button.ButtonIndex == MouseButton.Left && button.Pressed)
-                MoveCameraTo(LocalPointerPosition(evt));
+            if (button.ButtonIndex == MouseButton.Left)
+            {
+                if (button.Pressed)
+                    BeginPointerDrag(LocalPointerPosition(evt));
+                else
+                    EndPointerDrag();
+            }
             ConsumeEvent();
             return;
         }
 
         if (evt is InputEventMouseMotion motion && (motion.ButtonMask & MouseButtonMask.Left) != 0)
         {
-            MoveCameraTo(LocalPointerPosition(evt));
+            UpdatePointerDrag(LocalPointerPosition(evt));
             ConsumeEvent();
             return;
         }
@@ -40,14 +47,16 @@ public partial class BattleMinimap : Control
         if (evt is InputEventScreenTouch touch)
         {
             if (touch.Pressed)
-                MoveCameraTo(LocalPointerPosition(evt));
+                BeginPointerDrag(LocalPointerPosition(evt));
+            else
+                EndPointerDrag();
             ConsumeEvent();
             return;
         }
 
         if (evt is InputEventScreenDrag)
         {
-            MoveCameraTo(LocalPointerPosition(evt));
+            UpdatePointerDrag(LocalPointerPosition(evt));
             ConsumeEvent();
         }
     }
@@ -129,13 +138,16 @@ public partial class BattleMinimap : Control
 
     void DrawCameraMarker()
     {
-        rtsCamera ??= GetTree().CurrentScene?.GetNodeOrNull<RtsCamera>("CameraRig");
-        if (rtsCamera is null)
+        if (!TryGetCameraMarkerBounds(out var bounds))
             return;
 
-        var center = WorldToMap(rtsCamera.GetGroundCenter());
-        var size = new Vector2(38f, 26f);
-        DrawRect(new Rect2(center - size * 0.5f, size), new Color(1f, 0.92f, 0.34f, 0.95f), false, 1.6f);
+        var drawRect = bounds.Intersection(new Rect2(Vector2.Zero, Size));
+        if (drawRect.Size.X <= 1f || drawRect.Size.Y <= 1f)
+            return;
+
+        var color = new Color(1f, 0.92f, 0.34f, 0.95f);
+        DrawRect(drawRect, new Color(color.R, color.G, color.B, 0.08f), true);
+        DrawRect(drawRect, color, false, 1.6f);
     }
 
     Vector2[] RotatedRect(Vector3 center, Vector2 size, float angleDeg)
@@ -159,25 +171,29 @@ public partial class BattleMinimap : Control
 
     Vector2 WorldToMap(Vector3 world)
     {
-        var nx = Mathf.Clamp(world.X / (MapHalfSize * 2f) + 0.5f, 0f, 1f);
-        var ny = Mathf.Clamp(0.5f - world.Z / (MapHalfSize * 2f), 0f, 1f);
+        var mapHalfSize = CurrentMapHalfSize();
+        var nx = Mathf.Clamp(0.5f - world.X / (mapHalfSize * 2f), 0f, 1f);
+        var ny = Mathf.Clamp(0.5f - world.Z / (mapHalfSize * 2f), 0f, 1f);
         return new Vector2(nx * Size.X, ny * Size.Y);
     }
 
     Vector3 MapToWorld(Vector2 local)
     {
+        var mapHalfSize = CurrentMapHalfSize();
         var nx = Mathf.Clamp(local.X / Mathf.Max(1f, Size.X), 0f, 1f);
         var ny = Mathf.Clamp(local.Y / Mathf.Max(1f, Size.Y), 0f, 1f);
-        return new Vector3((nx - 0.5f) * MapHalfSize * 2f, 0f, (0.5f - ny) * MapHalfSize * 2f);
+        return new Vector3((0.5f - nx) * mapHalfSize * 2f, 0f, (0.5f - ny) * mapHalfSize * 2f);
     }
 
     Vector2 LocalPointerPosition(InputEvent evt)
     {
         var local = evt switch
         {
+            InputEventMouseButton button => button.Position,
+            InputEventMouseMotion motion => motion.Position,
             InputEventScreenTouch touch => GetGlobalTransformWithCanvas().AffineInverse() * touch.Position,
             InputEventScreenDrag drag => GetGlobalTransformWithCanvas().AffineInverse() * drag.Position,
-            _ => GetLocalMousePosition()
+            _ => GetGlobalTransformWithCanvas().AffineInverse() * GetViewport().GetMousePosition()
         };
         return ClampLocal(local);
     }
@@ -197,13 +213,78 @@ public partial class BattleMinimap : Control
 
     void MoveCameraTo(Vector2 localPosition)
     {
-        var world = MapToWorld(localPosition);
+        var world = MapToWorld(ClampLocal(localPosition));
         rtsCamera ??= GetTree().CurrentScene?.GetNodeOrNull<RtsCamera>("CameraRig");
         rtsCamera?.JumpTo(world);
     }
 
+    void BeginPointerDrag(Vector2 localPosition)
+    {
+        var pointer = ClampLocal(localPosition);
+        if (TryGetCameraMarkerBounds(out var bounds) && bounds.Grow(CameraMarkerHitPadding).HasPoint(pointer))
+        {
+            draggingCameraMarker = true;
+            cameraMarkerDragOffset = pointer - bounds.GetCenter();
+            return;
+        }
+
+        draggingCameraMarker = false;
+        cameraMarkerDragOffset = Vector2.Zero;
+        MoveCameraTo(pointer);
+    }
+
+    void UpdatePointerDrag(Vector2 localPosition)
+    {
+        var pointer = ClampLocal(localPosition);
+        if (!draggingCameraMarker)
+        {
+            MoveCameraTo(pointer);
+            return;
+        }
+
+        MoveCameraTo(pointer - cameraMarkerDragOffset);
+    }
+
+    void EndPointerDrag()
+    {
+        draggingCameraMarker = false;
+        cameraMarkerDragOffset = Vector2.Zero;
+    }
+
     float WorldRadius(float radius)
-        => radius / (MapHalfSize * 2f) * Mathf.Min(Size.X, Size.Y);
+        => radius / (CurrentMapHalfSize() * 2f) * Mathf.Min(Size.X, Size.Y);
+
+    float CurrentMapHalfSize()
+        => Mathf.Max(1f, BattleMapCatalog.GetMapHalfSize(map));
+
+    bool TryGetCameraMarkerPolygon(out Vector2[] polygon)
+    {
+        rtsCamera ??= GetTree().CurrentScene?.GetNodeOrNull<RtsCamera>("CameraRig");
+        if (rtsCamera is null || !rtsCamera.TryGetViewportGroundPolygon(out var worldPolygon) || worldPolygon.Length == 0)
+        {
+            polygon = System.Array.Empty<Vector2>();
+            return false;
+        }
+
+        polygon = worldPolygon.Select(WorldToMap).ToArray();
+        return polygon.Length > 0;
+    }
+
+    bool TryGetCameraMarkerBounds(out Rect2 bounds)
+    {
+        if (!TryGetCameraMarkerPolygon(out var polygon) || polygon.Length == 0)
+        {
+            bounds = new Rect2();
+            return false;
+        }
+
+        var minX = polygon.Min(point => point.X);
+        var maxX = polygon.Max(point => point.X);
+        var minY = polygon.Min(point => point.Y);
+        var maxY = polygon.Max(point => point.Y);
+        bounds = new Rect2(new Vector2(minX, minY), new Vector2(maxX - minX, maxY - minY));
+        return true;
+    }
 
     static Color WithAlpha(Color color, float alpha)
         => new(color.R, color.G, color.B, alpha);

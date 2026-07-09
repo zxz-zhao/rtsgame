@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Threading.Tasks;
 
 
@@ -17,6 +17,12 @@ public partial class NetClient : Node
 
     [Export]
     public double RequestTimeoutSec { get; set; } = 5.0;
+
+    [Export]
+    public string ClientSigKey { get; set; } = "dev-signature-key-change-me";
+
+    [Export]
+    public int ClientBuildNumber { get; set; } = 20260709;
 
     public static NetClient? Instance { get; private set; }
 
@@ -42,11 +48,12 @@ public partial class NetClient : Node
             ["password"] = password
         });
 
-    public Task<Godot.Collections.Dictionary> Register(string username, string password)
+    public Task<Godot.Collections.Dictionary> Register(string username, string password, string idCard = "")
         => PostJson("/api/register", new Godot.Collections.Dictionary
         {
             ["username"] = username,
-            ["password"] = password
+            ["password"] = password,
+            ["idCard"] = idCard
         });
 
     public Task<Godot.Collections.Dictionary> GetLobby()
@@ -58,14 +65,14 @@ public partial class NetClient : Node
     public Task<Godot.Collections.Dictionary> ClaimTask(string taskId)
         => PostJson("/api/tasks/claim", new Godot.Collections.Dictionary { ["taskId"] = taskId });
 
-    public Task<Godot.Collections.Dictionary> StartTechResearch()
-        => PostJson("/api/tech/start", new Godot.Collections.Dictionary());
+    public Task<Godot.Collections.Dictionary> StartTechResearch(string techKey = "", string mode = "match")
+        => PostJson("/api/tech/start", new Godot.Collections.Dictionary { ["techKey"] = techKey, ["mode"] = mode });
 
     public Task<Godot.Collections.Dictionary> SpeedUpTech()
         => PostJson("/api/tech/speedup", new Godot.Collections.Dictionary());
 
-    public Task<Godot.Collections.Dictionary> GetFriends()
-        => GetJson("/api/friends");
+    public Task<Godot.Collections.Dictionary> GetFriends(double? timeoutSec = null)
+        => GetJson("/api/friends", timeoutSec);
 
     public Task<Godot.Collections.Dictionary> AddFriend(string friendName)
         => PostJson("/api/friends/add", new Godot.Collections.Dictionary { ["friendName"] = friendName });
@@ -77,8 +84,8 @@ public partial class NetClient : Node
             ["roomId"] = roomId
         });
 
-    public Task<Godot.Collections.Dictionary> GetInvites()
-        => GetJson("/api/invites");
+    public Task<Godot.Collections.Dictionary> GetInvites(double? timeoutSec = null)
+        => GetJson("/api/invites", timeoutSec);
 
     public Task<Godot.Collections.Dictionary> RespondInvite(string inviteId, bool accept)
         => PostJson("/api/invites/respond", new Godot.Collections.Dictionary
@@ -87,8 +94,8 @@ public partial class NetClient : Node
             ["accept"] = accept
         });
 
-    public Task<Godot.Collections.Dictionary> GetLeaderboard()
-        => GetJson("/api/leaderboard");
+    public Task<Godot.Collections.Dictionary> GetLeaderboard(double? timeoutSec = null)
+        => GetJson("/api/leaderboard", timeoutSec);
 
     public Task<Godot.Collections.Dictionary> JoinMatch(string mapName)
         => PostJson("/api/match/join", new Godot.Collections.Dictionary { ["mapName"] = mapName });
@@ -121,16 +128,16 @@ public partial class NetClient : Node
             ["duration"] = duration
         });
 
-    public Task<Godot.Collections.Dictionary> GetJson(string path)
-        => Request(path, Godot.HttpClient.Method.Get, new Godot.Collections.Dictionary());
+    public Task<Godot.Collections.Dictionary> GetJson(string path, double? timeoutSec = null)
+        => Request(path, Godot.HttpClient.Method.Get, new Godot.Collections.Dictionary(), timeoutSec);
 
-    public Task<Godot.Collections.Dictionary> PostJson(string path, Godot.Collections.Dictionary body)
-        => Request(path, Godot.HttpClient.Method.Post, body);
+    public Task<Godot.Collections.Dictionary> PostJson(string path, Godot.Collections.Dictionary body, double? timeoutSec = null)
+        => Request(path, Godot.HttpClient.Method.Post, body, timeoutSec);
 
-    async Task<Godot.Collections.Dictionary> Request(string path, Godot.HttpClient.Method method, Godot.Collections.Dictionary body)
+    async Task<Godot.Collections.Dictionary> Request(string path, Godot.HttpClient.Method method, Godot.Collections.Dictionary body, double? timeoutSec = null)
     {
         var req = new HttpRequest();
-        req.Timeout = RequestTimeoutSec;
+        req.Timeout = timeoutSec ?? RequestTimeoutSec;
         AddChild(req);
 
         var headers = new Godot.Collections.Array<string> { "Content-Type: application/json" };
@@ -138,6 +145,18 @@ public partial class NetClient : Node
             headers.Add($"Authorization: Bearer {GameState.Instance.Token}");
 
         var payload = method == Godot.HttpClient.Method.Get ? "" : Json.Stringify(body);
+
+        // Add client request HMAC-SHA256 signature and build version headers
+        long timestamp = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        string tsStr = timestamp.ToString();
+        string methodStr = method.ToString().ToUpper();
+        string message = $"{methodStr}\n{path}\n{tsStr}\n{payload}";
+        string signature = ComputeHmacSha256(ClientSigKey, message);
+
+        headers.Add($"X-Client-Ts: {tsStr}");
+        headers.Add($"X-Client-Sig: {signature}");
+        headers.Add($"X-Client-Build: {ClientBuildNumber}");
+
         var err = req.Request(ServerUrl + path, headers.ToArray(), method, payload);
         if (err != Error.Ok)
         {
@@ -157,8 +176,11 @@ public partial class NetClient : Node
             return Failure(NetworkUnavailable);
         }
 
-        if (responseCode == 401)
+        if (responseCode == 401 || responseCode == 403)
+        {
             GameState.Instance?.ClearSession();
+            GetTree().ChangeSceneToFile("res://scenes/login/LoginScene.tscn");
+        }
 
         var parsed = Json.ParseString(bytes.GetStringFromUtf8());
         if (parsed.VariantType != Variant.Type.Dictionary)
@@ -180,4 +202,18 @@ public partial class NetClient : Node
             ["success"] = false,
             ["error"] = error
         };
+
+    private string ComputeHmacSha256(string key, string message)
+    {
+        var keyBytes = System.Text.Encoding.UTF8.GetBytes(key);
+        var messageBytes = System.Text.Encoding.UTF8.GetBytes(message);
+        using (var hmac = new System.Security.Cryptography.HMACSHA256(keyBytes))
+        {
+            var hashBytes = hmac.ComputeHash(messageBytes);
+            var sb = new System.Text.StringBuilder();
+            foreach (var b in hashBytes)
+                sb.Append(b.ToString("x2"));
+            return sb.ToString();
+        }
+    }
 }
