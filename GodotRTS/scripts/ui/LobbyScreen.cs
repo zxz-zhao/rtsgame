@@ -5554,7 +5554,13 @@ public partial class LobbyScreen : Control
         var overlay = BuildLoadingOverlay(selectedMap, selectedMode);
         AddChild(overlay);
 
-        var progressBar = overlay.FindChild("ProgressBar", true, false) as ProgressBar;
+        // ── 等待 overlay 真正渲染到屏幕上再开始后台加载 ──────────────────
+        // Godot 在 AddChild 后并不会立即绘制，需要等到下一帧（或更多帧）
+        // ProcessFrame 信号在帧渲染完毕后触发，等 2 帧确保背景图也加载完成
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        var progressBar   = overlay.FindChild("ProgressBar",   true, false) as ProgressBar;
         var progressLabel = overlay.FindChild("ProgressLabel", true, false) as Label;
 
         try
@@ -5584,10 +5590,9 @@ public partial class LobbyScreen : Control
                     progressLabel.Text = $"{Mathf.RoundToInt(progressVal * 100f)}%";
 
                 if (status == ResourceLoader.ThreadLoadStatus.Loaded)
-                {
                     break;
-                }
-                else if (status == ResourceLoader.ThreadLoadStatus.Failed || status == ResourceLoader.ThreadLoadStatus.InvalidResource)
+
+                if (status == ResourceLoader.ThreadLoadStatus.Failed || status == ResourceLoader.ThreadLoadStatus.InvalidResource)
                 {
                     GD.PrintErr($"[LobbyScreen] Background loading failed: {status}");
                     break;
@@ -5596,12 +5601,22 @@ public partial class LobbyScreen : Control
                 await Task.Delay(16);
             }
 
-            if (progressBar is not null)
-                progressBar.Value = 100f;
-            if (progressLabel is not null)
-                progressLabel.Text = "100%";
+            // 进度满 100%，短暂停留让玩家看到满格进度条
+            if (progressBar  is not null) progressBar.Value  = 100f;
+            if (progressLabel is not null) progressLabel.Text = "100%";
+            await Task.Delay(200);
 
-            await Task.Delay(150);
+            // ── 淡出动画：overlay 在 350ms 内渐渐变透明 ──────────────────
+            // ChangeSceneToPacked 是主线程阻塞调用，会造成一帧卡顿。
+            // 将这帧阻塞隐藏在动画结束点，玩家看到的是平滑淡出而非黑屏卡顿。
+            var tween = overlay.CreateTween();
+            tween.TweenProperty(overlay, "modulate:a", 0f, 0.35f)
+                 .SetTrans(Tween.TransitionType.Quad)
+                 .SetEase(Tween.EaseType.In);
+            await ToSignal(tween, Tween.SignalName.Finished);
+
+            // 再额外等一帧，确保淡出最后一帧已经提交给 GPU
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
             var loadedScene = (PackedScene)ResourceLoader.LoadThreadedGet(BattleScenePath);
             GetTree().ChangeSceneToPacked(loadedScene);
