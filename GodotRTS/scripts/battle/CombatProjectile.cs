@@ -110,20 +110,14 @@ public partial class CombatProjectile : Node3D
         Name = "CombatProjectile";
         BattleFeedback.WeaponFire(this, start, ResolveWeaponAudioProfile(), splashRadius > 0.05f || arcHeight > 2.5f);
         
-        var direction = (lastTarget - start).Normalized();
-        SpawnMuzzleFlash(this, start, direction, tint);
-
         bool isFlame = attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower");
+        var direction = (lastTarget - start).Normalized();
+        SpawnMuzzleFlash(this, start, direction, tint, isFlame);
         var longRange = arcHeight > 2.5f;
 
         if (isFlame)
         {
-            AddChild(new MeshInstance3D
-            {
-                Name = "Tracer",
-                Mesh = new CapsuleMesh { Radius = 0.18f, Height = 0.95f, RadialSegments = 8, Rings = 4 },
-                MaterialOverride = MakeMaterial(tint, true)
-            });
+            // 喷火兵发射火焰：不使用硬质的 CapsuleMesh Tracer，完全通过世界坐标的粒子轨迹呈现逼真喷火流
         }
         else
         {
@@ -159,14 +153,15 @@ public partial class CombatProjectile : Node3D
             var trail = new CpuParticles3D
             {
                 Name = "FlameTrail",
-                Amount = 25,
-                Lifetime = 0.22f,
-                Spread = 20f,
-                Gravity = new Vector3(0f, 0.4f, 0f),
-                InitialVelocityMin = 0.4f,
-                InitialVelocityMax = 1.2f,
-                ScaleAmountMin = 0.18f,
-                ScaleAmountMax = 0.50f
+                Amount = 45, // 提高密度，使火柱更连贯
+                Lifetime = 0.38f, // 稍微延长生命期，形成完整的火焰喷射轨迹
+                Spread = 12f, // 较窄的散布，形成凝聚的火流
+                Gravity = new Vector3(0f, 1.4f, 0f), // 真实热空气上升效果
+                InitialVelocityMin = 0.5f,
+                InitialVelocityMax = 1.8f,
+                ScaleAmountMin = 0.15f,
+                ScaleAmountMax = 0.55f,
+                LocalCoords = false // 关键：使用世界坐标，使喷射出的火焰留在原地并逐渐消散
             };
             
             var flameSphere = new SphereMesh
@@ -181,20 +176,26 @@ public partial class CombatProjectile : Node3D
             var trailMat = new StandardMaterial3D
             {
                 ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                AlbedoColor = new Color(1.0f, 0.38f, 0.05f, 0.9f),
+                VertexColorUseAsAlbedo = true, // 启用顶点色以应用渐变色
+                AlbedoColor = new Color(1.0f, 1.0f, 1.0f, 1.0f),
                 Transparency = BaseMaterial3D.TransparencyEnum.Alpha
             };
             trail.MaterialOverride = trailMat;
 
+            // 火焰膨胀消散曲线：从喷嘴出来较小，在空中迅速膨胀为火球，最后冷却消散
             var scaleCurve = new Curve();
-            scaleCurve.AddPoint(new Vector2(0f, 1f));
-            scaleCurve.AddPoint(new Vector2(1f, 0.2f));
+            scaleCurve.AddPoint(new Vector2(0f, 0.4f));
+            scaleCurve.AddPoint(new Vector2(0.3f, 1.6f));
+            scaleCurve.AddPoint(new Vector2(1f, 0.1f));
             trail.ScaleAmountCurve = scaleCurve;
 
+            // 真实的火焰色温变化：中心黄白热核 -> 橘黄 -> 深红 -> 冷却为灰黑烟雾
             var colorRamp = new Gradient();
-            colorRamp.AddPoint(0f, new Color(1.0f, 0.58f, 0.08f, 0.95f));
-            colorRamp.AddPoint(0.5f, new Color(0.98f, 0.22f, 0.04f, 0.65f));
-            colorRamp.AddPoint(1.0f, new Color(0.24f, 0.08f, 0.02f, 0f));
+            colorRamp.AddPoint(0f, new Color(1.5f, 1.5f, 0.8f, 1f)); // HDR 强度提供发光感
+            colorRamp.AddPoint(0.2f, new Color(1.0f, 0.55f, 0.05f, 0.95f));
+            colorRamp.AddPoint(0.55f, new Color(0.85f, 0.12f, 0.02f, 0.7f));
+            colorRamp.AddPoint(0.85f, new Color(0.18f, 0.18f, 0.18f, 0.35f)); // 灰黑色烟雾
+            colorRamp.AddPoint(1.0f, new Color(0.1f, 0.1f, 0.1f, 0f));
             trail.ColorRamp = colorRamp;
 
             AddChild(trail);
@@ -442,7 +443,7 @@ public partial class CombatProjectile : Node3D
         }
     }
 
-    static void SpawnMuzzleFlash(Node owner, Vector3 position, Vector3 direction, Color color)
+    static void SpawnMuzzleFlash(Node owner, Vector3 position, Vector3 direction, Color color, bool isFlame)
     {
         var root = owner.GetTree().CurrentScene ?? owner;
         
@@ -452,91 +453,145 @@ public partial class CombatProjectile : Node3D
 
         var normalizedDir = direction.Normalized();
 
-        var fireParticles = new CpuParticles3D
+        if (isFlame)
         {
-            Name = "MuzzleFire",
-            Amount = 10,
-            Lifetime = 0.16f,
-            OneShot = true,
-            Explosiveness = 0.95f,
-            Direction = normalizedDir,
-            Spread = 30f,
-            Gravity = Vector3.Zero,
-            InitialVelocityMin = 4f,
-            InitialVelocityMax = 7f,
-            ScaleAmountMin = 0.15f,
-            ScaleAmountMax = 0.4f
-        };
+            // 喷火兵开火：只产生喷射火焰粒子，无枪口灰色烟雾
+            var fireParticles = new CpuParticles3D
+            {
+                Name = "MuzzleFire",
+                Amount = 15,
+                Lifetime = 0.25f,
+                OneShot = true,
+                Explosiveness = 0.88f,
+                Direction = normalizedDir,
+                Spread = 20f,
+                Gravity = new Vector3(0f, 0.8f, 0f),
+                InitialVelocityMin = 3.5f,
+                InitialVelocityMax = 5.5f,
+                ScaleAmountMin = 0.18f,
+                ScaleAmountMax = 0.52f
+            };
 
-        var sphere = new SphereMesh
+            var sphere = new SphereMesh
+            {
+                Radius = 0.2f,
+                Height = 0.4f,
+                RadialSegments = 6,
+                Rings = 4
+            };
+            fireParticles.Mesh = sphere;
+
+            var fireMat = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                VertexColorUseAsAlbedo = true,
+                AlbedoColor = new Color(1f, 1f, 1f, 1f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            };
+            fireParticles.MaterialOverride = fireMat;
+
+            var scaleCurve = new Curve();
+            scaleCurve.AddPoint(new Vector2(0f, 0.5f));
+            scaleCurve.AddPoint(new Vector2(0.4f, 1.6f));
+            scaleCurve.AddPoint(new Vector2(1f, 0.1f));
+            fireParticles.ScaleAmountCurve = scaleCurve;
+
+            var fireRamp = new Gradient();
+            fireRamp.AddPoint(0f, new Color(1.0f, 0.88f, 0.35f, 1f));
+            fireRamp.AddPoint(0.5f, new Color(0.98f, 0.42f, 0.05f, 0.8f));
+            fireRamp.AddPoint(1.0f, new Color(0.85f, 0.08f, 0.02f, 0f));
+            fireParticles.ColorRamp = fireRamp;
+
+            container.AddChild(fireParticles);
+            fireParticles.Emitting = true;
+        }
+        else
         {
-            Radius = 0.2f,
-            Height = 0.4f,
-            RadialSegments = 6,
-            Rings = 4
-        };
-        fireParticles.Mesh = sphere;
+            var fireParticles = new CpuParticles3D
+            {
+                Name = "MuzzleFire",
+                Amount = 10,
+                Lifetime = 0.16f,
+                OneShot = true,
+                Explosiveness = 0.95f,
+                Direction = normalizedDir,
+                Spread = 30f,
+                Gravity = Vector3.Zero,
+                InitialVelocityMin = 4f,
+                InitialVelocityMax = 7f,
+                ScaleAmountMin = 0.15f,
+                ScaleAmountMax = 0.4f
+            };
 
-        var fireMat = new StandardMaterial3D
-        {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = color,
-            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-        };
-        fireParticles.MaterialOverride = fireMat;
+            var sphere = new SphereMesh
+            {
+                Radius = 0.2f,
+                Height = 0.4f,
+                RadialSegments = 6,
+                Rings = 4
+            };
+            fireParticles.Mesh = sphere;
 
-        var scaleCurve = new Curve();
-        scaleCurve.AddPoint(new Vector2(0f, 1f));
-        scaleCurve.AddPoint(new Vector2(1f, 0f));
-        fireParticles.ScaleAmountCurve = scaleCurve;
+            var fireMat = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                AlbedoColor = color,
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            };
+            fireParticles.MaterialOverride = fireMat;
 
-        var fireRamp = new Gradient();
-        fireRamp.AddPoint(0f, new Color(color.R, color.G, color.B, 1f));
-        fireRamp.AddPoint(1f, new Color(color.R * 0.4f, color.G * 0.2f, color.B * 0.05f, 0f));
-        fireParticles.ColorRamp = fireRamp;
+            var scaleCurve = new Curve();
+            scaleCurve.AddPoint(new Vector2(0f, 1f));
+            scaleCurve.AddPoint(new Vector2(1f, 0f));
+            fireParticles.ScaleAmountCurve = scaleCurve;
 
-        container.AddChild(fireParticles);
-        fireParticles.Emitting = true;
+            var fireRamp = new Gradient();
+            fireRamp.AddPoint(0f, new Color(color.R, color.G, color.B, 1f));
+            fireRamp.AddPoint(1f, new Color(color.R * 0.4f, color.G * 0.2f, color.B * 0.05f, 0f));
+            fireParticles.ColorRamp = fireRamp;
 
-        // 创建写实的大团开火排烟特效，增加炮口排烟的体积感和消散动画
-        var smokeParticles = new CpuParticles3D
-        {
-            Name = "MuzzleSmoke",
-            Amount = 16,
-            Lifetime = 0.95f,
-            OneShot = true,
-            Explosiveness = 0.92f,
-            Direction = normalizedDir + Vector3.Up * 0.35f,
-            Spread = 40f,
-            Gravity = new Vector3(0f, 0.8f, 0f),
-            InitialVelocityMin = 1.5f,
-            InitialVelocityMax = 3.5f,
-            ScaleAmountMin = 0.38f,
-            ScaleAmountMax = 1.35f
-        };
-        smokeParticles.Mesh = sphere;
+            container.AddChild(fireParticles);
+            fireParticles.Emitting = true;
 
-        var smokeMat = new StandardMaterial3D
-        {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color(0.85f, 0.85f, 0.85f, 0.68f),
-            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-        };
-        smokeParticles.MaterialOverride = smokeMat;
+            var smokeParticles = new CpuParticles3D
+            {
+                Name = "MuzzleSmoke",
+                Amount = 16,
+                Lifetime = 0.95f,
+                OneShot = true,
+                Explosiveness = 0.92f,
+                Direction = normalizedDir + Vector3.Up * 0.35f,
+                Spread = 40f,
+                Gravity = new Vector3(0f, 0.8f, 0f),
+                InitialVelocityMin = 1.5f,
+                InitialVelocityMax = 3.5f,
+                ScaleAmountMin = 0.38f,
+                ScaleAmountMax = 1.35f
+            };
+            smokeParticles.Mesh = sphere;
 
-        var smokeScaleCurve = new Curve();
-        smokeScaleCurve.AddPoint(new Vector2(0f, 0.5f));
-        smokeScaleCurve.AddPoint(new Vector2(1f, 2.2f));
-        smokeParticles.ScaleAmountCurve = smokeScaleCurve;
+            var smokeMat = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                AlbedoColor = new Color(0.85f, 0.85f, 0.85f, 0.68f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            };
+            smokeParticles.MaterialOverride = smokeMat;
 
-        var smokeRamp = new Gradient();
-        smokeRamp.AddPoint(0f, new Color(0.88f, 0.88f, 0.88f, 0.65f));
-        smokeRamp.AddPoint(0.5f, new Color(0.82f, 0.82f, 0.82f, 0.35f));
-        smokeRamp.AddPoint(1f, new Color(0.78f, 0.78f, 0.78f, 0f));
-        smokeParticles.ColorRamp = smokeRamp;
+            var smokeScaleCurve = new Curve();
+            smokeScaleCurve.AddPoint(new Vector2(0f, 0.5f));
+            smokeScaleCurve.AddPoint(new Vector2(1f, 2.2f));
+            smokeParticles.ScaleAmountCurve = smokeScaleCurve;
 
-        container.AddChild(smokeParticles);
-        smokeParticles.Emitting = true;
+            var smokeRamp = new Gradient();
+            smokeRamp.AddPoint(0f, new Color(0.88f, 0.88f, 0.88f, 0.65f));
+            smokeRamp.AddPoint(0.5f, new Color(0.82f, 0.82f, 0.82f, 0.35f));
+            smokeRamp.AddPoint(1f, new Color(0.78f, 0.78f, 0.78f, 0f));
+            smokeParticles.ColorRamp = smokeRamp;
+
+            container.AddChild(smokeParticles);
+            smokeParticles.Emitting = true;
+        }
 
         var timer = container.CreateTween();
         timer.TweenInterval(1.2);
@@ -579,7 +634,8 @@ public partial class CombatProjectile : Node3D
         var fireMat = new StandardMaterial3D
         {
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = color,
+            VertexColorUseAsAlbedo = true,
+            AlbedoColor = new Color(1f, 1f, 1f, 1f),
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha
         };
         fireParticles.MaterialOverride = fireMat;
@@ -618,7 +674,8 @@ public partial class CombatProjectile : Node3D
         var smokeMat = new StandardMaterial3D
         {
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color(0.22f, 0.22f, 0.22f, 0.65f),
+            VertexColorUseAsAlbedo = true,
+            AlbedoColor = new Color(1f, 1f, 1f, 1f),
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha
         };
         smokeParticles.MaterialOverride = smokeMat;
@@ -652,11 +709,18 @@ public partial class CombatProjectile : Node3D
         var sparkMat = new StandardMaterial3D
         {
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color(1f, 0.88f, 0.55f),
+            VertexColorUseAsAlbedo = true,
+            AlbedoColor = new Color(1f, 1f, 1f, 1f),
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha
         };
         sparkParticles.MaterialOverride = sparkMat;
         sparkParticles.ScaleAmountCurve = scaleCurve;
+
+        var sparkColorRamp = new Gradient();
+        sparkColorRamp.AddPoint(0f, new Color(1.0f, 0.9f, 0.6f, 1f));
+        sparkColorRamp.AddPoint(0.5f, new Color(0.95f, 0.45f, 0.1f, 0.8f));
+        sparkColorRamp.AddPoint(1.0f, new Color(0.85f, 0.08f, 0.02f, 0f));
+        sparkParticles.ColorRamp = sparkColorRamp;
 
         container.AddChild(sparkParticles);
         sparkParticles.Emitting = true;
