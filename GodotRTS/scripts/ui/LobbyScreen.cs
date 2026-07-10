@@ -5299,19 +5299,161 @@ public partial class LobbyScreen : Control
         globalSelection.Visible = mode == GlobalConquestMode;
     }
 
+    Control BuildLoadingOverlay(string mapName, string modeName)
+    {
+        var overlay = new ColorRect
+        {
+            Name = "LoadingOverlay",
+            Color = new Color(0.04f, 0.05f, 0.06f, 1f),
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        overlay.SetAnchorsPreset(LayoutPreset.FullRect);
+
+        var center = new VBoxContainer
+        {
+            Name = "CenterBox",
+            Alignment = BoxContainer.AlignmentMode.Center,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(400, 300)
+        };
+        center.SetAnchorsPreset(LayoutPreset.Center);
+        overlay.AddChild(center);
+
+        var title = AddLabel("正在载入战场...", 20, new Color(1f, 0.84f, 0.24f), HorizontalAlignment.Center);
+        title.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.88f));
+        title.AddThemeConstantOverride("outline_size", 2);
+        center.AddChild(title);
+
+        center.AddChild(new Control { CustomMinimumSize = new Vector2(0, 10) });
+
+        var subtitle = AddLabel($"地图：{mapName}  |  模式：{modeName}", 13, new Color(0.86f, 0.90f, 0.93f, 0.96f), HorizontalAlignment.Center);
+        center.AddChild(subtitle);
+
+        center.AddChild(new Control { CustomMinimumSize = new Vector2(0, 25) });
+
+        var progressContainer = new PanelContainer
+        {
+            CustomMinimumSize = new Vector2(360, 24)
+        };
+        MetalUiStyle.ApplyMetalPanel(progressContainer, MetalUiStyle.Steel, 1, 6, 4);
+        center.AddChild(progressContainer);
+
+        var progressBar = new ProgressBar
+        {
+            Name = "ProgressBar",
+            MinValue = 0,
+            MaxValue = 100,
+            Value = 0,
+            ShowPercentage = false,
+            CustomMinimumSize = new Vector2(360, 24)
+        };
+
+        var bgStyle = new StyleBoxFlat
+        {
+            BgColor = new Color(0.08f, 0.10f, 0.12f, 0.96f),
+            CornerRadiusTopLeft = 3,
+            CornerRadiusTopRight = 3,
+            CornerRadiusBottomLeft = 3,
+            CornerRadiusBottomRight = 3
+        };
+        var fgStyle = new StyleBoxFlat
+        {
+            BgColor = new Color(0.96f, 0.79f, 0.30f, 0.92f),
+            CornerRadiusTopLeft = 3,
+            CornerRadiusTopRight = 3,
+            CornerRadiusBottomLeft = 3,
+            CornerRadiusBottomRight = 3,
+            ShadowColor = new Color(1f, 0.80f, 0.24f, 0.18f),
+            ShadowSize = 6
+        };
+        progressBar.AddThemeStyleboxOverride("background", bgStyle);
+        progressBar.AddThemeStyleboxOverride("fill", fgStyle);
+        progressContainer.AddChild(progressBar);
+
+        center.AddChild(new Control { CustomMinimumSize = new Vector2(0, 12) });
+
+        var progressLabel = AddLabel("0%", 12, new Color(0.96f, 0.79f, 0.30f), HorizontalAlignment.Center);
+        progressLabel.Name = "ProgressLabel";
+        center.AddChild(progressLabel);
+
+        center.AddChild(new Control { CustomMinimumSize = new Vector2(0, 20) });
+
+        string[] tips = new[]
+        {
+            "提示：主基地被摧毁后，可以在废墟状态下花费金币进行重建。",
+            "提示：前三名指挥官在军衔军功榜上会显示独特的多彩星徽记。",
+            "提示：在地图上建造防御塔可以有效阻挡敌方战车的推进。",
+            "提示：科技升级能大幅提高作战单位的伤害与护甲减伤。",
+            "提示：游戏加载可能需要数秒，请耐心等待战斗加载完成。"
+        };
+        var randomTip = tips[new Random().Next(tips.Length)];
+        var tipLabel = AddLabel(randomTip, 11, new Color(0.60f, 0.65f, 0.70f), HorizontalAlignment.Center);
+        center.AddChild(tipLabel);
+
+        return overlay;
+    }
+
     async Task StartBattle(bool clearRoom = true)
     {
         if (battleStarting)
             return;
         battleStarting = true;
-        ShowToast($"进入 {selectedMode}");
+
+        var overlay = BuildLoadingOverlay(selectedMap, selectedMode);
+        AddChild(overlay);
+
+        var progressBar = overlay.FindChild("ProgressBar", true, false) as ProgressBar;
+        var progressLabel = overlay.FindChild("ProgressLabel", true, false) as Label;
+
         try
         {
             GameState.Instance?.RememberBattleEntry(selectedMode, selectedMap);
             if (clearRoom)
                 GameState.Instance?.ClearCurrentRoom();
-            await Task.Yield();
-            GetTree().ChangeSceneToFile(BattleScenePath);
+
+            var error = ResourceLoader.LoadThreadedRequest(BattleScenePath);
+            if (error != Error.Ok)
+            {
+                GD.PrintErr($"[LobbyScreen] LoadThreadedRequest failed: {error}");
+                GetTree().ChangeSceneToFile(BattleScenePath);
+                return;
+            }
+
+            var progress = new Godot.Collections.Array { 0.0f };
+
+            while (true)
+            {
+                var status = ResourceLoader.LoadThreadedGetStatus(BattleScenePath, progress);
+                float progressVal = progress.Count > 0 ? progress[0].AsSingle() : 0f;
+
+                if (progressBar is not null)
+                    progressBar.Value = progressVal * 100f;
+                if (progressLabel is not null)
+                    progressLabel.Text = $"{Mathf.RoundToInt(progressVal * 100f)}%";
+
+                if (status == ResourceLoader.ThreadLoadStatus.Loaded)
+                {
+                    break;
+                }
+                else if (status == ResourceLoader.ThreadLoadStatus.Failed || status == ResourceLoader.ThreadLoadStatus.InvalidResource)
+                {
+                    GD.PrintErr($"[LobbyScreen] Background loading failed: {status}");
+                    break;
+                }
+
+                await Task.Delay(16);
+            }
+
+            if (progressBar is not null)
+                progressBar.Value = 100f;
+            if (progressLabel is not null)
+                progressLabel.Text = "100%";
+
+            await Task.Delay(150);
+
+            var loadedScene = (PackedScene)ResourceLoader.LoadThreadedGet(BattleScenePath);
+            GetTree().ChangeSceneToPacked(loadedScene);
         }
         finally
         {
