@@ -508,23 +508,26 @@ public partial class LobbyScreen : Control
 
         var rankRow = new HBoxContainer
         {
-            SizeFlagsHorizontal = SizeFlags.ShrinkBegin
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter
         };
         rankRow.AddThemeConstantOverride("separation", 6);
         commanderText.AddChild(rankRow);
 
         commanderRankIcon = new TextureRect
         {
-            CustomMinimumSize = new Vector2(18, 18),
+            CustomMinimumSize = new Vector2(26, 26),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             Texture = LoadTexture(LobbyRankBadgeTexturePath(GameState.Instance?.RankTitle)),
             MouseFilter = MouseFilterEnum.Ignore,
-
+            SizeFlagsVertical = SizeFlags.ShrinkCenter
         };
         rankRow.AddChild(commanderRankIcon);
 
         rankLabel = AddLabel("Lv.1  新兵", 13, WarningText, HorizontalAlignment.Left);
         rankLabel.CustomMinimumSize = new Vector2(150, 0);
+        rankLabel.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         rankRow.AddChild(rankLabel);
 
         row.AddChild(Spacer());
@@ -1047,8 +1050,9 @@ public partial class LobbyScreen : Control
         row.OffsetBottom = -8;
         row.AddChild(AddButton("商店", () => ShowShopModal(), ButtonTone.Secondary, 15));
         row.AddChild(AddButton("仓库", () => ShowWarehouseModal(), ButtonTone.Secondary, 15));
+        row.AddChild(AddButton("活动", () => ShowEventsModal(), ButtonTone.Gold, 15));
         row.AddChild(AddButton("战役", () => ShowCampaignModal(), ButtonTone.Primary, 15));
-        row.AddChild(AddButton("排行榜", () => _ = ShowLeaderboardModal(), ButtonTone.Gold, 15));
+        row.AddChild(AddButton("排行榜", () => _ = ShowLeaderboardModal(), ButtonTone.Secondary, 15));
         row.AddChild(AddButton("邮件", () => _ = ShowMailModal(), ButtonTone.Secondary, 15));
     }
 
@@ -1235,21 +1239,57 @@ public partial class LobbyScreen : Control
     {
         taskStatusLabel.Text = statusText;
         ClearChildren(taskRows);
-        taskRows.AddChild(MakeTaskRow("daily_login", "每日登录", 1, 1, false, false));
-        taskRows.AddChild(MakeTaskRow("win3", "赢得 3 场战斗", 0, 3, false, false));
-        taskRows.AddChild(MakeTaskRow("destroy20", "摧毁 20 个敌方单位", 0, 20, false, false));
+        taskRows.AddChild(MakeTaskRow("daily_login", "每日登录", 1, 1, IsLocalTaskClaimed("daily_login"), !IsLocalTaskClaimed("daily_login")));
+        taskRows.AddChild(MakeTaskRow("win3", "赢得 3 场战斗", 2, 3, IsLocalTaskClaimed("win3"), false));
+        taskRows.AddChild(MakeTaskRow("destroy20", "摧毁 20 个敌方单位", 12, 20, IsLocalTaskClaimed("destroy20"), false));
+        taskRows.AddChild(MakeTaskRow("destroy_base", "摧毁敌军主基地", 1, 1, IsLocalTaskClaimed("destroy_base"), !IsLocalTaskClaimed("destroy_base")));
+        taskRows.AddChild(MakeTaskRow("train_tanks", "生产 10 辆坦克单位", 10, 10, IsLocalTaskClaimed("train_tanks"), !IsLocalTaskClaimed("train_tanks")));
     }
 
     Control MakeTaskRow(string taskId, string title, int cur, int max, bool claimed, bool canClaim)
     {
-        var panel = new Panel { Name = "TaskRow_" + taskId, CustomMinimumSize = new Vector2(0, 54) };
+        var panel = new Panel { Name = "TaskRow_" + taskId, CustomMinimumSize = new Vector2(0, 60), ClipContents = true };
         MetalUiStyle.ApplyMetalPanel(panel, MetalUiStyle.Steel, 1, 4, 3);
+
+        // 二战军事风背景底图
+        var bgPath = taskId switch
+        {
+            "daily_login" => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_radar_map.png",
+            "win3" => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_assault_arrows.png",
+            "destroy20" => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_firepower_barrage.png",
+            "conquest_win" => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_radar_map.png",
+            "destroy_base" => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_hold_bunker.png",
+            "build_barracks" => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_generic_plate.png",
+            "train_tanks" => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_armor_plate.png",
+            "power_plant" => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_repair_workshop.png",
+            _ => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_generic_plate.png"
+        };
+
+        if (ResourceLoader.Exists(bgPath))
+        {
+            var tex = ResourceLoader.Load<Texture2D>(bgPath);
+            if (tex is not null)
+            {
+                var bgTex = new TextureRect
+                {
+                    Name = "TaskRowBg",
+                    Texture = tex,
+                    ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                    StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+                    SelfModulate = new Color(1f, 1f, 1f, 0.22f), // 半透明，融入背景
+                    MouseFilter = Control.MouseFilterEnum.Ignore
+                };
+                bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+                panel.AddChild(bgTex);
+            }
+        }
+
         var row = AddHBox(panel, "TaskRowBox", 8);
         row.SetAnchorsPreset(LayoutPreset.FullRect);
         row.OffsetLeft = 8;
         row.OffsetRight = -8;
-        row.OffsetTop = 7;
-        row.OffsetBottom = -7;
+        row.OffsetTop = 8;
+        row.OffsetBottom = -8;
 
         var info = new VBoxContainer { Name = "TaskInfo", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         info.AddThemeConstantOverride("separation", 2);
@@ -1264,7 +1304,12 @@ public partial class LobbyScreen : Control
             "daily_login" => "奖励: 100金币",
             "win3" => "奖励: 200金币",
             "destroy20" => "奖励: 150金币 + 5钻石",
-            _ => "奖励: 无"
+            "conquest_win" => "奖励: 300金币 + 10钻石",
+            "destroy_base" => "奖励: 250金币",
+            "build_barracks" => "奖励: 150金币",
+            "train_tanks" => "奖励: 200金币",
+            "power_plant" => "奖励: 120金币",
+            _ => "奖励: 100金币"
         };
         metaRow.AddChild(AddLabel(rewardText, 11, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left));
 
@@ -1280,6 +1325,42 @@ public partial class LobbyScreen : Control
 
     async Task ClaimTask(string taskId)
     {
+        var isLocal = NetClient.Instance is null || GameState.Instance?.IsGuest == true;
+        if (isLocal)
+        {
+            var goldReward = taskId switch
+            {
+                "daily_login" => 100,
+                "win3" => 200,
+                "destroy20" => 150,
+                "conquest_win" => 300,
+                "destroy_base" => 250,
+                "build_barracks" => 150,
+                "train_tanks" => 200,
+                "power_plant" => 120,
+                _ => 100
+            };
+            var gemsReward = taskId switch
+            {
+                "destroy20" => 5,
+                "conquest_win" => 10,
+                _ => 0
+            };
+
+            GameState.Instance?.AddCurrency(goldReward, gemsReward);
+            RefreshTopBar();
+            ShowToast($"任务奖励领取成功！金币 +{goldReward}" + (gemsReward > 0 ? $"，钻石 +{gemsReward}" : ""));
+            
+            MarkLocalTaskClaimed(taskId);
+            
+            BuildLocalTasks("本地任务预览");
+            if (activeFeatureModal == "tasks" && modalPanel.Visible && string.Equals(modalTitle.Text, "全部任务", StringComparison.Ordinal))
+            {
+                await ShowTaskModal();
+            }
+            return;
+        }
+
         if (NetClient.Instance is null)
             return;
 
@@ -1320,7 +1401,7 @@ public partial class LobbyScreen : Control
 
         OpenFeatureModal("全部任务", "查看当前账号的每日任务进度、完成状态与奖励领取入口。");
         AddModalSummaryRow(
-            AddStatCard("任务总数", $"{(usingLiveData ? tasks.Count : 3)}", usingLiveData ? "当前同步任务" : "离线样例任务", WarningText),
+            AddStatCard("任务总数", $"{(usingLiveData ? tasks.Count : 8)}", usingLiveData ? "当前同步任务" : "离线样例任务", WarningText),
             AddStatCard("可领取", $"{CountClaimableTasks(tasks, usingLiveData)}", "已完成待领取", GoodText),
             AddStatCard("模式", usingLiveData ? "实时数据" : "离线预览", usingLiveData ? "服务器已同步" : "服务器不可用时展示", PanelText));
 
@@ -1343,6 +1424,11 @@ public partial class LobbyScreen : Control
                     "daily_login" => "每日登录",
                     "win3" => "赢得 3 场战斗",
                     "destroy20" => "摧毁 20 个敌方单位",
+                    "conquest_win" => "赢得 1 场全球争霸战",
+                    "destroy_base" => "摧毁敌军主基地",
+                    "build_barracks" => "在一局中建造 2 个兵营",
+                    "train_tanks" => "生产 10 辆坦克单位",
+                    "power_plant" => "建造 3 个发电厂",
                     _ => "作战任务"
                 });
                 var cur = task.GetInt("cur");
@@ -1354,9 +1440,14 @@ public partial class LobbyScreen : Control
         }
         else
         {
-            section.AddChild(MakeTaskRow("daily_login", "每日登录", 1, 1, false, false));
-            section.AddChild(MakeTaskRow("win3", "赢得 3 场战斗", 0, 3, false, false));
-            section.AddChild(MakeTaskRow("destroy20", "摧毁 20 个敌方单位", 0, 20, false, false));
+            section.AddChild(MakeTaskRow("daily_login", "每日登录", 1, 1, IsLocalTaskClaimed("daily_login"), !IsLocalTaskClaimed("daily_login")));
+            section.AddChild(MakeTaskRow("win3", "赢得 3 场战斗", 2, 3, IsLocalTaskClaimed("win3"), false));
+            section.AddChild(MakeTaskRow("destroy20", "摧毁 20 个敌方单位", 12, 20, IsLocalTaskClaimed("destroy20"), false));
+            section.AddChild(MakeTaskRow("conquest_win", "赢得 1 场全球争霸战", 0, 1, IsLocalTaskClaimed("conquest_win"), false));
+            section.AddChild(MakeTaskRow("destroy_base", "摧毁敌军主基地", 1, 1, IsLocalTaskClaimed("destroy_base"), !IsLocalTaskClaimed("destroy_base")));
+            section.AddChild(MakeTaskRow("build_barracks", "在一局中建造 2 个兵营", 1, 2, IsLocalTaskClaimed("build_barracks"), false));
+            section.AddChild(MakeTaskRow("train_tanks", "生产 10 辆坦克单位", 10, 10, IsLocalTaskClaimed("train_tanks"), !IsLocalTaskClaimed("train_tanks")));
+            section.AddChild(MakeTaskRow("power_plant", "建造 3 个发电厂", 3, 3, true, false)); // 默认已领示范
         }
 
         var actionRow = new HBoxContainer { Name = "TaskModalActions" };
@@ -1371,20 +1462,27 @@ public partial class LobbyScreen : Control
         ShowModal();
     }
 
-    static int CountClaimableTasks(Godot.Collections.Array tasks, bool usingLiveData)
+    int CountClaimableTasks(Godot.Collections.Array tasks, bool usingLiveData)
     {
         if (!usingLiveData)
-            return 0;
+        {
+            var count = 0;
+            if (!IsLocalTaskClaimed("daily_login")) count++;
+            if (!IsLocalTaskClaimed("destroy_base")) count++;
+            if (!IsLocalTaskClaimed("train_tanks")) count++;
+            return count;
+        }
 
-        var count = 0;
+        var res = 0;
         foreach (var item in tasks)
         {
             if (item.VariantType != Variant.Type.Dictionary)
                 continue;
-            if (item.AsGodotDictionary().GetBool("canClaim"))
-                count++;
+            var task = item.AsGodotDictionary();
+            if (task.GetBool("canClaim") && !task.GetBool("claimed"))
+                res++;
         }
-        return count;
+        return res;
     }
 
     void UpdateTechPanel(Godot.Collections.Dictionary data)
@@ -4245,6 +4343,28 @@ public partial class LobbyScreen : Control
         return box;
     }
 
+    VBoxContainer AddModalSectionPlain(string title, string note, Color accent)
+    {
+        var box = new VBoxContainer
+        {
+            Name = "ModalSectionBoxPlain_" + title,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin
+        };
+        box.AddThemeConstantOverride("separation", 8);
+
+        // 如果已经有子节点，增加间距以分隔不同日期的公告
+        if (modalBody.GetChildCount() > 0)
+        {
+            var spacer = new Control { CustomMinimumSize = new Vector2(0, 14) };
+            modalBody.AddChild(spacer);
+        }
+
+        modalBody.AddChild(box);
+        box.AddChild(AddModalSectionHeader(title, note, accent));
+        return box;
+    }
+
     void AddTopAccentStripe(Control parent, Color color, int height)
     {
         var stripe = new ColorRect
@@ -5986,7 +6106,7 @@ public partial class LobbyScreen : Control
             if (!string.Equals(currentDate, entry.DateKey, StringComparison.Ordinal))
             {
                 currentDate = entry.DateKey;
-                section = AddModalSectionPanel(currentDate, $"{CountAnnouncementsForDate(visible, currentDate)} 条公告", WarningText);
+                section = AddModalSectionPlain(currentDate, $"{CountAnnouncementsForDate(visible, currentDate)} 条公告", WarningText);
             }
 
             section?.AddChild(CreateAnnouncementCard(entry));
@@ -6934,5 +7054,208 @@ public partial class LobbyScreen : Control
         Secondary,
         Gold,
         Transparent
+    }
+
+    private readonly System.Collections.Generic.HashSet<string> claimedLocalTaskIds = new();
+    private readonly System.Collections.Generic.HashSet<int> claimedRecruitDays = new();
+    private string activeEventTab = "recruit";
+
+    void MarkLocalTaskClaimed(string taskId) => claimedLocalTaskIds.Add(taskId);
+    bool IsLocalTaskClaimed(string taskId) => claimedLocalTaskIds.Contains(taskId);
+    void MarkRecruitDayClaimed(int day) => claimedRecruitDays.Add(day);
+    bool IsRecruitDayClaimed(int day) => claimedRecruitDays.Contains(day);
+
+    void ShowEventsModal()
+    {
+        activeFeatureModal = "events";
+        OpenFeatureModal("活动中心", "指战员，参与限时战场活动，完成战术演练，即可赢取海量金币与珍贵科研图纸。");
+        
+        AddModalSummaryRow(
+            AddStatCard("进行中活动", "3 个", "参与即可领取奖励", WarningText),
+            AddStatCard("可领取礼包", $"{((IsRecruitDayClaimed(3) ? 0 : 1) + (IsLocalTaskClaimed("EventTask_全歼敌方巡逻艇部队") ? 0 : 1) + (IsLocalTaskClaimed("EventTask_单局无损建造 3 个发电厂") ? 0 : 1))} 个", "完成活动解锁", GoodText),
+            AddStatCard("赛季剩余时间", "24 天", "终极大奖：重型虎式坦克图纸", PanelText)
+        );
+
+        var tabs = new HBoxContainer { Name = "EventTabs" };
+        tabs.AddThemeConstantOverride("separation", 10);
+        
+        var recruitBtn = AddButton(activeEventTab == "recruit" ? "★ 新兵七日礼" : "新兵七日礼", () => {
+            activeEventTab = "recruit";
+            ShowEventsModal();
+        }, activeEventTab == "recruit" ? ButtonTone.Gold : ButtonTone.Secondary, 13);
+        
+        var campaignBtn = AddButton(activeEventTab == "campaign" ? "★ 闪击战役" : "闪击战役", () => {
+            activeEventTab = "campaign";
+            ShowEventsModal();
+        }, activeEventTab == "campaign" ? ButtonTone.Gold : ButtonTone.Secondary, 13);
+
+        var supplyBtn = AddButton(activeEventTab == "supply" ? "★ 军需集结" : "军需集结", () => {
+            activeEventTab = "supply";
+            ShowEventsModal();
+        }, activeEventTab == "supply" ? ButtonTone.Gold : ButtonTone.Secondary, 13);
+
+        tabs.AddChild(recruitBtn);
+        tabs.AddChild(campaignBtn);
+        tabs.AddChild(supplyBtn);
+        modalBody.AddChild(tabs);
+
+        if (activeEventTab == "recruit")
+        {
+            var section = AddModalSectionPanel("新兵签到", "每日登录即可解锁二战经典军备，金币直接到账！", WarningText);
+            
+            var flow = new HFlowContainer { Name = "RecruitFlow" };
+            flow.AddThemeConstantOverride("h_separation", 8);
+            flow.AddThemeConstantOverride("v_separation", 8);
+            section.AddChild(flow);
+            
+            flow.AddChild(CreateRecruitDayCard(1, "100金币", true, false));
+            flow.AddChild(CreateRecruitDayCard(2, "200金币", true, false));
+            flow.AddChild(CreateRecruitDayCard(3, "300金币", IsRecruitDayClaimed(3), !IsRecruitDayClaimed(3)));
+            flow.AddChild(CreateRecruitDayCard(4, "500金币", false, false));
+            flow.AddChild(CreateRecruitDayCard(5, "谢尔曼图纸", false, false));
+            flow.AddChild(CreateRecruitDayCard(6, "800金币", false, false));
+            flow.AddChild(CreateRecruitDayCard(7, "重装虎式坦克", false, false));
+        }
+        else if (activeEventTab == "campaign")
+        {
+            var section = AddModalSectionPanel("闪击战役挑战", "完成特定闪击战术演练，获取重火力武器支援！", WarningText);
+            
+            section.AddChild(CreateEventTaskRow("在 10 分钟内赢得 1 场遭遇战", "奖励: 500金币 + 谢尔曼图纸", "0/1", false, false, "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_assault_arrows.png"));
+            section.AddChild(CreateEventTaskRow("全歼敌方巡逻艇部队", "奖励: 300金币", "1/1", false, true, "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_firepower_barrage.png"));
+            section.AddChild(CreateEventTaskRow("单局无损建造 3 个发电厂", "奖励: 250金币", "3/3", false, true, "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_repair_workshop.png"));
+        }
+        else
+        {
+            var section = AddModalSectionPanel("限时物资筹备", "筹备基础工业物资，保障钢铁洪流的电力和黄金供应！", WarningText);
+            section.AddChild(CreateEventTaskRow("累计开采金矿满 5,000 黄金", "奖励: 400金币 + 10钻石", "3,200/5,000", false, false, "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_radar_map.png"));
+            section.AddChild(CreateEventTaskRow("建造 5 个金矿与 5 个发电厂", "奖励: 600金币", "6/10", false, false, "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_generic_plate.png"));
+            section.AddChild(CreateEventTaskRow("单局战斗生产超过 30 辆坦克", "奖励: 800金币 + 20钻石", "30/30", false, true, "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_armor_plate.png"));
+        }
+
+        ShowModal();
+    }
+
+    Control CreateRecruitDayCard(int day, string reward, bool claimed, bool canClaim)
+    {
+        var card = new Panel
+        {
+            Name = $"RecruitDayCard_{day}",
+            CustomMinimumSize = new Vector2(106, 92),
+            ClipContents = true
+        };
+        
+        var accent = claimed 
+            ? new Color(0.5f, 0.5f, 0.5f, 0.4f) 
+            : canClaim 
+                ? new Color(0.95f, 0.72f, 0.28f, 0.95f) 
+                : new Color(0.24f, 0.58f, 0.88f, 0.65f);
+                
+        MetalUiStyle.ApplyMetalPanel(card, new MetalUiStyle.MetalPalette(
+            claimed ? new Color(0.04f, 0.05f, 0.06f, 0.94f) : new Color(0.02f, 0.03f, 0.05f, 0.96f),
+            accent,
+            new Color(1f, 0.95f, 0.84f, 0.15f),
+            new Color(0.02f, 0.02f, 0.03f, 0.92f),
+            new Color(accent.R, accent.G, accent.B, 0.08f)),
+            1,
+            4,
+            3);
+
+        const string radarMapPath = "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_radar_map.png";
+        if (ResourceLoader.Exists(radarMapPath))
+        {
+            var bgTex = new TextureRect
+            {
+                Texture = ResourceLoader.Load<Texture2D>(radarMapPath),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+                SelfModulate = new Color(1f, 1f, 1f, claimed ? 0.06f : 0.18f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+            card.AddChild(bgTex);
+        }
+
+        var box = AddVBox(card, "Box", 4, new Vector2(4, 6), new Vector2(-4, -6));
+        box.AddChild(AddLabel($"第 {day} 天", 12, claimed ? MutedText : PanelText, HorizontalAlignment.Center));
+        
+        var rewardLabel = AddLabel(reward, 10, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Center);
+        rewardLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        rewardLabel.SizeFlagsVertical = SizeFlags.ExpandFill;
+        box.AddChild(rewardLabel);
+
+        var statusText = claimed ? "已领取" : canClaim ? "可领取" : "未解锁";
+        var button = AddButton(statusText, () => {
+            if (canClaim && !claimed)
+            {
+                GameState.Instance?.AddCurrency(300, 0); // 签到获取300金币
+                RefreshTopBar();
+                ShowToast($"新兵签到成功！金币 +300");
+                MarkRecruitDayClaimed(day);
+                ShowEventsModal();
+            }
+        }, canClaim ? ButtonTone.Gold : ButtonTone.Secondary, 9);
+        button.Disabled = !canClaim || claimed;
+        button.CustomMinimumSize = new Vector2(0, 18);
+        box.AddChild(button);
+
+        return card;
+    }
+
+    Control CreateEventTaskRow(string title, string reward, string progressText, bool claimed, bool canClaim, string bgPath)
+    {
+        var panel = new Panel { CustomMinimumSize = new Vector2(0, 60), ClipContents = true };
+        MetalUiStyle.ApplyMetalPanel(panel, MetalUiStyle.Steel, 1, 4, 3);
+
+        if (!string.IsNullOrEmpty(bgPath) && ResourceLoader.Exists(bgPath))
+        {
+            var bgTex = new TextureRect
+            {
+                Texture = ResourceLoader.Load<Texture2D>(bgPath),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+                SelfModulate = new Color(1f, 1f, 1f, 0.22f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+            panel.AddChild(bgTex);
+        }
+
+        var row = AddHBox(panel, "EventTaskRowBox", 8);
+        row.SetAnchorsPreset(LayoutPreset.FullRect);
+        row.OffsetLeft = 8;
+        row.OffsetRight = -8;
+        row.OffsetTop = 8;
+        row.OffsetBottom = -8;
+
+        var info = new VBoxContainer { Name = "EventTaskInfo", SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        info.AddThemeConstantOverride("separation", 2);
+        info.AddChild(AddLabel(title, 13, PanelText, HorizontalAlignment.Left));
+
+        var metaRow = new HBoxContainer { Name = "EventTaskMetaRow" };
+        metaRow.AddThemeConstantOverride("separation", 8);
+        metaRow.AddChild(AddLabel(progressText, 11, canClaim ? GoodText : MutedText, HorizontalAlignment.Left));
+        metaRow.AddChild(AddLabel(reward, 11, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left));
+        info.AddChild(metaRow);
+        row.AddChild(info);
+
+        var eventKey = "EventTask_" + title;
+        var isClaimedLocally = IsLocalTaskClaimed(eventKey) || claimed;
+
+        var button = AddButton(isClaimedLocally ? "已领" : canClaim ? "领取" : "未达成", () => {
+            if (canClaim && !isClaimedLocally)
+            {
+                GameState.Instance?.AddCurrency(500, 0); // 活动领取奖励500金币
+                RefreshTopBar();
+                ShowToast($"活动挑战成功！金币 +500");
+                MarkLocalTaskClaimed(eventKey);
+                ShowEventsModal();
+            }
+        }, canClaim && !isClaimedLocally ? ButtonTone.Gold : ButtonTone.Secondary, 12);
+        
+        button.Disabled = isClaimedLocally || !canClaim;
+        button.CustomMinimumSize = new Vector2(66, 30);
+        row.AddChild(button);
+
+        return panel;
     }
 }
