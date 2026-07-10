@@ -333,6 +333,20 @@ public partial class GameState : Node
             ReportReason = string.IsNullOrWhiteSpace(reason) ? pref.ReportReason : reason.Trim()
         });
 
+    public void DeselectNode(Node node)
+    {
+        if (node is null || !GodotObject.IsInstanceValid(node))
+            return;
+
+        if (Selected.Contains(node))
+        {
+            if (node.HasMethod("SetSelected"))
+                node.Call("SetSelected", false);
+            Selected.Remove(node);
+            EmitSignal(SignalName.SelectionChanged, new Godot.Collections.Array<Node>(Selected));
+        }
+    }
+
     public void SetSelection(IEnumerable<Node> nodes)
     {
         var hadSameSelection = Selected.Where(GodotObject.IsInstanceValid).SequenceEqual(nodes.Where(GodotObject.IsInstanceValid));

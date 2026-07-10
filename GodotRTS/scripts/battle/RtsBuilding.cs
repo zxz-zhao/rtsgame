@@ -282,6 +282,7 @@ public partial class RtsBuilding : StaticBody3D
         BattleFeedback.Damage(this, GlobalPosition, before - Health, PlayerOwned, Health <= 0f);
         if (Health <= 0f)
         {
+            GameState.Instance?.DeselectNode(this);
             BattleFeedback.Destroyed(this, GlobalPosition, true);
             if (IsMainBase || CanBeRebuilt)
                 EnterRuinedState();

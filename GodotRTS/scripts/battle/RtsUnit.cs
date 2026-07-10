@@ -668,6 +668,7 @@ public partial class RtsUnit : CharacterBody3D
         BattleFeedback.Damage(this, GlobalPosition, totalDealt, PlayerOwned, Health <= 0f);
         if (Health <= 0f)
         {
+            GameState.Instance?.DeselectNode(this);
             BattleFeedback.Destroyed(this, GlobalPosition, !BattleUnitCatalog.IsInfantryLike(UnitKey));
             EmitSignal(SignalName.Died, this);
             QueueFree();
