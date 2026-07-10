@@ -3510,7 +3510,7 @@ public partial class LobbyScreen : Control
 
     void AddLeaderboardTableHeader(out VBoxContainer list)
     {
-        list = AddModalTable("军功榜", new[] { "排名", "指挥官", "军衔", "战绩", "胜率" }, new[] { 64f, 176f, 116f, 102f, 80f });
+        list = AddModalTable("军功榜", new[] { "排名", "指挥官", "军衔", "战绩", "胜率" }, new[] { 80f, 160f, 116f, 102f, 80f });
     }
 
     void AddLeaderboardRow(VBoxContainer list, int place, string username, int level, int wins, int losses, string rankTitle, bool isCurrent)
@@ -3520,12 +3520,12 @@ public partial class LobbyScreen : Control
 
         string rankStr = $"#{place}";
         if (place == 1) rankStr = "★ #1 ★";
-        else if (place == 2) rankStr = "☆ #2 ☆";
-        else if (place == 3) rankStr = "☆ #3 ☆";
+        else if (place == 2) rankStr = "★ #2 ★";
+        else if (place == 3) rankStr = "★ #3 ★";
 
         list.AddChild(AddTableRow(
             new[] { rankStr, $"{FriendlyText(username, "Commander")}  Lv.{level}", FriendlyText(rankTitle, "列兵"), $"{wins}胜 {losses}败", $"{winRate}%" },
-            new[] { 64f, 176f, 116f, 102f, 80f },
+            new[] { 80f, 160f, 116f, 102f, 80f },
             "",
             null,
             ButtonTone.Secondary,
@@ -4248,18 +4248,18 @@ public partial class LobbyScreen : Control
         {
             if (text.Contains("#1"))
             {
-                cellColor = new Color(0.96f, 0.79f, 0.30f); // 亮金色
-                fontSize = 14;
+                cellColor = new Color(1.00f, 0.84f, 0.20f); // 豪华亮金色
+                fontSize = 15;
             }
             else if (text.Contains("#2"))
             {
-                cellColor = new Color(0.78f, 0.84f, 0.90f); // 亮银色
-                fontSize = 13;
+                cellColor = new Color(0.96f, 0.79f, 0.24f); // 豪华暖金色
+                fontSize = 14;
             }
             else if (text.Contains("#3"))
             {
-                cellColor = new Color(0.80f, 0.50f, 0.30f); // 亮铜色
-                fontSize = 13;
+                cellColor = new Color(0.92f, 0.74f, 0.28f); // 豪华软金色
+                fontSize = 14;
             }
         }
 
