@@ -2275,9 +2275,9 @@ public partial class BattleGameManager : Node
 
     static float InfantryModelScale(string key) => key switch
     {
-        "infantry_artillery" => 0.87f,
-        "infantry_flamethrower" or "flamethrower" => 0.93f,
-        _ => 0.84f
+        "infantry_artillery" => 1.65f,
+        "infantry_flamethrower" or "flamethrower" => 1.75f,
+        _ => 1.60f
     };
 
     void AddProceduralInfantryVisual(RtsUnit unit, BattleUnitDefinition def, bool playerOwned)
@@ -2733,10 +2733,10 @@ public partial class BattleGameManager : Node
             switch (key)
             {
                 case "barracks":
-                    AddSizedImportedProp(visual, MilitaryFbxRoot + "structure.fbx", "BarracksStructure", Vector3.Zero, 4.8f, 5.2f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, MilitaryFbxRoot + "structure-roof.fbx", "BarracksRoofModel", new Vector3(0f, 1.95f, 0f), 1.8f, 5.1f, Vector3.Zero, new Color(0.18f, 0.24f, 0.21f));
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-c.fbx", "BarracksMainBuilding", Vector3.Zero, 4.8f, 5.2f, Vector3.Zero, tint);
                     AddSizedImportedProp(visual, MilitaryFbxRoot + "crate.fbx", "BarracksCrateA", new Vector3(-2.2f, 0f, 1.8f), 0.9f, 1.1f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.44f, 0.34f, 0.22f));
                     AddSizedImportedProp(visual, MilitaryFbxRoot + "crate-bottles.fbx", "BarracksCrateB", new Vector3(2.0f, 0f, 1.6f), 1.1f, 1.3f, new Vector3(0f, Mathf.DegToRad(-18f), 0f), new Color(0.42f, 0.32f, 0.20f));
+                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wirelessCable.fbx", "BarracksAntenna", new Vector3(-2.2f, 0f, -1.8f), 3.0f, 1.8f, Vector3.Zero, tint.Lightened(0.1f));
                     break;
                 case "tank_factory":
                     AddSizedImportedProp(visual, CityIndustrialRoot + "building-b.fbx", "TankFactoryHall", Vector3.Zero, 4.8f, 7.8f, Vector3.Zero, tint);
@@ -2753,12 +2753,13 @@ public partial class BattleGameManager : Node
                 case "airfield":
                     AddBlock(visual, "Runway", new Vector3(8.8f, 0.16f, 9.6f), new Vector3(0f, 0.08f, 0f), new Color(0.10f, 0.12f, 0.13f));
                     AddBlock(visual, "RunwayStripe", new Vector3(0.28f, 0.18f, 7.6f), new Vector3(0f, 0.2f, 0f), new Color(0.86f, 0.82f, 0.62f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_large.fbx", "AirfieldTower", new Vector3(-3.1f, 0f, 2.6f), 4.6f, 2.0f, new Vector3(0f, Mathf.DegToRad(-25f), 0f), tint);
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-h.fbx", "AirfieldTowerBase", new Vector3(-3.1f, 0f, 2.6f), 4.2f, 2.0f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish.fbx", "AirfieldRadar", new Vector3(-3.1f, 4.3f, 2.6f), 1.2f, 1.2f, new Vector3(0f, Mathf.DegToRad(-25f), 0f), new Color(0.65f, 0.70f, 0.75f));
                     AddSizedImportedProp(visual, SpaceKitRoot + "craft_cargoA.fbx", "AirfieldParkedCraft", new Vector3(1.6f, 0.18f, -1.4f), 1.4f, 2.6f, new Vector3(0f, Mathf.DegToRad(90f), 0f), new Color(0.46f, 0.48f, 0.50f));
                     break;
                 case "air_factory":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_largeA.fbx", "AirFactoryHangar", Vector3.Zero, 4.8f, 8.0f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_smallB.fbx", "AirFactoryControl", new Vector3(2.7f, 0f, 2.2f), 2.8f, 2.6f, new Vector3(0f, Mathf.DegToRad(180f), 0f), tint.Lightened(0.08f));
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-r.fbx", "AirFactoryHangar", Vector3.Zero, 4.8f, 8.0f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-o.fbx", "AirFactoryOffice", new Vector3(2.7f, 0f, 2.2f), 2.8f, 2.6f, new Vector3(0f, Mathf.DegToRad(180f), 0f), tint.Lightened(0.08f));
                     AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish.fbx", "AirFactoryDish", new Vector3(-2.8f, 0f, -2.0f), 3.0f, 2.0f, new Vector3(0f, Mathf.DegToRad(30f), 0f), new Color(0.58f, 0.66f, 0.72f));
                     break;
                 case "naval_yard":
@@ -2771,21 +2772,19 @@ public partial class BattleGameManager : Node
                     AddCylinder(visual, "TurretBase", 1.45f, 2.4f, new Vector3(0f, 1.2f, 0f), tint);
                     break;
                 case "power_plant":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generatorLarge.fbx", "PlantGenerator", Vector3.Zero, 4.8f, 5.0f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "PlantGeneratorA", new Vector3(-1.6f, 0f, 1.6f), 2.2f, 1.8f, new Vector3(0f, Mathf.DegToRad(18f), 0f), new Color(0.22f, 0.52f, 0.58f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "PlantGeneratorB", new Vector3(1.6f, 0f, -1.4f), 2.2f, 1.8f, new Vector3(0f, Mathf.DegToRad(-18f), 0f), new Color(0.22f, 0.52f, 0.58f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "chimney_detailed.fbx", "PlantChimney", new Vector3(0f, 0f, 2.2f), 3.8f, 1.6f, Vector3.Zero, new Color(0.18f, 0.20f, 0.22f));
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-e.fbx", "PlantGeneratorBuilding", Vector3.Zero, 4.8f, 5.0f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "chimney-large.fbx", "PlantLargeChimney", new Vector3(1.8f, 0f, -1.8f), 6.2f, 1.8f, Vector3.Zero, new Color(0.22f, 0.24f, 0.25f));
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "detail-tank.fbx", "PlantCoolantTank", new Vector3(-1.8f, 0f, 1.8f), 2.2f, 1.8f, Vector3.Zero, new Color(0.28f, 0.34f, 0.38f));
                     break;
                 case "gold_mine":
-                    AddSizedImportedProp(visual, SurvivalFbxRoot + "structure.fbx", "MineShed", new Vector3(0f, 0f, 0.35f), 3.4f, 4.6f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeA.fbx", "ResourceCore", new Vector3(0f, 0f, -1.55f), 1.8f, 2.4f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.95f, 0.72f, 0.22f));
-                    AddSizedImportedProp(visual, FactoryKitRoot + "crane-lift.fbx", "MineCrane", new Vector3(2.3f, 0f, 0f), 4.0f, 2.4f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.22f, 0.19f, 0.12f));
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-n.fbx", "MineRefinery", new Vector3(0f, 0f, 0.35f), 3.4f, 4.6f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeA.fbx", "ResourceCore", new Vector3(0f, 0.1f, -1.55f), 1.8f, 2.4f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.95f, 0.72f, 0.22f));
+                    AddSizedImportedProp(visual, FactoryKitRoot + "crane-lift.fbx", "MineCrane", new Vector3(2.3f, 0f, 0.1f), 4.0f, 2.4f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.22f, 0.19f, 0.12f));
                     break;
                 default:
-                    AddSizedImportedProp(visual, MilitaryFbxRoot + "tower-complete-large.fbx", "ImportedCommandTower", new Vector3(-1.4f, 0f, -1.0f), 5.6f, 3.6f, Vector3.Zero, new Color(0.22f, 0.28f, 0.31f));
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-a.fbx", "CommandBase", new Vector3(1.1f, 0f, 1.1f), 4.6f, 6.4f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-a.fbx", "CommandBase", new Vector3(0f, 0f, 0f), 5.2f, 6.4f, Vector3.Zero, tint);
+                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-f.fbx", "CommandTower", new Vector3(-2.2f, 0f, -2.2f), 4.2f, 2.2f, Vector3.Zero, tint.Lightened(0.08f));
                     AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_detailed.fbx", "Radar", new Vector3(2.0f, 0f, 1.8f), 2.8f, 1.6f, new Vector3(0f, Mathf.DegToRad(20f), 0f), new Color(0.58f, 0.70f, 0.72f));
-                    AddBlock(visual, "LandingPad", new Vector3(4.8f, 0.18f, 4.8f), new Vector3(1.2f, 2.52f, 1.2f), new Color(0.10f, 0.13f, 0.13f));
                     break;
             }
         }
