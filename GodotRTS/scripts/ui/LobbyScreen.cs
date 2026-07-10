@@ -36,18 +36,6 @@ public partial class LobbyScreen : Control
     {
         new SystemMail
         {
-            Id = "mail_conquest",
-            Time = "07-10 12:00",
-            Title = "全球争霸赛季开放",
-            Summary = "新增全球争霸入口与军备展示。",
-            Content = "《全球争霸》第一赛季正式拉开帷幕！全新的天梯积分赛与赛季结算规则已全部整理就绪，多重限时专属头像框与定制兵种外观涂装等你解锁！敬请广大指挥官整军备战，开启荣耀对决！",
-            Type = "公告",
-            HasReward = false,
-            IsRead = false,
-            IsClaimed = false
-        },
-        new SystemMail
-        {
             Id = "mail_daily_supply",
             Time = "07-10 08:30",
             Title = "每日补给已刷新",
@@ -569,8 +557,13 @@ public partial class LobbyScreen : Control
         var spacer = new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         titleRow.AddChild(spacer);
 
-        var inviteBtn = AddButton("📩 邀请通知", () => _ = ShowMailModal(), ButtonTone.Gold, 11);
-        inviteBtn.CustomMinimumSize = new Vector2(76, 22);
+        var refreshBtn = AddButton("🔄 刷新", () => _ = RefreshFriends(), ButtonTone.Secondary, 11);
+        refreshBtn.CustomMinimumSize = new Vector2(68, 22);
+        refreshBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        titleRow.AddChild(refreshBtn);
+
+        var inviteBtn = AddButton("📩 邀请", () => _ = ShowInvitesModal(), ButtonTone.Gold, 11);
+        inviteBtn.CustomMinimumSize = new Vector2(68, 22);
         inviteBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         titleRow.AddChild(inviteBtn);
 
@@ -628,8 +621,6 @@ public partial class LobbyScreen : Control
         friendRows.AddThemeConstantOverride("separation", 6);
         scroll.AddChild(friendRows);
         box.AddChild(scroll);
-
-        box.AddChild(AddButton("刷新好友列表", () => _ = RefreshFriends(), ButtonTone.Secondary, 13));
     }
 
     void PrepareFriendsPanelWarmState()
@@ -3789,7 +3780,7 @@ public partial class LobbyScreen : Control
 
     void RenderMailModal(Godot.Collections.Dictionary data, bool usingCache)
     {
-        OpenFeatureModal("系统邮件", "查看游戏版本公告、新兵补给发放与战报信息。");
+        OpenFeatureModal("系统邮件", "查看新兵补给发放与战报信息。");
 
         int unreadCount = 0;
         int rewardCount = 0;
