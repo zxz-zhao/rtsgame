@@ -183,6 +183,7 @@ public partial class CombatProjectile : Node3D
         }
         else
         {
+            // 为所有普通炮弹/弹丸添加白灰色飞行轨迹烟雾，增强空中弹道轨迹视觉效果
             var trail = new CpuParticles3D
             {
                 Name = "SmokeTrail",
@@ -478,6 +479,7 @@ public partial class CombatProjectile : Node3D
         container.AddChild(fireParticles);
         fireParticles.Emitting = true;
 
+        // 创建写实的大团开火排烟特效，增加炮口排烟的体积感和消散动画
         var smokeParticles = new CpuParticles3D
         {
             Name = "MuzzleSmoke",

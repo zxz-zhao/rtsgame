@@ -136,6 +136,7 @@ public partial class BattleGameManager : Node
         unitsRoot = GetNodeOrNull<Node3D>(UnitsPath);
         buildingsRoot = GetNodeOrNull<Node3D>(BuildingsPath);
         ApplyGlobalConquestStarterIfNeeded();
+        // 将原本的异步等待改为同步加载，使重型 3D 资产（FBX模型）在加载界面背后装载完毕，避免进入战场画面后的瞬间发生二次卡顿
         RegisterExistingCombatants();
     }
 
@@ -187,9 +188,13 @@ public partial class BattleGameManager : Node
         ForceRefreshFogOfWar();
         UpdateBaseSeenFlags();
         EmitSignal(SignalName.EconomyChanged);
+        // 初始化登记完毕后，立刻让镜头定位对准玩家的主基地，确保首帧显示正确位置
         FocusCameraOnMainBase();
     }
 
+    /// <summary>
+    /// 在游戏启动时，定位到玩家的初始主基地，并将 RtsCamera 镜头平移聚焦到该位置。
+    /// </summary>
     void FocusCameraOnMainBase()
     {
         var playerMainBase = GetBuildings().FirstOrDefault(b => b.PlayerOwned && b.IsMainBase);

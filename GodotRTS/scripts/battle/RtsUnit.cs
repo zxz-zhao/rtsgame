@@ -139,10 +139,10 @@ public partial class RtsUnit : CharacterBody3D
     string fireAnimationName = "";
     string currentVisualAnimationName = "";
     float visualAnimationLockRemaining;
-    float stationaryDuration;
+    float stationaryDuration; // 记录单位静止持续时间，用于平滑移动与站立动画的切换，防止频繁抖动
     readonly List<AnimatedVisualPart> infantryVisualParts = new();
-    CpuParticles3D? bowWaveParticles;
-    CpuParticles3D? sternWakeParticles;
+    CpuParticles3D? bowWaveParticles; // 船头浪花（两侧下落水粒）
+    CpuParticles3D? sternWakeParticles; // 船尾水波纹（沿水面水平扩散）
     readonly List<Node3D> propellerNodes = new();
     bool holdPosition;
     bool parkingAtAirfield;
@@ -1317,6 +1317,7 @@ public partial class RtsUnit : CharacterBody3D
 
         foreach (var player in visualAnimationPlayers)
         {
+            // 为所有动画播放器设置默认融合时间为 0.2 秒，使 idle, walk, fire 状态平滑过渡，消除生硬的关节跳转
             player.PlaybackDefaultBlendTime = 0.2f;
             foreach (var animation in player.GetAnimationList())
             {
@@ -1518,11 +1519,14 @@ public partial class RtsUnit : CharacterBody3D
             stationaryDuration += delta;
         }
 
+        // 采用非对称移动状态过滤（滞后滤波器）：起步瞬时判定为走，但停止动画延迟 0.22 秒触发。
+        // 这避免了单位在寻路、绕路时因单帧速度骤减为 0 而频繁在 walk/idle 间来回闪烁闪现。
         var moving = actuallyMoving || (stationaryDuration < 0.22f);
         UpdateAnimationPlayback(moving, delta);
         UpdateInfantryStride(moving);
         UpdatePropellers(delta, moving);
 
+        // 如果是舰船单位，在真实行驶状态下更新水面浪花和波纹粒子
         if (BattleUnitCatalog.IsNavalUnit(UnitKey))
         {
             UpdateNavalWaves(actuallyMoving, delta);
@@ -2216,6 +2220,9 @@ public partial class RtsUnit : CharacterBody3D
         }
     }
 
+    /// <summary>
+    /// 确保舰船行驶的两种水面动态特效（船头浪花和船尾水平扩散波纹）已被初始化并添加为子节点
+    /// </summary>
     void EnsureNavalWaveParticles()
     {
         if (bowWaveParticles is null)
@@ -2327,6 +2334,9 @@ public partial class RtsUnit : CharacterBody3D
         }
     }
 
+    /// <summary>
+    /// 根据舰船的实时运动状态，开启或关闭船头和船尾粒子发射
+    /// </summary>
     void UpdateNavalWaves(bool moving, float delta)
     {
         EnsureNavalWaveParticles();
