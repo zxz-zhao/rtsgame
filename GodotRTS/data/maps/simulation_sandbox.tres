@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="BattleMapResource" load_steps=16 format=3]
+[gd_resource type="Resource" load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://scripts/map/resources/BattleMapResource.cs" id="1_map"]
 [ext_resource type="Script" path="res://scripts/map/resources/MapSpawnPointResource.cs" id="2_spawn"]

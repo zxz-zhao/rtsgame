@@ -1,0 +1,56 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-unity_rts}
+      MYSQL_USER: ${MYSQL_USER:-unityrts}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  unity-rts-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: unity-rts-server:latest
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DB_BACKEND: mysql
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-unityrts}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-unity_rts}
+    ports:
+      - "${PORT:-8080}:8080"
+      - "${WS_PORT:-8081}:8081"
+    volumes:
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+
+volumes:
+  mysql_data:
+
+# Full-stack deployment:
+# - Only Docker / Docker Compose is required on the target machine.
+# - Both the app server and MySQL start together.
+# - Persistent player data stays in the mysql_data volume.

@@ -2794,6 +2794,7 @@ public partial class BattleGameManager : Node
                     break;
             }
         }
+        building.UpdateVisualsForState();
     }
 
     static void AddSizedImportedProp(Node3D parent, string path, string name, Vector3 position, float targetHeight, float targetSpan, Vector3 rotation, Color tint, bool preserveMaterials = true)

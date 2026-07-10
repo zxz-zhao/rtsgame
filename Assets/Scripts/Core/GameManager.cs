@@ -115,7 +115,16 @@ public class GameManager : MonoBehaviour
             if (cam != null)
             {
                 float camY = 52f;
-                cam.transform.position = new Vector3(120f, camY, 74f);
+                string mapName = PlayerPrefs.GetString("current_map", "沙漠绿洲");
+                BattleMapDefinition map = BattleMapCatalog.Get(mapName);
+                Vector3 enemyAnchor = BattleMapDefinitionUtility.GetEnemyBaseAnchor(map);
+                Vector3 legacyEnemyAnchor = BattleMapDefinitionUtility.DefaultEnemyBaseAnchor;
+                Vector3 legacyCameraPosition = new Vector3(120f, camY, 74f);
+                Vector3 translatedCameraPosition = BattleMapDefinitionUtility.TranslateFromLegacyAnchor(
+                    legacyCameraPosition,
+                    legacyEnemyAnchor,
+                    enemyAnchor);
+                cam.transform.position = new Vector3(translatedCameraPosition.x, camY, translatedCameraPosition.z);
                 cam.transform.rotation = Quaternion.Euler(58f, 0f, 0f);
                 var unityCamera = cam.GetComponent<Camera>();
                 if (unityCamera != null && !unityCamera.orthographic)

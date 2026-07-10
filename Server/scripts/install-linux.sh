@@ -35,6 +35,7 @@ fi
 
 npm ci --omit=dev
 npm run check
+npm run migrate:mysql
 pm2 startOrReload ecosystem.config.cjs --env production --update-env
 npm run health
 pm2 save

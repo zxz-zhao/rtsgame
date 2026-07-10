@@ -120,7 +120,6 @@
         <ui:VisualElement name="match-popup" class="modal-popup match-popup">
             <ui:Label name="match-popup-title" class="panel-title" text="&#x5FEB;&#x901F;&#x5339;&#x914D;" />
             <ui:Button name="match-popup-close" class="panel-close" text="&#x5173;&#x95ED;" />
-            <ui:Label name="match-status-label" class="match-status-label" text="&#x9009;&#x62E9;&#x6218;&#x533A;&#x540E;&#x5F00;&#x59CB;&#x5339;&#x914D;" />
             <ui:Label name="match-selected-map" class="match-selected-map" text="&#x5F53;&#x524D;&#x6218;&#x533A;&#xFF1A;&#x6C99;&#x6F20;&#x7EFF;&#x6D32;" />
             <ui:VisualElement name="match-map-row" class="match-map-row">
                 <ui:Button name="match-map-button-0" class="room-map-button match-map-button" text="" />

@@ -168,6 +168,7 @@ public partial class RtsBuilding : StaticBody3D
         if (!HasRallyPoint)
             RallyPoint = GlobalPosition + RallyOffset;
         RefreshMainBaseIdentity();
+        UpdateVisualsForState();
     }
 
     public void BeginConstruction(float duration)
@@ -623,7 +624,20 @@ public partial class RtsBuilding : StaticBody3D
 
     void EmitMainBaseStateChanged()
     {
+        UpdateVisualsForState();
         EmitSignal(SignalName.MainBaseStateChanged, this, (int)MainBaseState);
+    }
+
+    public void UpdateVisualsForState()
+    {
+        if (GetNodeOrNull<Node3D>("BuildingVisual") is { } visualRoot)
+        {
+            visualRoot.Visible = !IsRuined;
+        }
+        if (levelBadge is not null)
+        {
+            levelBadge.Visible = !IsRuined;
+        }
     }
 
     Vector3 SpawnOffset()

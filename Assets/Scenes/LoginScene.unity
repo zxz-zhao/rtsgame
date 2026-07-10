@@ -1306,7 +1306,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: "\u524D\u7EBF\u6307\u6325\u7EC8\u7AEF"
+  m_Text: "RTS \u6765\u6218"
 --- !u!222 &554745332
 CanvasRenderer:
   m_ObjectHideFlags: 0

@@ -7,7 +7,7 @@ module.exports = {
       instances: 1,
       exec_mode: 'fork',
       wait_ready: true,
-      listen_timeout: Number(process.env.PM2_LISTEN_TIMEOUT_MS || 10000),
+      listen_timeout: Number(process.env.PM2_LISTEN_TIMEOUT_MS || 60000),
       kill_timeout: Number(process.env.SHUTDOWN_TIMEOUT_MS || 10000),
       max_memory_restart: process.env.PM2_MAX_MEMORY || '512M',
       env: {

@@ -37,6 +37,7 @@ $newRev = (git rev-parse --short HEAD).Trim()
 
 npm ci --omit=dev
 npm run check
+npm run migrate:mysql
 
 $env:BUILD_REVISION = $newRev
 pm2 startOrReload ecosystem.config.cjs --env production --update-env

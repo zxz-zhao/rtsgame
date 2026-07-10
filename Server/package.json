@@ -8,6 +8,9 @@
     "dev": "nodemon server.js",
     "check": "node --check server.js",
     "health": "node scripts/health-check.js",
+    "migrate:mysql": "node scripts/migrate-json-to-mysql.js",
+    "migrate:mysql:dry": "node scripts/migrate-json-to-mysql.js --dry-run",
+    "verify:mysql": "node scripts/verify-json-to-mysql.js",
     "start:json": "node -e \"process.env.DB_BACKEND='json'; require('./server.js')\"",
     "pm2:start": "pm2 startOrReload ecosystem.config.cjs --env production --update-env",
     "pm2:reload": "pm2 startOrReload ecosystem.config.cjs --env production --update-env"

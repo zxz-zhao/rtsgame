@@ -486,24 +486,6 @@
     -unity-font-style: bold;
 }
 
-.match-status-label {
-    margin-top: 2.8000%;
-    height: 6.2000%;
-    font-size: 18px;
-    color: rgb(174, 236, 255);
-    -unity-font-style: bold;
-    -unity-text-align: middle-center;
-    background-color: rgba(3, 18, 30, 0.70);
-    border-top-width: 1px;
-    border-right-width: 1px;
-    border-bottom-width: 2px;
-    border-left-width: 1px;
-    border-top-color: rgba(75, 205, 255, 0.45);
-    border-right-color: rgba(17, 68, 98, 0.80);
-    border-bottom-color: rgba(1, 8, 16, 0.90);
-    border-left-color: rgba(75, 205, 255, 0.45);
-}
-
 .warehouse-status-label {
     margin-top: 3.0000%;
     font-size: 18px;

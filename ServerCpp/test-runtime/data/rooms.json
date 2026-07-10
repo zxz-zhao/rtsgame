@@ -1,0 +1,30 @@
+{
+  "48aa63a7-5a41-4b35-9df6-23c2cfc82527": {
+    "createdAt": 1783382979000,
+    "hostId": "84c58cd6-c5b0-4255-a242-8cc5e1fbb1d2",
+    "id": "48aa63a7-5a41-4b35-9df6-23c2cfc82527",
+    "mapName": "Test Map",
+    "maxPlayers": 2,
+    "name": "Test Room",
+    "playerCount": 2,
+    "players": [
+      "84c58cd6-c5b0-4255-a242-8cc5e1fbb1d2",
+      "fd81bed6-51b7-41c2-be25-d654fade14cb"
+    ],
+    "status": "playing"
+  },
+  "749437b9-d50f-4b33-af4f-c35f7f5307a3": {
+    "createdAt": 1783382943000,
+    "hostId": "d59e82a7-8906-4239-bbe4-31357cc034ae",
+    "id": "749437b9-d50f-4b33-af4f-c35f7f5307a3",
+    "mapName": "Test Map",
+    "maxPlayers": 2,
+    "name": "Test Room",
+    "playerCount": 2,
+    "players": [
+      "d59e82a7-8906-4239-bbe4-31357cc034ae",
+      "c0764e35-abb4-4cf9-bf1f-40f16a416c91"
+    ],
+    "status": "playing"
+  }
+}

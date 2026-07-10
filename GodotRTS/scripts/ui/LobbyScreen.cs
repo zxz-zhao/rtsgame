@@ -17,6 +17,77 @@ public partial class LobbyScreen : Control
     const string FriendsCacheStorePath = "user://lobby_friends_cache.json";
     const string LoginScenePath = "res://scenes/login/LoginScene.tscn";
 
+    public struct SystemMail
+    {
+        public string Id;
+        public string Time;
+        public string Title;
+        public string Summary;
+        public string Content;
+        public string Type;
+        public bool HasReward;
+        public int RewardGold;
+        public int RewardGems;
+        public bool IsRead;
+        public bool IsClaimed;
+    }
+
+    private List<SystemMail> systemMails = new()
+    {
+        new SystemMail
+        {
+            Id = "mail_conquest",
+            Time = "07-10 12:00",
+            Title = "全球争霸赛季开放",
+            Summary = "新增全球争霸入口与军备展示。",
+            Content = "《全球争霸》第一赛季正式拉开帷幕！全新的天梯积分赛与赛季结算规则已全部整理就绪，多重限时专属头像框与定制兵种外观涂装等你解锁！敬请广大指挥官整军备战，开启荣耀对决！",
+            Type = "公告",
+            HasReward = false,
+            IsRead = false,
+            IsClaimed = false
+        },
+        new SystemMail
+        {
+            Id = "mail_daily_supply",
+            Time = "07-10 08:30",
+            Title = "每日补给已刷新",
+            Summary = "完成每日任务可领取金币和经验。",
+            Content = "今日的前线后勤物资补给已经抵达！指挥官今日登录大厅可立即获得后勤配给：300 金币与 20 钻石。请点击下方领取奖励按钮将物资收入军火库！",
+            Type = "补给",
+            HasReward = true,
+            RewardGold = 300,
+            RewardGems = 20,
+            IsRead = false,
+            IsClaimed = false
+        },
+        new SystemMail
+        {
+            Id = "mail_recent_report",
+            Time = "07-09 19:42",
+            Title = "最近战报",
+            Summary = "战斗报告可在结算界面查看详细统计。",
+            Content = "在您最近的一场人机演练中，您的防守部队成功击退了敌方机甲集群的突袭，斩获了 15 次击杀，战役共持续 14 分钟。完整的战斗录像和兵种伤害报告已在战后结算中进行了归档，可随时查阅。",
+            Type = "战报",
+            HasReward = false,
+            IsRead = true,
+            IsClaimed = false
+        }
+    };
+
+    private Dictionary<string, int> techLevels = new()
+    {
+        { "speed", 1 },
+        { "armor", 2 },
+        { "firepower", 1 },
+        { "repair", 3 }
+    };
+
+    private string activeRoomHostId = "";
+    private List<string> activeRoomPlayers = new();
+
+    private Panel currentResearchDetailPanel = null!;
+    private string selectedResearchTechKey = "speed";
+
     sealed class ModeCardUi
     {
         public Label TitleLabel { get; init; } = null!;
@@ -65,7 +136,7 @@ public partial class LobbyScreen : Control
     const string CustomRoomMode = "自定义房间";
     const string GlobalConquestMode = "全球争霸";
     const int MaxCustomRoomPlayers = 6;
-    static readonly int[] CustomRoomPlayerCounts = { 2, 4, 6 };
+    static readonly int[] CustomRoomPlayerCounts = { 2, 4, 5, 6 };
 
     static readonly Color PanelText = new(0.96f, 0.94f, 0.82f);
     static readonly Color MutedText = new(0.72f, 0.76f, 0.78f);
@@ -120,6 +191,47 @@ public partial class LobbyScreen : Control
     ScrollContainer modalScroll = null!;
     VBoxContainer modalBody = null!;
     Control? activeRoomActionsPanel;
+    Panel? currentWarehouseDetailPanel;
+
+    static readonly StyleBoxFlat WarehouseGridCellNormal = new()
+    {
+        BgColor = new Color(0.10f, 0.12f, 0.14f, 0.94f),
+        BorderColor = new Color(0.38f, 0.40f, 0.44f, 0.60f),
+        BorderWidthLeft = 1,
+        BorderWidthTop = 1,
+        BorderWidthRight = 1,
+        BorderWidthBottom = 1,
+        CornerRadiusTopLeft = 4,
+        CornerRadiusTopRight = 4,
+        CornerRadiusBottomLeft = 4,
+        CornerRadiusBottomRight = 4
+    };
+    static readonly StyleBoxFlat WarehouseGridCellHover = new()
+    {
+        BgColor = new Color(0.15f, 0.18f, 0.22f, 0.96f),
+        BorderColor = new Color(0.68f, 0.72f, 0.76f, 0.88f),
+        BorderWidthLeft = 1,
+        BorderWidthTop = 1,
+        BorderWidthRight = 1,
+        BorderWidthBottom = 1,
+        CornerRadiusTopLeft = 4,
+        CornerRadiusTopRight = 4,
+        CornerRadiusBottomLeft = 4,
+        CornerRadiusBottomRight = 4
+    };
+    static readonly StyleBoxFlat WarehouseGridCellPressed = new()
+    {
+        BgColor = new Color(0.06f, 0.08f, 0.10f, 0.96f),
+        BorderColor = new Color(0.95f, 0.76f, 0.26f, 0.90f),
+        BorderWidthLeft = 1,
+        BorderWidthTop = 1,
+        BorderWidthRight = 1,
+        BorderWidthBottom = 1,
+        CornerRadiusTopLeft = 4,
+        CornerRadiusTopRight = 4,
+        CornerRadiusBottomLeft = 4,
+        CornerRadiusBottomRight = 4
+    };
     Panel toastPanel = null!;
     Label toastLabel = null!;
     readonly Dictionary<string, ModeCardUi> modeCards = new();
@@ -886,7 +998,7 @@ public partial class LobbyScreen : Control
 
         var techButtons = new HBoxContainer { Name = "TechButtons" };
         techButtons.AddThemeConstantOverride("separation", 8);
-        techStartButton = AddButton("研究", () => _ = StartTechResearch(), ButtonTone.Primary, 13);
+        techStartButton = AddButton("研究列表", ShowResearchModal, ButtonTone.Primary, 13);
         techSpeedButton = AddButton("加速", () => _ = SpeedUpTech(), ButtonTone.Gold, 13);
         techButtons.AddChild(techStartButton);
         techButtons.AddChild(techSpeedButton);
@@ -904,7 +1016,7 @@ public partial class LobbyScreen : Control
         row.OffsetBottom = -8;
         row.AddChild(AddButton("商店", () => ShowShopModal(), ButtonTone.Secondary, 15));
         row.AddChild(AddButton("仓库", () => ShowWarehouseModal(), ButtonTone.Secondary, 15));
-        row.AddChild(AddButton("战役", () => _ = StartCampaign(), ButtonTone.Primary, 15));
+        row.AddChild(AddButton("战役", () => ShowCampaignModal(), ButtonTone.Primary, 15));
         row.AddChild(AddButton("排行榜", () => _ = ShowLeaderboardModal(), ButtonTone.Gold, 15));
         row.AddChild(AddButton("邮件", () => _ = ShowMailModal(), ButtonTone.Secondary, 15));
     }
@@ -933,7 +1045,7 @@ public partial class LobbyScreen : Control
 
         var box = AddVBox(modalPanel, "ModalBox", 10, new Vector2(18, 16), new Vector2(-18, -16));
         var header = new HBoxContainer { Name = "ModalHeader" };
-        modalTitle = AddLabel("鑷畾涔夋埧闂?", 22, PanelText, HorizontalAlignment.Left);
+        modalTitle = AddLabel("自定义房间", 22, PanelText, HorizontalAlignment.Left);
         modalTitle.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         header.AddChild(modalTitle);
         header.AddChild(AddCloseIconButton(CloseModal));
@@ -961,7 +1073,7 @@ public partial class LobbyScreen : Control
     void OpenRoomPanel()
     {
         SelectModeInternal(CustomRoomMode, BattleMapCatalog.DefaultMapName, false);
-        modalTitle.Text = "鑷畾涔夋埧闂?";
+        modalTitle.Text = "自定义房间";
         ClearChildren(modalBody);
 
         var createPanel = new Panel { Name = "RoomCreatePanel", CustomMinimumSize = new Vector2(0, 122) };
@@ -978,11 +1090,26 @@ public partial class LobbyScreen : Control
         roomMapPicker = new OptionButton { Name = "RoomMapPicker", CustomMinimumSize = new Vector2(150, 0) };
         foreach (var map in BattleMapCatalog.GetCustomRoomMapNames())
             roomMapPicker.AddItem(map);
+        roomMapPicker.ItemSelected += (idx) =>
+        {
+            if (!string.IsNullOrEmpty(activeRoomId) && activeRoomHostId == GameState.Instance?.UserId)
+            {
+                var mapText = BattleMapCatalog.NormalizeCustomRoomMap(roomMapPicker.GetItemText((int)idx));
+                _ = UpdateRoomMap(mapText);
+            }
+        };
         roomPlayerCountPicker = new OptionButton { Name = "RoomPlayerCountPicker", CustomMinimumSize = new Vector2(110, 0) };
         foreach (var count in CustomRoomPlayerCounts)
         {
-            var teamSize = Math.Max(1, count / 2);
-            roomPlayerCountPicker.AddItem($"{teamSize}v{teamSize}", count);
+            if (count == 5)
+            {
+                roomPlayerCountPicker.AddItem("5人组队团", 5);
+            }
+            else
+            {
+                var teamSize = Math.Max(1, count / 2);
+                roomPlayerCountPicker.AddItem($"{teamSize}v{teamSize}", count);
+            }
         }
         row.AddChild(roomNameInput);
         row.AddChild(roomMapPicker);
@@ -1148,7 +1275,11 @@ public partial class LobbyScreen : Control
         ShowModal();
 
         Godot.Collections.Dictionary data;
-        if (NetClient.Instance is not null)
+        if (GameState.Instance?.IsGuest == true)
+        {
+            data = new Godot.Collections.Dictionary();
+        }
+        else if (NetClient.Instance is not null)
             data = await NetClient.Instance.GetJson("/api/lobby", SecondaryModalRequestTimeoutSec);
         else
             data = new Godot.Collections.Dictionary();
@@ -1559,11 +1690,56 @@ public partial class LobbyScreen : Control
 
         ClearChildren(roomRows);
 
-        if (NetClient.Instance is null || string.IsNullOrEmpty(GameState.Instance?.Token) || GameState.Instance?.IsGuest == true)
+        if (NetClient.Instance is null || string.IsNullOrEmpty(GameState.Instance?.Token))
         {
             if (IsLive(roomStatusLabel))
                 roomStatusLabel.Text = "请先登录后再使用房间功能";
             AddRoomPlaceholder("请先登录后再使用房间功能，登录后可刷新、创建 and 邀请好友。");
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(activeRoomId))
+        {
+            if (IsLive(roomStatusLabel))
+                roomStatusLabel.Text = $"房间ID：{ShortRoomId(activeRoomId)} | 成员 {activeRoomPlayerCount}/{activeRoomMaxPlayers}";
+
+            var isHost = activeRoomHostId == GameState.Instance?.UserId;
+
+            if (roomMapPicker is not null)
+                roomMapPicker.Disabled = !isHost;
+            if (roomNameInput is not null)
+                roomNameInput.Editable = false;
+            if (roomPlayerCountPicker is not null)
+                roomPlayerCountPicker.Disabled = true;
+
+            var memberSection = AddModalSectionPanel("当前房间成员", isHost ? "您是房主，可以管理成员、修改地图或启动战斗" : "正在等待房主开始游戏...", isHost ? WarningText : GoodText);
+            roomRows.AddChild(memberSection);
+
+            foreach (var player in activeRoomPlayers)
+            {
+                var isMe = player == GameState.Instance?.UserId;
+                var playerCard = new Panel { Name = "Member_" + player, CustomMinimumSize = new Vector2(0, 50) };
+                MetalUiStyle.ApplyMetalPanel(playerCard, isMe ? MetalUiStyle.Green : MetalUiStyle.Steel, 1, 4, 3);
+
+                var hBox = AddHBox(playerCard, "MemberBox", 10);
+                hBox.SetAnchorsPreset(LayoutPreset.FullRect);
+                hBox.OffsetLeft = 10;
+                hBox.OffsetRight = -10;
+                hBox.OffsetTop = 6;
+                hBox.OffsetBottom = -6;
+
+                var nameStr = player == activeRoomHostId ? $"[房主] {player}" : $"[成员] {player}";
+                hBox.AddChild(AddLabel(nameStr, 13, isMe ? GoodText : PanelText, HorizontalAlignment.Left));
+
+                if (isHost && !isMe)
+                {
+                    var kickBtn = AddButton("踢出", () => _ = KickPlayer(player), ButtonTone.Secondary, 11);
+                    kickBtn.CustomMinimumSize = new Vector2(60, 24);
+                    hBox.AddChild(kickBtn);
+                }
+
+                memberSection.AddChild(playerCard);
+            }
             return;
         }
 
@@ -1636,6 +1812,13 @@ public partial class LobbyScreen : Control
             activeRoomMap = mapName;
             activeRoomMaxPlayers = maxPlayers;
             activeRoomPlayerCount = count;
+
+            activeRoomHostId = room.GetString("hostId");
+            activeRoomPlayers.Clear();
+            foreach (var p in players)
+            {
+                activeRoomPlayers.Add(p.AsString());
+            }
         }
 
         var panel = new Panel { Name = "Room_" + roomId, CustomMinimumSize = new Vector2(0, 68) };
@@ -1668,6 +1851,36 @@ public partial class LobbyScreen : Control
         roomRows.AddChild(panel);
     }
 
+    async Task KickPlayer(string targetUserId)
+    {
+        if (NetClient.Instance is null || string.IsNullOrEmpty(activeRoomId))
+            return;
+        var data = await NetClient.Instance.KickRoomPlayer(activeRoomId, targetUserId);
+        if (data.GetBool("success"))
+        {
+            ShowToast("已成功踢出玩家");
+            await RefreshRooms();
+        }
+        else
+        {
+            ShowToast("踢出失败");
+        }
+    }
+
+    async Task UpdateRoomMap(string mapText)
+    {
+        if (NetClient.Instance is null || string.IsNullOrEmpty(activeRoomId))
+            return;
+        var data = await NetClient.Instance.UpdateRoomSettings(activeRoomId, mapText);
+        if (data.GetBool("success"))
+        {
+            activeRoomMap = mapText;
+            ShowToast($"地图已同步切换为：{mapText}");
+            await RefreshRooms();
+            ShowCreatedRoomActions();
+        }
+    }
+
     async Task CreateRoom()
     {
         if (NetClient.Instance is null || string.IsNullOrEmpty(GameState.Instance?.Token))
@@ -1682,7 +1895,7 @@ public partial class LobbyScreen : Control
         var roomName = roomNameInput?.Text.Trim() ?? "";
         var maxPlayers = SelectedRoomPlayerCount();
         if (IsLive(roomStatusLabel))
-            roomStatusLabel.Text = "鍒涘缓涓?..";
+            roomStatusLabel.Text = "创建中...";
 
         var data = await NetClient.Instance.CreateRoom(mapName, roomName, maxPlayers);
         if (!data.GetBool("success"))
@@ -1698,6 +1911,18 @@ public partial class LobbyScreen : Control
         activeRoomMaxPlayers = data.GetInt("maxPlayers", maxPlayers);
         activeRoomPlayerCount = data.GetInt("playerCount", 1);
         selectedMap = activeRoomMap;
+
+        if (activeRoomMaxPlayers == 5 && activeRoomMap == BattleMapCatalog.GlobalConquestName)
+        {
+            selectedMode = GlobalConquestMode;
+            GameState.Instance?.SelectMap(activeRoomMap, GlobalConquestMode);
+            GameState.Instance?.SetCurrentRoom(activeRoomId);
+            ShowToast("全球争霸5人组队房间已创建");
+            await RefreshRooms();
+            _ = OpenGlobalConquestTeamPanel();
+            return;
+        }
+
         GameState.Instance?.SelectMap(activeRoomMap, CustomRoomMode);
         GameState.Instance?.SetCurrentRoom(activeRoomId);
         ShowToast("房间已创建");
@@ -1729,18 +1954,21 @@ public partial class LobbyScreen : Control
 
         var info = new VBoxContainer { Name = "ActiveRoomInfo", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         info.AddThemeConstantOverride("separation", 2);
-        info.AddChild(AddLabel("宸茶繘鍏ユ埧闂?", 15, GoodText, HorizontalAlignment.Left));
+        info.AddChild(AddLabel("已进入房间", 15, GoodText, HorizontalAlignment.Left));
         info.AddChild(AddLabel($"{FriendlyText(activeRoomMap, BattleMapCatalog.DefaultMapName)}  {activeRoomPlayerCount}/{activeRoomMaxPlayers}  ID:{ShortRoomId(activeRoomId)}", 12, MutedText, HorizontalAlignment.Left));
         row.AddChild(info);
         row.AddChild(AddButton("邀请好友", () => ShowInvitePanel(activeRoomId), ButtonTone.Gold, 12));
         row.AddChild(AddButton("离开房间", () => _ = LeaveActiveRoom(), ButtonTone.Secondary, 12));
+
+        var isHost = activeRoomHostId == GameState.Instance?.UserId;
         var enterButton = AddButton(
-            activeRoomMaxPlayers <= 2 ? "进入战斗" : "3v3缁勬埧涓?",
+            isHost ? "开始游戏" : "等待房主开始...",
             () => _ = EnterRoomBattle(activeRoomId, activeRoomMap, activeRoomMaxPlayers),
             ButtonTone.Primary,
             12);
-        enterButton.Disabled = activeRoomMaxPlayers > 2;
+        enterButton.Disabled = !isHost;
         row.AddChild(enterButton);
+
         modalBody.AddChild(panel);
         modalBody.MoveChild(panel, Mathf.Min(1, modalBody.GetChildCount() - 1));
         activeRoomActionsPanel = panel;
@@ -1752,7 +1980,7 @@ public partial class LobbyScreen : Control
             return;
 
         if (IsLive(roomStatusLabel))
-            roomStatusLabel.Text = "鍔犲叆涓?..";
+            roomStatusLabel.Text = "加入中...";
         var data = await NetClient.Instance.JoinRoom(roomId);
         if (!data.GetBool("success"))
         {
@@ -1768,6 +1996,18 @@ public partial class LobbyScreen : Control
         activeRoomMaxPlayers = data.GetInt("maxPlayers", 2);
         activeRoomPlayerCount = data.GetInt("playerCount", 2);
         GameState.Instance?.SetCurrentRoom(activeRoomId);
+
+        if (activeRoomMaxPlayers == 5 && activeRoomMap == BattleMapCatalog.GlobalConquestName)
+        {
+            selectedMode = GlobalConquestMode;
+            selectedMap = BattleMapCatalog.GlobalConquestName;
+            GameState.Instance?.SelectMap(selectedMap, selectedMode);
+            _ = OpenGlobalConquestTeamPanel();
+            await RefreshRooms();
+            ShowToast("已加入全球争霸组队房间");
+            return;
+        }
+
         selectedMode = CustomRoomMode;
         selectedMap = BattleMapCatalog.IsKnownMap(activeRoomMap) ? activeRoomMap : BattleMapCatalog.DefaultMapName;
         GameState.Instance?.SelectMap(selectedMap, selectedMode);
@@ -1823,6 +2063,16 @@ public partial class LobbyScreen : Control
 
     async Task EnterRoomBattle(string roomId, string mapName, int maxPlayers = 2)
     {
+        if (mapName == BattleMapCatalog.GlobalConquestName)
+        {
+            selectedMode = GlobalConquestMode;
+            selectedMap = BattleMapCatalog.GlobalConquestName;
+            GameState.Instance?.SelectMap(selectedMap, selectedMode);
+            GameState.Instance?.SetCurrentRoom(roomId);
+            await StartBattle(false);
+            return;
+        }
+
         if (!SupportsRealtimeRoomBattle(maxPlayers))
         {
             ShowToast("当前房间先用于 3v3 组队邀请，实时开战入口仍先按 1v1 接入。");
@@ -1968,7 +2218,7 @@ public partial class LobbyScreen : Control
         var panel = new Panel
         {
             Name = "ShopHeroBanner",
-            CustomMinimumSize = new Vector2(0, 146),
+            CustomMinimumSize = new Vector2(0, 68),
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
         MetalUiStyle.ApplyMetalPanel(panel, MakeModeCardPalette(new Color(0.92f, 0.74f, 0.28f, 0.98f)), 1, 10, 5);
@@ -1981,7 +2231,7 @@ public partial class LobbyScreen : Control
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
             MouseFilter = MouseFilterEnum.Ignore,
-            Modulate = new Color(1f, 1f, 1f, 0.32f)
+            Modulate = new Color(1f, 1f, 1f, 0.22f)
         };
         backdrop.SetAnchorsPreset(LayoutPreset.FullRect);
         panel.AddChild(backdrop);
@@ -1997,10 +2247,10 @@ public partial class LobbyScreen : Control
 
         var content = AddHBox(panel, "ShopHeroContent", 12);
         content.SetAnchorsPreset(LayoutPreset.FullRect);
-        content.OffsetLeft = 16;
-        content.OffsetTop = 14;
-        content.OffsetRight = -16;
-        content.OffsetBottom = -14;
+        content.OffsetLeft = 14;
+        content.OffsetTop = 8;
+        content.OffsetRight = -14;
+        content.OffsetBottom = -8;
 
         var left = new VBoxContainer
         {
@@ -2008,29 +2258,17 @@ public partial class LobbyScreen : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ShrinkCenter
         };
-        left.AddThemeConstantOverride("separation", 6);
+        left.AddThemeConstantOverride("separation", 4);
         content.AddChild(left);
 
-        left.AddChild(CreateTag("今日军需", new Color(0.34f, 0.24f, 0.08f, 0.92f), new Color(1f, 0.95f, 0.82f)));
+        var titleRow = AddHBox(left, "ShopHeroTitleRow", 8);
+        titleRow.AddChild(CreateTag("今日军需", new Color(0.34f, 0.24f, 0.08f, 0.92f), new Color(1f, 0.95f, 0.82f)));
 
-        var title = AddLabel("军备补给已整理入库", 22, PanelText, HorizontalAlignment.Left);
-        title.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        left.AddChild(title);
+        var title = AddLabel("军备补给已整理入库", 16, PanelText, HorizontalAlignment.Left);
+        titleRow.AddChild(title);
 
-        var note = AddLabel("使用现成资源图标与军武底图，补给、建造和科技商品分层展示，不再是简单文字堆叠。", 13, new Color(0.92f, 0.95f, 0.96f), HorizontalAlignment.Left);
-        note.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        var note = AddLabel("限时特惠供应，助力指挥官快速建造与科研升级。", 12, new Color(0.86f, 0.90f, 0.92f), HorizontalAlignment.Left);
         left.AddChild(note);
-
-        var heroMeta = new HFlowContainer
-        {
-            Name = "ShopHeroMeta",
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
-        };
-        heroMeta.AddThemeConstantOverride("h_separation", 8);
-        heroMeta.AddThemeConstantOverride("v_separation", 8);
-        heroMeta.AddChild(CreateTag("4 项在售", new Color(0.16f, 0.34f, 0.24f, 0.92f), new Color(0.94f, 0.99f, 0.95f)));
-        heroMeta.AddChild(CreateTag("补给 / 加速 / 军备", new Color(0.22f, 0.28f, 0.36f, 0.94f), new Color(0.94f, 0.97f, 0.99f)));
-        left.AddChild(heroMeta);
 
         var right = new HBoxContainer
         {
@@ -2041,18 +2279,18 @@ public partial class LobbyScreen : Control
         right.AddThemeConstantOverride("separation", 8);
         content.AddChild(right);
 
+        right.AddChild(CreateTag("4 项在售", new Color(0.16f, 0.34f, 0.24f, 0.92f), new Color(0.94f, 0.99f, 0.95f)));
         right.AddChild(new TextureRect
         {
             Texture = LoadTexture(KenneyGameIconRoot + "shoppingCart.png"),
-            CustomMinimumSize = new Vector2(34, 34),
+            CustomMinimumSize = new Vector2(24, 24),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             MouseFilter = MouseFilterEnum.Ignore,
             Modulate = new Color(1f, 0.93f, 0.72f, 0.84f),
             SizeFlagsVertical = SizeFlags.ShrinkCenter
         });
-        right.AddChild(CreateHeroCurrencyChip("金币", $"{GameState.Instance?.Gold ?? 0}", CurrencyIconRoot + "currency_gold_coin.png", WarningText));
-        right.AddChild(CreateHeroCurrencyChip("钻石", $"{GameState.Instance?.Gems ?? 0}", CurrencyIconRoot + "currency_gem_blue.png", new Color(0.64f, 0.90f, 1f)));
+
         return panel;
     }
 
@@ -2520,6 +2758,272 @@ public partial class LobbyScreen : Control
         return chip;
     }
 
+    void ShowResearchModal()
+    {
+        OpenFeatureModal("科技研究中心", "升级主基地战略科研，为战场部署获取更强的机动、火力、装甲或维修加成。");
+        
+        int maxLvl = 1;
+        if (techLevels.Values.Count > 0)
+        {
+            foreach (var v in techLevels.Values)
+            {
+                if (v > maxLvl) maxLvl = v;
+            }
+        }
+
+        AddModalSummaryRow(
+            AddStatCard("科技总数", "4 项", "基地战术支援科技", WarningText),
+            AddStatCard("最高等级", $"{maxLvl} 级", "当前最高科研水平", GoodText),
+            AddStatCard("研究状态", techEndAtMs > NowMs() ? "进行中" : "闲置", techEndAtMs > NowMs() ? "服务器计时中" : "可开始新研究", techEndAtMs > NowMs() ? WarningText : MutedText));
+
+        var splitBox = new HBoxContainer
+        {
+            Name = "ResearchSplitBox",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin
+        };
+        splitBox.AddThemeConstantOverride("separation", 14);
+        modalBody.AddChild(splitBox);
+
+        var leftCol = new VBoxContainer
+        {
+            Name = "ResearchLeftCol",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin
+        };
+        splitBox.AddChild(leftCol);
+
+        currentResearchDetailPanel = new Panel
+        {
+            Name = "ResearchDetailPanel",
+            CustomMinimumSize = new Vector2(230, 240),
+            SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        MetalUiStyle.ApplyMetalPanel(currentResearchDetailPanel, WarehousePanel, 1, 8, 4);
+        splitBox.AddChild(currentResearchDetailPanel);
+
+        var techList = AddWarehouseSectionPanel(leftCol, "科技列表", "点击选择科技项以查阅具体战术加成并启动升级项目", new Color(0.64f, 0.90f, 1f));
+        foreach (var tech in BattleTechCatalog.GetForBuilding("main_base"))
+        {
+            techList.AddChild(CreateResearchGridCell(tech));
+        }
+
+        UpdateResearchDetail(selectedResearchTechKey);
+        ShowModal();
+    }
+
+    Control CreateResearchGridCell(BattleTechDefinition tech)
+    {
+        var level = techLevels.TryGetValue(tech.Key, out var lv) ? lv : 1;
+        var isSelected = tech.Key == selectedResearchTechKey;
+
+        // 外部面板包装 (76 x 98)
+        var cell = new Panel
+        {
+            Name = "ResearchGridCell_" + tech.Key,
+            CustomMinimumSize = new Vector2(76, 98),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter
+        };
+
+        // 垂直布局容器
+        var vbox = new VBoxContainer
+        {
+            Name = "VBox_" + tech.Key,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        vbox.SetAnchorsPreset(LayoutPreset.FullRect);
+        vbox.AddThemeConstantOverride("separation", 4);
+        cell.AddChild(vbox);
+
+        // 科技图标面板 (72 x 72)
+        var iconPanel = new PanelContainer
+        {
+            Name = "IconPanel_" + tech.Key,
+            CustomMinimumSize = new Vector2(72, 72),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+
+        var borderCol = isSelected ? new Color(0.95f, 0.76f, 0.24f, 0.90f) : new Color(1f, 1f, 1f, 0.12f);
+        MetalUiStyle.ApplyMetalPanel(iconPanel, WarehousePanel, isSelected ? 2 : 1, 6, 4);
+        if (isSelected)
+        {
+            AddTopAccentStripe(iconPanel, new Color(0.95f, 0.76f, 0.24f, 0.90f), 2);
+        }
+        vbox.AddChild(iconPanel);
+
+        // 图标内间距与贴图
+        var margin = new MarginContainer
+        {
+            Name = "Margin_" + tech.Key,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        margin.AddThemeConstantOverride("margin_left", 4);
+        margin.AddThemeConstantOverride("margin_top", 4);
+        margin.AddThemeConstantOverride("margin_right", 4);
+        margin.AddThemeConstantOverride("margin_bottom", 4);
+        iconPanel.AddChild(margin);
+
+        if (!string.IsNullOrEmpty(tech.BackgroundTexturePath))
+        {
+            margin.AddChild(new TextureRect
+            {
+                Texture = LoadTexture(tech.BackgroundTexturePath),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.Scale,
+                MouseFilter = MouseFilterEnum.Ignore,
+                Modulate = tech.Tint.Lerp(Colors.White, 0.15f)
+            });
+        }
+
+        // 图标下方等级文本
+        var lvlLabel = new Label
+        {
+            Name = "LvlLabel_" + tech.Key,
+            Text = $"{level}/5 级",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        lvlLabel.AddThemeFontSizeOverride("font_size", 11);
+        lvlLabel.AddThemeColorOverride("font_color", isSelected ? new Color(0.95f, 0.76f, 0.24f) : MutedText);
+        vbox.AddChild(lvlLabel);
+
+        // 全覆点击按钮
+        var clickBtn = new Button
+        {
+            Name = "Click_" + tech.Key,
+            Flat = true,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            Position = Vector2.Zero
+        };
+        clickBtn.SetAnchorsPreset(LayoutPreset.FullRect);
+        clickBtn.Pressed += () =>
+        {
+            selectedResearchTechKey = tech.Key;
+            ShowResearchModal();
+        };
+        cell.AddChild(clickBtn);
+
+        return cell;
+    }
+
+    void UpdateResearchDetail(string techKey)
+    {
+        if (currentResearchDetailPanel is null)
+            return;
+
+        ClearChildren(currentResearchDetailPanel);
+
+        BattleTechDefinition tech = default;
+        foreach (var t in BattleTechCatalog.GetForBuilding("main_base"))
+        {
+            if (t.Key == techKey)
+            {
+                tech = t;
+                break;
+            }
+        }
+        if (tech.Key is null)
+            return;
+
+        var level = techLevels.TryGetValue(techKey, out var lv) ? lv : 1;
+        var box = AddVBox(currentResearchDetailPanel, "DetailBox", 6, new Vector2(12, 10), new Vector2(-12, -10));
+
+        box.AddChild(AddLabel(tech.DisplayName, 16, PanelText, HorizontalAlignment.Center));
+        box.AddChild(CreateTag($"当前等级: Lv.{level} (最高 5)", new Color(0.18f, 0.34f, 0.40f, 0.92f), new Color(0.94f, 0.98f, 0.99f)));
+
+        var space = new Control { CustomMinimumSize = new Vector2(0, 4) };
+        box.AddChild(space);
+
+        box.AddChild(AddLabel("科技描述", 12, MutedText, HorizontalAlignment.Left));
+
+        var scroll = new ScrollContainer
+        {
+            Name = "DetailDescScroll",
+            CustomMinimumSize = new Vector2(0, 100),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        box.AddChild(scroll);
+
+        var content = new VBoxContainer
+        {
+            Name = "DetailContent",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        content.AddThemeConstantOverride("separation", 6);
+        scroll.AddChild(content);
+
+        var descLabel = AddLabel(tech.Description, 12, PanelText, HorizontalAlignment.Left);
+        descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        descLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        content.AddChild(descLabel);
+
+        var bonusLabel = AddLabel($"战略加成: {DescribeTechBonus(tech)}", 12, WarningText, HorizontalAlignment.Left);
+        bonusLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        bonusLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        content.AddChild(bonusLabel);
+
+        var specLabel = AddLabel($"作用范围: {tech.Radius}m\n持续时长: {tech.Duration}s\n整备冷却: {tech.Cooldown}s", 11, MutedText, HorizontalAlignment.Left);
+        specLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        content.AddChild(specLabel);
+
+        var space2 = new Control { CustomMinimumSize = new Vector2(0, 4) };
+        box.AddChild(space2);
+
+        string serverTechKey = techKey switch
+        {
+            "speed" => "speed_boost_1",
+            "armor" => "tank_armor_1",
+            "firepower" => "tank_attack_1",
+            "repair" => "artillery_reload_1",
+            _ => techKey
+        };
+
+        if (techEndAtMs > NowMs())
+        {
+            box.AddChild(AddLabel("其他科研正在计时中", 12, MutedText, HorizontalAlignment.Center));
+        }
+        else
+        {
+            var upgradeBtn = AddButton("启动升级项目", () => StartResearchProject(techKey, serverTechKey), ButtonTone.Gold, 13);
+            upgradeBtn.CustomMinimumSize = new Vector2(0, 32);
+            upgradeBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            box.AddChild(upgradeBtn);
+        }
+    }
+
+    void StartResearchProject(string techKey, string serverTechKey)
+    {
+        if (techLevels.ContainsKey(techKey))
+        {
+            techLevels[techKey]++;
+        }
+
+        _ = StartTechResearch();
+        ShowResearchModal();
+        
+        string name = "科技";
+        foreach (var t in BattleTechCatalog.GetForBuilding("main_base"))
+        {
+            if (t.Key == techKey)
+            {
+                name = t.DisplayName;
+                break;
+            }
+        }
+        ShowToast($"已成功启动 {name} 升级项目！");
+    }
+
     void ShowWarehouseModal(string activeTab = "blueprints")
     {
         var currentStarterKey = GameState.Instance?.GlobalConquestStarterUnitKey ?? "tank";
@@ -2532,33 +3036,56 @@ public partial class LobbyScreen : Control
             AddStatCard("当前全球争霸阵营", currentFaction.DisplayName, $"起始单位：{currentStarter.DisplayName}", GoodText));
         modalBody.AddChild(CreateWarehouseTabBar(activeTab));
 
+        var splitBox = new HBoxContainer
+        {
+            Name = "WarehouseSplitBox",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin
+        };
+        splitBox.AddThemeConstantOverride("separation", 14);
+        modalBody.AddChild(splitBox);
+
+        var leftCol = new VBoxContainer
+        {
+            Name = "WarehouseLeftCol",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin
+        };
+        splitBox.AddChild(leftCol);
+
+        currentWarehouseDetailPanel = new Panel
+        {
+            Name = "WarehouseDetailPanel",
+            CustomMinimumSize = new Vector2(210, 240),
+            SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        MetalUiStyle.ApplyMetalPanel(currentWarehouseDetailPanel, WarehousePanel, 1, 8, 4);
+        splitBox.AddChild(currentWarehouseDetailPanel);
+
+        // Pre-fill details panel
+        UpdateWarehouseDetail("选定项目", "在左侧网格中选择任意军备蓝图、科技加成或道具卡片，以在此处查看其详细性能规格、加成时间、激活条件或库存数量。", new Color(0.72f, 0.84f, 0.96f), "提示", "", "");
+
         switch (activeTab)
         {
             case "tech":
             {
-                var techList = AddWarehouseSectionPanel("科技加成", "查看主基地科技的范围效果、持续时间和冷却信息。", new Color(0.64f, 0.90f, 1f));
+                var techList = AddWarehouseSectionPanel(leftCol, "科技加成", "查看主基地科技的范围效果、持续时间和冷却信息。", new Color(0.64f, 0.90f, 1f));
                 foreach (var tech in BattleTechCatalog.GetForBuilding("main_base"))
                     techList.AddChild(CreateWarehouseTechCard(tech));
                 break;
             }
             case "armament":
             {
-                var armamentList = AddWarehouseSectionPanel("全球争霸阵营", "查看可切换的开局阵营，以及对应的起始主力和定位。", GoodText);
+                var armamentList = AddWarehouseSectionPanel(leftCol, "全球争霸阵营", "查看可切换的开局阵营，以及对应的起始主力和定位。", GoodText);
                 foreach (var faction in BattleUnitCatalog.GlobalConquestFactions)
                     armamentList.AddChild(CreateWarehouseArmamentCard(faction, currentFaction.Key == faction.Key));
                 break;
             }
-            case "items":
-            {
-                var itemList = AddWarehouseSectionPanel("道具与科技卡", "常驻卡片、通行许可和战斗内消耗品都会放在这里。", new Color(0.82f, 0.92f, 1f));
-                itemList.AddChild(CreateWarehouseInventoryCard("科技卡：机动强化", "科技卡", "1", "主基地范围科技，可提升友军移动能力。"));
-                itemList.AddChild(CreateWarehouseInventoryCard("全球争霸通行许可", "战役道具", "1", "用于进入全球争霸玩法，并记录当前赛季进度。"));
-                itemList.AddChild(CreateWarehouseInventoryCard("战地维修包", "消耗品", "3", "可在战斗中紧急维修单位或建筑。"));
-                break;
-            }
+
             default:
             {
-                var list = AddWarehouseSectionPanel("军备蓝图", "查看已收录的可生产单位，以及当前解锁条件。", WarningText);
+                var list = AddWarehouseSectionPanel(leftCol, "军备蓝图", "查看已收录的可生产单位，以及当前解锁条件。", WarningText);
                 foreach (var unit in BattleUnitCatalog.PlayerRoster)
                     list.AddChild(CreateWarehouseBlueprintCard(unit));
                 break;
@@ -2569,7 +3096,7 @@ public partial class LobbyScreen : Control
 
     Control CreateWarehouseTabBar(string activeTab)
     {
-        var panel = new Panel
+        var panel = new PanelContainer
         {
             Name = "WarehouseTabBar",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
@@ -2584,7 +3111,6 @@ public partial class LobbyScreen : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
-        margin.SetAnchorsPreset(LayoutPreset.FullRect);
         margin.AddThemeConstantOverride("margin_left", 10);
         margin.AddThemeConstantOverride("margin_top", 10);
         margin.AddThemeConstantOverride("margin_right", 10);
@@ -2617,12 +3143,6 @@ public partial class LobbyScreen : Control
         row.AddChild(CreateWarehouseTabButton("军备蓝图", "blueprints", activeTab));
         row.AddChild(CreateWarehouseTabButton("科技加成", "tech", activeTab));
         row.AddChild(CreateWarehouseTabButton("争霸军备", "armament", activeTab));
-        row.AddChild(CreateWarehouseTabButton("道具与科技卡", "items", activeTab));
-
-        box.Resized += () =>
-        {
-            panel.CustomMinimumSize = new Vector2(0, box.Size.Y + 20);
-        };
 
         return panel;
     }
@@ -2637,9 +3157,9 @@ public partial class LobbyScreen : Control
         return button;
     }
 
-    VBoxContainer AddWarehouseSectionPanel(string title, string note, Color accent)
+    GridContainer AddWarehouseSectionPanel(Control parent, string title, string note, Color accent)
     {
-        var panel = new Panel
+        var panel = new PanelContainer
         {
             Name = "WarehouseSection_" + title,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
@@ -2647,7 +3167,7 @@ public partial class LobbyScreen : Control
         };
         MetalUiStyle.ApplyMetalPanel(panel, WarehousePanel, 1, 8, 4);
         AddTopAccentStripe(panel, new Color(accent.R, accent.G, accent.B, 0.76f), 3);
-        modalBody.AddChild(panel);
+        parent.AddChild(panel);
 
         var margin = new MarginContainer
         {
@@ -2655,7 +3175,6 @@ public partial class LobbyScreen : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
-        margin.SetAnchorsPreset(LayoutPreset.FullRect);
         margin.AddThemeConstantOverride("margin_left", 14);
         margin.AddThemeConstantOverride("margin_top", 12);
         margin.AddThemeConstantOverride("margin_right", 14);
@@ -2668,16 +3187,22 @@ public partial class LobbyScreen : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
-        box.AddThemeConstantOverride("separation", 8);
+        box.AddThemeConstantOverride("separation", 10);
         margin.AddChild(box);
         box.AddChild(CreateWarehouseSectionHeader(title, note, accent));
 
-        box.Resized += () =>
+        var grid = new GridContainer
         {
-            panel.CustomMinimumSize = new Vector2(0, box.Size.Y + 24);
+            Name = "WarehouseSectionGrid_" + title,
+            Columns = 4,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
+        grid.AddThemeConstantOverride("h_separation", 8);
+        grid.AddThemeConstantOverride("v_separation", 8);
+        box.AddChild(grid);
 
-        return box;
+        return grid;
     }
 
     Control CreateWarehouseSectionHeader(string title, string note, Color accent)
@@ -2698,93 +3223,215 @@ public partial class LobbyScreen : Control
         return holder;
     }
 
-    Panel CreateWarehouseBlueprintCard(BattleUnitDefinition unit)
+    Control CreateWarehouseBlueprintCard(BattleUnitDefinition unit)
     {
         var status = WarehouseUnitStatus(unit.Key);
         var unlocked = status.StartsWith("已", StringComparison.Ordinal);
         var accent = unlocked ? new Color(0.50f, 0.90f, 0.58f, 0.88f) : WarningText;
-        return CreateWarehouseCard(
+        var iconPath = ResolveUnitIconPath(unit.Key);
+        return CreateWarehouseGridCell(
             unit.DisplayName,
-            $"{DescribeWarehouseBlueprint(unit.Key)}  状态：{status}",
+            iconPath,
+            "",
+            DescribeWarehouseBlueprint(unit.Key),
             accent,
-            CreateTag(UnitCategory(unit.Key), new Color(0.18f, 0.28f, 0.35f, 0.92f), new Color(0.94f, 0.97f, 0.99f)),
-            CreateTag($"费用 {unit.GoldCost} / 人口 {unit.PopCost}", new Color(0.31f, 0.23f, 0.08f, 0.94f), new Color(1f, 0.94f, 0.78f)),
-            CreateTag(unlocked ? "已收录" : "待解锁", unlocked ? new Color(0.16f, 0.38f, 0.24f, 0.94f) : new Color(0.44f, 0.22f, 0.10f, 0.94f), new Color(0.96f, 0.98f, 0.94f)));
+            UnitCategory(unit.Key),
+            $"费用 {unit.GoldCost} / 人口 {unit.PopCost}",
+            unlocked ? "已收录" : "待解锁"
+        );
     }
 
-    Panel CreateWarehouseTechCard(BattleTechDefinition tech)
+    Control CreateWarehouseTechCard(BattleTechDefinition tech)
     {
-        return CreateWarehouseCard(
+        return CreateWarehouseGridCell(
             tech.DisplayName,
-            $"{DescribeTechBonus(tech)}。持续 {tech.Duration:0}s，冷却 {tech.Cooldown:0}s，范围 {tech.Radius:0.#}。",
+            tech.BackgroundTexturePath,
+            "",
+            $"{DescribeTechBonus(tech)}",
             tech.Tint,
-            CreateTag("主基地", new Color(0.18f, 0.28f, 0.35f, 0.92f), new Color(0.94f, 0.97f, 0.99f)),
-            CreateTag($"持续 {tech.Duration:0}s", new Color(0.20f, 0.34f, 0.24f, 0.92f), new Color(0.94f, 0.99f, 0.95f)),
-            CreateTag($"冷却 {tech.Cooldown:0}s", new Color(0.22f, 0.24f, 0.28f, 0.92f), new Color(1f, 0.95f, 0.82f)));
+            "主基地",
+            $"持续 {tech.Duration:0}s / 冷却 {tech.Cooldown:0}s",
+            "已激活"
+        );
     }
 
-    Panel CreateWarehouseArmamentCard(GlobalConquestFactionDefinition faction, bool isCurrent)
+    Control CreateWarehouseArmamentCard(GlobalConquestFactionDefinition faction, bool isCurrent)
     {
         var starter = BattleUnitCatalog.Get(faction.StarterUnitKey);
-        return CreateWarehouseCard(
+        var iconPath = ResolveUnitIconPath(faction.StarterUnitKey);
+        return CreateWarehouseGridCell(
             faction.DisplayName,
-            $"{faction.Description}  起始单位：{starter.DisplayName}",
+            iconPath,
+            "",
+            faction.Description,
             isCurrent ? GoodText : faction.Tint,
-            CreateTag($"主力 {starter.DisplayName}", new Color(0.18f, 0.28f, 0.35f, 0.92f), new Color(0.94f, 0.97f, 0.99f)),
-            CreateTag(isCurrent ? "当前默认" : "可切换", isCurrent ? new Color(0.16f, 0.38f, 0.24f, 0.94f) : new Color(0.31f, 0.23f, 0.08f, 0.94f), isCurrent ? new Color(0.96f, 0.99f, 0.96f) : new Color(1f, 0.94f, 0.78f)),
-            CreateTag(UnitCategory(starter.Key), new Color(0.22f, 0.24f, 0.28f, 0.92f), new Color(0.92f, 0.95f, 0.98f)));
+            UnitCategory(starter.Key),
+            $"主力 {starter.DisplayName}",
+            isCurrent ? "当前默认" : "可切换"
+        );
     }
 
-    Panel CreateWarehouseInventoryCard(string name, string type, string count, string description)
+    Control CreateWarehouseInventoryCard(string name, string type, string count, string description)
     {
-        return CreateWarehouseCard(
+        var iconPath = "";
+        return CreateWarehouseGridCell(
             name,
+            iconPath,
+            count,
             description,
             new Color(0.72f, 0.84f, 0.96f, 0.82f),
-            CreateTag(type, new Color(0.18f, 0.28f, 0.35f, 0.92f), new Color(0.94f, 0.97f, 0.99f)),
-            CreateTag($"数量 {count}", new Color(0.31f, 0.23f, 0.08f, 0.94f), new Color(1f, 0.94f, 0.78f)));
+            type,
+            $"存量 {count}",
+            "常驻可用"
+        );
     }
 
-    Panel CreateWarehouseCard(string title, string description, Color accent, params Control[] tags)
+    Control CreateWarehouseGridCell(string title, string iconPath, string quantity, string description, Color accent, string category, string stats, string status)
     {
-        var card = new Panel
+        var button = new Button
         {
-            Name = "WarehouseCard_" + title,
-            CustomMinimumSize = new Vector2(0, 102),
+            Name = "GridCell_" + title,
+            CustomMinimumSize = new Vector2(76, 76),
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin,
+            TooltipText = $"{title}\n{description}"
+        };
+
+        button.AddThemeStyleboxOverride("normal", WarehouseGridCellNormal);
+        button.AddThemeStyleboxOverride("hover", WarehouseGridCellHover);
+        button.AddThemeStyleboxOverride("pressed", WarehouseGridCellPressed);
+        button.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+
+        // Margin container to constrain content inside the grid cell
+        var margin = new MarginContainer
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        margin.SetAnchorsPreset(LayoutPreset.FullRect);
+        margin.AddThemeConstantOverride("margin_left", 6);
+        margin.AddThemeConstantOverride("margin_top", 6);
+        margin.AddThemeConstantOverride("margin_right", 6);
+        margin.AddThemeConstantOverride("margin_bottom", 6);
+        button.AddChild(margin);
+
+        // Display the item name centered inside the card
+        var nameLabel = new Label
+        {
+            Name = "TitleLabel",
+            Text = title,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        nameLabel.SetAnchorsPreset(LayoutPreset.FullRect);
+        nameLabel.AddThemeFontSizeOverride("font_size", 10);
+        nameLabel.AddThemeColorOverride("font_color", new Color(0.9f, 0.93f, 0.95f));
+        margin.AddChild(nameLabel);
+
+        button.Pressed += () =>
+        {
+            UpdateWarehouseDetail(title, description, accent, category, stats, status);
+        };
+
+        return button;
+    }
+
+    void UpdateWarehouseDetail(string title, string description, Color accent, string category, string stats, string status)
+    {
+        if (currentWarehouseDetailPanel is null || !GodotObject.IsInstanceValid(currentWarehouseDetailPanel))
+            return;
+
+        ClearChildren(currentWarehouseDetailPanel);
+
+        AddTopAccentStripe(currentWarehouseDetailPanel, new Color(accent.R, accent.G, accent.B, 0.80f), 3);
+
+        var margin = new MarginContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        margin.SetAnchorsPreset(LayoutPreset.FullRect);
+        margin.AddThemeConstantOverride("margin_left", 14);
+        margin.AddThemeConstantOverride("margin_top", 14);
+        margin.AddThemeConstantOverride("margin_right", 14);
+        margin.AddThemeConstantOverride("margin_bottom", 14);
+        currentWarehouseDetailPanel.AddChild(margin);
+
+        var box = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        box.AddThemeConstantOverride("separation", 10);
+        margin.AddChild(box);
+
+        var titleLabel = AddLabel(title, 16, PanelText, HorizontalAlignment.Left);
+        titleLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        box.AddChild(titleLabel);
+
+        var tagRow = new HFlowContainer
+        {
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
-        MetalUiStyle.ApplyMetalPanel(card, MetalUiStyle.Steel, 1, 7, 4);
-        AddTopAccentStripe(card, new Color(accent.R, accent.G, accent.B, 0.80f), 3);
+        tagRow.AddThemeConstantOverride("h_separation", 6);
+        tagRow.AddThemeConstantOverride("v_separation", 6);
+        box.AddChild(tagRow);
 
-        var box = AddVBox(card, "WarehouseCardBox_" + title, 6, new Vector2(14, 12), new Vector2(-14, -12));
-
-        var titleLabel = AddLabel(title, 15, PanelText, HorizontalAlignment.Left);
-        titleLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        titleLabel.VerticalAlignment = VerticalAlignment.Top;
-        titleLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        box.AddChild(titleLabel);
-
-        if (tags.Length > 0)
+        if (!string.IsNullOrEmpty(category))
+            tagRow.AddChild(CreateTag(category, new Color(0.18f, 0.28f, 0.35f, 0.92f), new Color(0.94f, 0.97f, 0.99f)));
+        if (!string.IsNullOrEmpty(stats))
+            tagRow.AddChild(CreateTag(stats, new Color(0.31f, 0.23f, 0.08f, 0.94f), new Color(1f, 0.94f, 0.78f)));
+        if (!string.IsNullOrEmpty(status))
         {
-            var tagRow = new HFlowContainer
-            {
-                Name = "WarehouseTags_" + title,
-                SizeFlagsHorizontal = SizeFlags.ExpandFill,
-                SizeFlagsVertical = SizeFlags.ShrinkBegin
-            };
-            tagRow.AddThemeConstantOverride("h_separation", 6);
-            tagRow.AddThemeConstantOverride("v_separation", 6);
-            foreach (var tag in tags)
-                tagRow.AddChild(tag);
-            box.AddChild(tagRow);
+            var isGood = status.Contains("已") || status.Contains("当前") || status.Contains("接收") || status.Contains("常驻");
+            var bg = isGood ? new Color(0.16f, 0.38f, 0.24f, 0.94f) : new Color(0.44f, 0.22f, 0.10f, 0.94f);
+            var fg = isGood ? new Color(0.96f, 0.98f, 0.94f) : new Color(1f, 0.92f, 0.90f);
+            tagRow.AddChild(CreateTag(status, bg, fg));
         }
 
-        var body = AddLabel(description, 12, MutedText, HorizontalAlignment.Left);
-        body.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        body.VerticalAlignment = VerticalAlignment.Top;
-        box.AddChild(body);
-        return card;
+        var divider = new ColorRect
+        {
+            CustomMinimumSize = new Vector2(0, 1),
+            Color = new Color(1f, 1f, 1f, 0.15f)
+        };
+        box.AddChild(divider);
+
+        var scroll = new ScrollContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
+        };
+        box.AddChild(scroll);
+
+        var descLabel = AddLabel(description, 12, MutedText, HorizontalAlignment.Left);
+        descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        descLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        scroll.AddChild(descLabel);
+    }
+
+    static string ResolveUnitIconPath(string unitKey)
+    {
+        const string BackdropRoot = "res://assets/unity_migrated/Assets/Resources/UI/ButtonBackdrops/";
+        var filename = unitKey switch
+        {
+            "infantry" => "prod_infantry_icon.png",
+            "infantry_artillery" => "prod_infantry_artillery_icon.png",
+            "infantry_flamethrower" or "flamethrower" => "prod_infantry_flamethrower_icon.png",
+            "light_tank" or "tank" or "medium_tank" or "heavy_tank" => "prod_tank_icon.png",
+            "artillery" => "prod_artillery_icon.png",
+            "anti_air_gun" => "prod_anti_air_icon.png",
+            "scout_plane" => "prod_scout_plane_icon.png",
+            "fighter" => "prod_fighter_icon.png",
+            "bomber" => "prod_bomber_icon.png",
+            "patrol_boat" => "prod_patrol_boat_icon.png",
+            "destroyer_ship" => "prod_destroyer_ship_icon.png",
+            "transport_ship" => "prod_battleship_icon.png",
+            _ => "prod_infantry_icon.png"
+        };
+        return BackdropRoot + filename;
     }
 
     void AddInventoryRow(VBoxContainer list, string name, string type, string count, string description)
@@ -2842,6 +3489,12 @@ public partial class LobbyScreen : Control
     async Task ShowLeaderboardModal()
     {
         activeFeatureModal = LeaderboardModalKind;
+        if (GameState.Instance?.IsGuest == true)
+        {
+            RenderLeaderboardModal(new Godot.Collections.Dictionary(), false);
+            return;
+        }
+
         if (HasLeaderboardCache())
         {
             RenderLeaderboardModal(cachedLeaderboardData, true);
@@ -2876,6 +3529,12 @@ public partial class LobbyScreen : Control
     async Task ShowMailModal()
     {
         activeFeatureModal = MailModalKind;
+        if (GameState.Instance?.IsGuest == true)
+        {
+            RenderMailModal(new Godot.Collections.Dictionary(), false);
+            return;
+        }
+
         if (HasInvitesCache())
         {
             RenderMailModal(cachedInvitesData, true);
@@ -2911,6 +3570,9 @@ public partial class LobbyScreen : Control
 
     Task RefreshLeaderboardCache()
     {
+        if (GameState.Instance?.IsGuest == true)
+            return Task.CompletedTask;
+
         if (leaderboardRefreshTask is not null && !leaderboardRefreshTask.IsCompleted)
             return leaderboardRefreshTask;
 
@@ -2920,6 +3582,9 @@ public partial class LobbyScreen : Control
 
     Task RefreshInvitesCache()
     {
+        if (GameState.Instance?.IsGuest == true)
+            return Task.CompletedTask;
+
         if (invitesRefreshTask is not null && !invitesRefreshTask.IsCompleted)
             return invitesRefreshTask;
 
@@ -3040,35 +3705,105 @@ public partial class LobbyScreen : Control
 
     void RenderMailModal(Godot.Collections.Dictionary data, bool usingCache)
     {
-        OpenFeatureModal(
-            "邮件 / 邀请",
-            usingCache
-                ? "处理房间邀请、系统公告与战报消息。已显示缓存，正在后台刷新。"
-                : "处理房间邀请、系统公告与战报消息。");
+        OpenFeatureModal("系统邮件", "查看游戏版本公告、新兵补给发放与战报信息。");
 
-        var invites = data.GetArray("invites");
-        AddModalSummaryRow(
-            AddStatCard("未处理邀请", $"{(data.GetBool("success") ? invites.Count : 0)}", usingCache ? "缓存中的好友房间邀请" : "好友房间邀请", invites.Count > 0 ? WarningText : GoodText),
-            AddStatCard("系统邮件", "3", "公告、补给与战报", PanelText),
-            AddStatCard("战报", "1", "最近一场战役", GoodText));
-
-        var inviteSection = AddModalSectionPanel("好友房间邀请", invites.Count > 0 ? $"当前有 {invites.Count} 条待处理邀请" : "当前没有待处理的房间邀请", WarningText);
-        if (!data.GetBool("success") || invites.Count == 0)
-            inviteSection.AddChild(AddEmptyStateCard("暂无未处理邀请。", "新的好友邀请到达后会显示在这里。"));
-        else
+        int unreadCount = 0;
+        int rewardCount = 0;
+        foreach (var m in systemMails)
         {
-            foreach (var item in invites)
+            if (!m.IsRead) unreadCount++;
+            if (m.HasReward && !m.IsClaimed) rewardCount++;
+        }
+
+        AddModalSummaryRow(
+            AddStatCard("收件箱", $"{systemMails.Count} 封", "系统总邮件", PanelText),
+            AddStatCard("未读邮件", $"{unreadCount} 封", "请及时查阅", unreadCount > 0 ? WarningText : GoodText),
+            AddStatCard("待领补给", $"{rewardCount} 项", "邮件道具附件", rewardCount > 0 ? GoodText : PanelText));
+
+        var mailSection = AddModalSectionPanel("邮件列表", "点击邮件项可以查看正文并领取奖励附件", new Color(0.70f, 0.92f, 1f));
+        foreach (var mail in systemMails)
+        {
+            mailSection.AddChild(CreateSystemMailCard(mail));
+        }
+        ShowModal();
+    }
+
+    void ShowMailDetail(SystemMail mail)
+    {
+        // 标记为已读
+        for (int i = 0; i < systemMails.Count; i++)
+        {
+            if (systemMails[i].Id == mail.Id)
             {
-                if (item.VariantType == Variant.Type.Dictionary)
-                    inviteSection.AddChild(CreateMailInviteCard(item.AsGodotDictionary()));
+                var updated = systemMails[i];
+                updated.IsRead = true;
+                systemMails[i] = updated;
+                mail = updated; // 同步当前变量以便后续渲染
+                break;
             }
         }
 
-        var mailSection = AddModalSectionPanel("系统邮件", "公告、补给和最近战报", new Color(0.70f, 0.92f, 1f));
-        mailSection.AddChild(CreateSystemMailCard("全球争霸赛季开放", "公告", "未读", "新增全球争霸入口与军备展示。"));
-        mailSection.AddChild(CreateSystemMailCard("每日补给已刷新", "补给", "可领", "完成每日任务可领取金币和经验。"));
-        mailSection.AddChild(CreateSystemMailCard("最近战报", "战报", "已读", "战斗报告可在结算界面查看详细统计。"));
+        OpenFeatureModal($"邮件正文", $"时间: {mail.Time} | 类型: {mail.Type}");
+
+        var detailSection = AddModalSectionPanel(mail.Title, $"时间: {mail.Time}", new Color(0.70f, 0.92f, 1f));
+        
+        var bodyLabel = AddLabel(mail.Content, 13, PanelText, HorizontalAlignment.Left);
+        bodyLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        detailSection.AddChild(bodyLabel);
+
+        if (mail.HasReward)
+        {
+            var rewardSec = AddModalSectionPanel("补给附件", mail.IsClaimed ? "附件奖励已成功领入您的账号" : "点击下方按钮领取金币与钻石奖励", new Color(0.92f, 0.74f, 0.28f));
+            
+            var row = new HBoxContainer
+            {
+                Name = "RewardRow",
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                Alignment = BoxContainer.AlignmentMode.Center
+            };
+            row.AddThemeConstantOverride("separation", 16);
+            rewardSec.AddChild(row);
+            
+            row.AddChild(AddLabel($"🎁 包含金币 x{mail.RewardGold} | 钻石 x{mail.RewardGems}", 14, WarningText, HorizontalAlignment.Center));
+            
+            if (!mail.IsClaimed)
+            {
+                var claimBtn = AddButton("领取奖励", () => ClaimMailReward(mail.Id), ButtonTone.Gold, 13);
+                row.AddChild(claimBtn);
+            }
+            else
+            {
+                row.AddChild(CreateTag("已领取", new Color(0.22f, 0.24f, 0.28f, 0.92f), new Color(1f, 0.95f, 0.82f)));
+            }
+        }
+
+        var actions = AddModalSectionPanel("操作", "阅读完毕后返回邮件列表", PanelText);
+        var backBtn = AddButton("返回邮件列表", () => RenderMailModal(new Godot.Collections.Dictionary(), false), ButtonTone.Secondary, 14);
+        actions.AddChild(backBtn);
+
         ShowModal();
+    }
+
+    void ClaimMailReward(string mailId)
+    {
+        for (int i = 0; i < systemMails.Count; i++)
+        {
+            if (systemMails[i].Id == mailId)
+            {
+                var updated = systemMails[i];
+                if (updated.IsClaimed)
+                    break;
+                updated.IsClaimed = true;
+                systemMails[i] = updated;
+
+                GameState.Instance?.AddCurrency(updated.RewardGold, updated.RewardGems);
+                RefreshTopBar();
+
+                ShowToast($"领取成功！金币 +{updated.RewardGold}，钻石 +{updated.RewardGems}");
+                ShowMailDetail(updated);
+                break;
+            }
+        }
     }
 
     void AddMailInviteRow(VBoxContainer list, Godot.Collections.Dictionary invite)
@@ -3175,6 +3910,16 @@ public partial class LobbyScreen : Control
         var subtitleLabel = AddLabel(subtitle, 13, MutedText, HorizontalAlignment.Left);
         subtitleLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         modalBody.AddChild(subtitleLabel);
+
+        if (modalTitle?.GetParent() is HBoxContainer header)
+        {
+            var oldTrash = header.GetNodeOrNull("ModalTrashButton");
+            if (oldTrash != null)
+            {
+                header.RemoveChild(oldTrash);
+                oldTrash.QueueFree();
+            }
+        }
     }
     void AddModalSummaryRow(params Control[] cards)
     {
@@ -3264,49 +4009,72 @@ public partial class LobbyScreen : Control
         return card;
     }
 
-    Panel CreateSystemMailCard(string title, string type, string status, string note)
+    Panel CreateSystemMailCard(SystemMail mail)
     {
-        var highlight = status.Contains("未读") || status.Contains("可领");
-        var accent = status.Contains("可领")
+        var isUnread = !mail.IsRead;
+        var hasClaimable = mail.HasReward && !mail.IsClaimed;
+
+        var accent = hasClaimable
             ? new Color(0.88f, 0.70f, 0.26f, 0.88f)
-            : highlight
+            : isUnread
                 ? new Color(0.48f, 0.88f, 0.60f, 0.82f)
                 : new Color(0.72f, 0.84f, 0.90f, 0.42f);
+
         var card = new Panel
         {
-            Name = "SystemMail_" + title,
-            CustomMinimumSize = new Vector2(0, 88)
+            Name = "SystemMail_" + mail.Id,
+            CustomMinimumSize = new Vector2(0, 68)
         };
         MetalUiStyle.ApplyMetalPanel(card, MetalUiStyle.Steel, 1, 8, 4);
         AddTopAccentStripe(card, accent, 2);
 
-        var box = AddVBox(card, "SystemMailBox_" + title, 4, new Vector2(14, 10), new Vector2(-14, -10));
-        var header = new VBoxContainer
+        var clickButton = new Button
         {
-            Name = "SystemMailHeader_" + title,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
+            Name = "ClickBtn_" + mail.Id,
+            Flat = true,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(0, 68),
+            Position = Vector2.Zero
         };
-        header.AddThemeConstantOverride("separation", 6);
-        box.AddChild(header);
+        clickButton.SetAnchorsPreset(LayoutPreset.FullRect);
+        clickButton.Pressed += () => ShowMailDetail(mail);
+        card.AddChild(clickButton);
 
-        var titleLabel = AddLabel(title, 15, PanelText, HorizontalAlignment.Left);
-        titleLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        header.AddChild(titleLabel);
+        var box = AddVBox(card, "SystemMailBox_" + mail.Id, 2, new Vector2(14, 8), new Vector2(-14, -8));
+        box.MouseFilter = MouseFilterEnum.Ignore;
 
-        var tags = new HFlowContainer
-        {
-            Name = "SystemMailTags_" + title,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
-        };
-        tags.AddThemeConstantOverride("h_separation", 6);
-        tags.AddThemeConstantOverride("v_separation", 6);
-        tags.AddChild(CreateTag(type, highlight ? new Color(0.18f, 0.40f, 0.26f, 0.92f) : new Color(0.20f, 0.28f, 0.36f, 0.92f), new Color(0.94f, 0.97f, 0.98f)));
-        tags.AddChild(CreateTag(status, highlight ? new Color(0.76f, 0.56f, 0.18f, 0.96f) : new Color(0.22f, 0.24f, 0.28f, 0.92f), new Color(1f, 0.95f, 0.82f)));
-        header.AddChild(tags);
+        var titleRow = AddHBox(box, "TitleRow_" + mail.Id, 10);
+        titleRow.MouseFilter = MouseFilterEnum.Ignore;
 
-        var noteLabel = AddLabel(note, 12, highlight ? PanelText : MutedText, HorizontalAlignment.Left);
-        noteLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        var timeLabel = AddLabel($"[{mail.Time}]", 12, MutedText, HorizontalAlignment.Left);
+        timeLabel.MouseFilter = MouseFilterEnum.Ignore;
+        titleRow.AddChild(timeLabel);
+
+        var titleLabel = AddLabel(mail.Title, 14, isUnread ? PanelText : MutedText, HorizontalAlignment.Left);
+        titleLabel.MouseFilter = MouseFilterEnum.Ignore;
+        titleRow.AddChild(titleLabel);
+
+        var statusText = mail.HasReward ? (mail.IsClaimed ? "已领" : "可领") : (mail.IsRead ? "已读" : "未读");
+        var statusColor = mail.HasReward ? (mail.IsClaimed ? new Color(0.22f, 0.24f, 0.28f, 0.92f) : new Color(0.76f, 0.56f, 0.18f, 0.96f))
+                                         : (mail.IsRead ? new Color(0.22f, 0.24f, 0.28f, 0.92f) : new Color(0.18f, 0.40f, 0.26f, 0.92f));
+
+        var typeTag = CreateTag(mail.Type, isUnread ? new Color(0.18f, 0.34f, 0.40f, 0.92f) : new Color(0.20f, 0.28f, 0.36f, 0.92f), new Color(0.94f, 0.97f, 0.98f));
+        typeTag.MouseFilter = MouseFilterEnum.Ignore;
+        titleRow.AddChild(typeTag);
+
+        var statusTag = CreateTag(statusText, statusColor, new Color(1f, 0.95f, 0.82f));
+        statusTag.MouseFilter = MouseFilterEnum.Ignore;
+        titleRow.AddChild(statusTag);
+
+        var summaryText = mail.Summary;
+        if (summaryText.Length > 6)
+            summaryText = summaryText.Substring(0, 6);
+
+        var noteLabel = AddLabel(summaryText + "...", 12, isUnread ? PanelText.Lerp(Colors.White, 0.15f) : MutedText, HorizontalAlignment.Left);
+        noteLabel.MouseFilter = MouseFilterEnum.Ignore;
         box.AddChild(noteLabel);
+
         return card;
     }
 
@@ -3661,25 +4429,208 @@ public partial class LobbyScreen : Control
                         var mapName = match.GetString("mapName", selectedMap);
                         selectedMap = BattleMapCatalog.IsKnownMap(mapName) ? mapName : selectedMap;
                         GameState.Instance?.SelectMap(selectedMap, selectedMode);
-                        GameState.Instance?.SetCurrentRoom(match.GetString("roomId"));
-                        await StartBattle(false);
+                        var roomId = match.GetString("roomId");
+                        await ShowMatchConfirmationModal(roomId, selectedMap);
                         return;
                     }
-
-                    ShowToast(match.GetBool("success") ? "暂无对手，进入本地演练" : "匹配服务不可用，进入本地演练");
-                }
-                else
-                {
-                    ShowToast("匹配等待超时，进入本地演练");
                 }
             }
 
-            await StartBattle();
+            // Local simulation fallback
+            ShowToast("未匹配到在线对手，开启模拟战役...");
+            await Task.Delay(800);
+            await ShowMatchConfirmationModal("local_practice_room", selectedMap);
         }
         finally
         {
             quickMatchStarting = false;
         }
+    }
+
+    class MatchConfState
+    {
+        public bool Accepted = false;
+        public bool Declined = false;
+        public bool Completed = false;
+    }
+
+    async Task ShowMatchConfirmationModal(string roomId, string mapName)
+    {
+        var confState = new MatchConfState();
+
+        selectedMode = QuickMatchMode;
+        selectedMap = mapName;
+        GameState.Instance?.SelectMap(selectedMap, selectedMode);
+
+        ExpandModalPanel(true);
+        ClearChildren(modalBody);
+        modalTitle.Text = "匹配就绪 - 3v3战术对抗";
+
+        // Countdown container
+        var topRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var countdownLabel = AddLabel("请确认：10秒内未确认将取消匹配", 14, WarningText, HorizontalAlignment.Center);
+        topRow.AddChild(countdownLabel);
+        modalBody.AddChild(topRow);
+
+        // HBox for columns
+        var columns = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        columns.AddThemeConstantOverride("separation", 24);
+        modalBody.AddChild(columns);
+
+        // Blue Team Column
+        var blueCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        blueCol.AddThemeConstantOverride("separation", 10);
+        columns.AddChild(blueCol);
+
+        // Red Team Column
+        var redCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        redCol.AddThemeConstantOverride("separation", 10);
+        columns.AddChild(redCol);
+
+        // Define players
+        var myName = GameState.Instance?.Username ?? "指战员(我)";
+        var bluePlayers = new[] { myName, "战鹰02", "钢铁泰坦" };
+        var redPlayers = new[] { "阿尔法九号", "闪击野狼", "重装先锋" };
+
+        var blueReady = new bool[] { false, false, false };
+        var redReady = new bool[] { false, false, false };
+
+        // Helper to rebuild rows
+        Action updateSlots = () => {
+            // Blue Team Rows
+            ClearChildren(blueCol);
+            blueCol.AddChild(AddLabel("蓝队 (己方)", 15, new Color(0.4f, 0.7f, 1.0f), HorizontalAlignment.Left));
+            for (int i = 0; i < 3; i++)
+            {
+                var rowPanel = BuildPlayerConfirmRow(bluePlayers[i], i == 0 ? LocalCommanderAvatarTexturePath() : ResolveFriendAvatarTexturePath(bluePlayers[i]), blueReady[i]);
+                blueCol.AddChild(rowPanel);
+            }
+
+            // Red Team Rows
+            ClearChildren(redCol);
+            redCol.AddChild(AddLabel("红队 (敌方)", 15, new Color(1.0f, 0.4f, 0.4f), HorizontalAlignment.Left));
+            for (int i = 0; i < 3; i++)
+            {
+                var rowPanel = BuildPlayerConfirmRow(redPlayers[i], ResolveFriendAvatarTexturePath(redPlayers[i]), redReady[i]);
+                redCol.AddChild(rowPanel);
+            }
+        };
+
+        updateSlots();
+
+        // Control Buttons Row
+        var btnRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        btnRow.AddThemeConstantOverride("separation", 16);
+        
+        var acceptBtn = AddButton("同意战斗", () => {
+            confState.Accepted = true;
+            blueReady[0] = true;
+            updateSlots();
+            ShowToast("您已同意，等待其他玩家确认...");
+        }, ButtonTone.Primary, 13);
+        acceptBtn.CustomMinimumSize = new Vector2(160, 36);
+        btnRow.AddChild(acceptBtn);
+
+        var declineBtn = AddButton("拒绝匹配", () => {
+            confState.Declined = true;
+        }, ButtonTone.Secondary, 13);
+        declineBtn.CustomMinimumSize = new Vector2(120, 36);
+        btnRow.AddChild(declineBtn);
+        modalBody.AddChild(btnRow);
+
+        ShowModal();
+
+        // Start countdown and confirmation simulation
+        int timeLeft = 10;
+        var rand = new Random();
+
+        while (timeLeft > 0 && !confState.Declined && !confState.Completed)
+        {
+            countdownLabel.Text = $"匹配已成功！请确认加入：{timeLeft} 秒";
+
+            // Simulate other players accepting
+            if (rand.NextDouble() < 0.35 && !blueReady[1]) { blueReady[1] = true; updateSlots(); }
+            if (rand.NextDouble() < 0.35 && !blueReady[2]) { blueReady[2] = true; updateSlots(); }
+            if (rand.NextDouble() < 0.35 && !redReady[0]) { redReady[0] = true; updateSlots(); }
+            if (rand.NextDouble() < 0.35 && !redReady[1]) { redReady[1] = true; updateSlots(); }
+            if (rand.NextDouble() < 0.35 && !redReady[2]) { redReady[2] = true; updateSlots(); }
+
+            // Check if everyone accepted
+            bool everyoneConfirmed = blueReady[0] && blueReady[1] && blueReady[2] && redReady[0] && redReady[1] && redReady[2];
+            if (everyoneConfirmed)
+            {
+                confState.Completed = true;
+                break;
+            }
+
+            await Task.Delay(1000);
+            timeLeft--;
+        }
+
+        if (confState.Completed)
+        {
+            countdownLabel.Text = "所有玩家已确认！正在转入战场...";
+            countdownLabel.AddThemeColorOverride("font_color", GoodText);
+            await Task.Delay(800);
+            CloseModal();
+            GameState.Instance?.SetCurrentRoom(roomId);
+            await StartBattle(false);
+        }
+        else
+        {
+            CloseModal();
+            if (confState.Declined)
+            {
+                ShowToast("已取消本次匹配。");
+            }
+            else
+            {
+                ShowToast("确认超时，已退出匹配队列。");
+            }
+            if (NetClient.Instance is not null && !string.IsNullOrEmpty(GameState.Instance?.Token))
+            {
+                _ = NetClient.Instance.CancelMatch();
+            }
+        }
+    }
+
+    Panel BuildPlayerConfirmRow(string name, string avatarPath, bool confirmed)
+    {
+        var panel = new Panel { CustomMinimumSize = new Vector2(0, 42), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        MetalUiStyle.ApplyMetalPanel(panel, confirmed ? MetalUiStyle.Green : MetalUiStyle.Steel, 1, 4, 2);
+
+        var box = AddHBox(panel, "PlayerConfirmRowBox", 8);
+        box.SetAnchorsPreset(LayoutPreset.FullRect);
+        box.OffsetLeft = 6;
+        box.OffsetRight = -6;
+
+        var avatar = new TextureRect
+        {
+            CustomMinimumSize = new Vector2(30, 30),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            Texture = LoadTexture(avatarPath)
+        };
+        box.AddChild(avatar);
+
+        box.AddChild(AddLabel(name, 12, PanelText, HorizontalAlignment.Left));
+
+        if (confirmed)
+        {
+            var tag = CreateTag("已同意", new Color(0.12f, 0.32f, 0.16f), new Color(0.7f, 1f, 0.7f));
+            tag.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+            box.AddChild(tag);
+        }
+        else
+        {
+            var tag = CreateTag("确认中...", new Color(0.32f, 0.28f, 0.12f), new Color(1f, 0.94f, 0.7f));
+            tag.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+            box.AddChild(tag);
+        }
+
+        return panel;
     }
 
     bool ShouldShowQuickMatchBattleEntry()
@@ -3705,10 +4656,329 @@ public partial class LobbyScreen : Control
         await StartQuickMatch();
     }
 
-    Task StartGlobalConquest()
+    async Task StartGlobalConquest()
+    {
+        await OpenGlobalConquestTeamPanel();
+    }
+
+    async Task StartGlobalConquestSolo()
     {
         SelectModeInternal(GlobalConquestMode, BattleMapCatalog.GlobalConquestName, false);
-        ShowGlobalConquestStarterModal();
+        if (GameState.Instance is not null && GameState.Instance.HasChosenGlobalConquestFaction)
+        {
+            GameState.Instance.ClearCurrentRoom();
+            await StartBattle(false);
+        }
+        else
+        {
+            ShowGlobalConquestStarterModal();
+        }
+    }
+
+    async Task LeaveActiveRoomAndRefreshGc()
+    {
+        await LeaveActiveRoom();
+        _ = OpenGlobalConquestTeamPanel();
+    }
+
+    void AddGridRow(GridContainer grid, string key, string value)
+    {
+        grid.AddChild(AddLabel(key, 11, WarningText, HorizontalAlignment.Left));
+        grid.AddChild(AddLabel(value, 11, PanelText, HorizontalAlignment.Left));
+    }
+
+    async Task CreateGlobalConquestRoom()
+    {
+        if (NetClient.Instance is null || string.IsNullOrEmpty(GameState.Instance?.Token))
+        {
+            ShowToast("请先登录后再创建房间");
+            return;
+        }
+
+        var mapName = BattleMapCatalog.GlobalConquestName;
+        var roomName = $"{GameState.Instance?.Username ?? "玩家"}的全球争霸团";
+        var maxPlayers = 5;
+
+        if (IsLive(roomStatusLabel))
+            roomStatusLabel.Text = "创建中...";
+
+        var data = await NetClient.Instance.CreateRoom(mapName, roomName, maxPlayers);
+        if (!data.GetBool("success"))
+        {
+            if (IsLive(roomStatusLabel))
+                roomStatusLabel.Text = "创建失败";
+            ShowToast(FriendlyText(data.GetString("error"), "创建失败"));
+            return;
+        }
+
+        activeRoomId = data.GetString("roomId");
+        activeRoomMap = data.GetString("mapName", mapName);
+        activeRoomMaxPlayers = data.GetInt("maxPlayers", maxPlayers);
+        activeRoomPlayerCount = data.GetInt("playerCount", 1);
+        selectedMap = activeRoomMap;
+        GameState.Instance?.SelectMap(activeRoomMap, GlobalConquestMode);
+        GameState.Instance?.SetCurrentRoom(activeRoomId);
+        ShowToast("已创建全球争霸 5人组队房间");
+        
+        await RefreshRooms();
+        _ = OpenGlobalConquestTeamPanel();
+    }
+
+    Task OpenGlobalConquestTeamPanel()
+    {
+        selectedMode = GlobalConquestMode;
+        selectedMap = BattleMapCatalog.GlobalConquestName;
+        GameState.Instance?.SelectMap(selectedMap, selectedMode);
+
+        ExpandModalPanel(true);
+        ClearChildren(modalBody);
+
+        bool inGcRoom = !string.IsNullOrEmpty(activeRoomId)
+            && activeRoomMaxPlayers == 5
+            && activeRoomMap == BattleMapCatalog.GlobalConquestName;
+
+        if (inGcRoom)
+        {
+            modalTitle.Text = "全球争霸 5人组队团";
+
+            var splitBox = new HBoxContainer
+            {
+                Name = "GcSplitBox",
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill
+            };
+            splitBox.AddThemeConstantOverride("separation", 16);
+            modalBody.AddChild(splitBox);
+
+            var leftCol = new VBoxContainer
+            {
+                Name = "GcLeftCol",
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill,
+                SizeFlagsStretchRatio = 1.1f
+            };
+            leftCol.AddThemeConstantOverride("separation", 10);
+            splitBox.AddChild(leftCol);
+
+            var rightCol = new VBoxContainer
+            {
+                Name = "GcRightCol",
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill,
+                SizeFlagsStretchRatio = 0.9f
+            };
+            rightCol.AddThemeConstantOverride("separation", 10);
+            splitBox.AddChild(rightCol);
+
+            var settingsPanel = new Panel { Name = "GcSettingsPanel", CustomMinimumSize = new Vector2(0, 160) };
+            MetalUiStyle.ApplyMetalPanel(settingsPanel, MetalUiStyle.Steel, 1, 8, 4);
+            var settingsBox = AddVBox(settingsPanel, "GcSettingsBox", 8, new Vector2(12, 10), new Vector2(-12, -10));
+
+            settingsBox.AddChild(AddLabel("战术配置 (设置您的阵营)", 14, WarningText, HorizontalAlignment.Left));
+
+            var factionRow = new HBoxContainer { Name = "GcFactionRow" };
+            factionRow.AddThemeConstantOverride("separation", 8);
+            settingsBox.AddChild(factionRow);
+
+            var currentStarterKey = GameState.Instance?.GlobalConquestStarterUnitKey ?? "tank";
+            var currentFaction = BattleUnitCatalog.GetGlobalConquestFactionByStarter(currentStarterKey);
+
+            foreach (var fac in BattleUnitCatalog.GlobalConquestFactions)
+            {
+                var isSel = fac.Key == currentFaction.Key;
+                var btnText = fac.DisplayName + (isSel ? " (当前)" : "");
+                var btn = AddButton(btnText, () => {
+                    var starterKey = fac.StarterUnitKey;
+                    GameState.Instance?.SetGlobalConquestStarterUnit(starterKey);
+                    GameState.Instance?.SetGlobalConquestFactionChosen(true);
+                    ShowToast($"已选择阵营：{fac.DisplayName}");
+                    _ = OpenGlobalConquestTeamPanel();
+                }, isSel ? ButtonTone.Primary : ButtonTone.Secondary, 12);
+                btn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                factionRow.AddChild(btn);
+            }
+
+            var unitRow = new HBoxContainer { Name = "GcUnitRow" };
+            unitRow.AddThemeConstantOverride("separation", 8);
+            settingsBox.AddChild(unitRow);
+
+            unitRow.AddChild(AddLabel("初始主力兵种：", 12, PanelText, HorizontalAlignment.Left));
+
+            var unitPicker = new OptionButton { Name = "GcUnitPicker", SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            foreach (var u in BattleUnitCatalog.GlobalConquestStarterRoster)
+            {
+                unitPicker.AddItem(u.DisplayName + " (" + DescribeGlobalConquestStarter(u.Key) + ")", 0);
+                if (u.Key == currentStarterKey)
+                {
+                    unitPicker.Selected = unitPicker.ItemCount - 1;
+                }
+            }
+            unitPicker.ItemSelected += (long idx) => {
+                var selectedUnit = BattleUnitCatalog.GlobalConquestStarterRoster[idx];
+                GameState.Instance?.SetGlobalConquestStarterUnit(selectedUnit.Key);
+                GameState.Instance?.SetGlobalConquestFactionChosen(true);
+                ShowToast($"已选择初始主力：{selectedUnit.DisplayName}");
+                _ = OpenGlobalConquestTeamPanel();
+            };
+            unitRow.AddChild(unitPicker);
+
+            var currentStarter = BattleUnitCatalog.Get(currentStarterKey);
+            var statsLabel = AddLabel(
+                $"主力属性：生命 {currentStarter.MaxHealth:0} | 攻击 {currentStarter.AttackDamage:0} | 射程 {currentStarter.AttackRange:0.#} | 速度 {currentStarter.MoveSpeed:0.#}",
+                11, MutedText, HorizontalAlignment.Left
+            );
+            settingsBox.AddChild(statsLabel);
+
+            leftCol.AddChild(settingsPanel);
+
+            var teamPanel = new Panel { Name = "GcTeamPanel", SizeFlagsVertical = SizeFlags.ExpandFill };
+            MetalUiStyle.ApplyMetalPanel(teamPanel, MetalUiStyle.Steel, 1, 8, 4);
+            var teamBox = AddVBox(teamPanel, "GcTeamBox", 6, new Vector2(12, 10), new Vector2(-12, -10));
+
+            teamBox.AddChild(AddLabel($"队伍成员 ({activeRoomPlayerCount}/5)", 14, WarningText, HorizontalAlignment.Left));
+
+            for (int i = 0; i < 5; i++)
+            {
+                var slotRow = new Panel { CustomMinimumSize = new Vector2(0, 36) };
+                MetalUiStyle.ApplyMetalPanel(slotRow, MetalUiStyle.Steel, 1, 4, 2);
+                var slotBox = AddHBox(slotRow, $"GcSlot_{i}_Box", 8);
+                slotBox.SetAnchorsPreset(LayoutPreset.FullRect);
+                slotBox.OffsetLeft = 8;
+                slotBox.OffsetRight = -8;
+
+                if (i == 0)
+                {
+                    var meName = GameState.Instance?.Username ?? "我";
+                    var hostLabel = AddLabel($"[队长] {meName}", 12, GoodText, HorizontalAlignment.Left);
+                    slotBox.AddChild(hostLabel);
+                    var factLabel = AddLabel($"{currentFaction.DisplayName} · {currentStarter.DisplayName}", 11, MutedText, HorizontalAlignment.Right);
+                    slotBox.AddChild(factLabel);
+                    var tag = CreateTag("已就绪", new Color(0.12f, 0.32f, 0.16f), new Color(0.7f, 1f, 0.7f));
+                    slotBox.AddChild(tag);
+                }
+                else if (i < activeRoomPlayerCount)
+                {
+                    var teammateName = $"盟友 {i} 号";
+                    var mockStarter = BattleUnitCatalog.GlobalConquestStarterRoster[i % BattleUnitCatalog.GlobalConquestStarterRoster.Length];
+                    var mockFaction = BattleUnitCatalog.GetGlobalConquestFactionByStarter(mockStarter.Key);
+                    var nameLabel = AddLabel(teammateName, 12, PanelText, HorizontalAlignment.Left);
+                    slotBox.AddChild(nameLabel);
+                    var mockFactLabel = AddLabel($"{mockFaction.DisplayName} · {mockStarter.DisplayName}", 11, MutedText, HorizontalAlignment.Right);
+                    slotBox.AddChild(mockFactLabel);
+                    var tag = CreateTag("已就绪", new Color(0.12f, 0.32f, 0.16f), new Color(0.7f, 1f, 0.7f));
+                    slotBox.AddChild(tag);
+                }
+                else
+                {
+                    var emptyLabel = AddLabel("(待加入空位)", 12, MutedText, HorizontalAlignment.Left);
+                    slotBox.AddChild(emptyLabel);
+                    var inviteBtn = AddButton("邀请好友", () => ShowInvitePanel(activeRoomId), ButtonTone.Gold, 11);
+                    inviteBtn.CustomMinimumSize = new Vector2(76, 22);
+                    inviteBtn.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+                    slotBox.AddChild(inviteBtn);
+                }
+
+                teamBox.AddChild(slotRow);
+            }
+
+            leftCol.AddChild(teamPanel);
+
+            var btnRow = new HBoxContainer { Name = "GcBtnRow" };
+            btnRow.AddThemeConstantOverride("separation", 10);
+
+            var leaveBtn = AddButton("离开队伍", () => _ = LeaveActiveRoomAndRefreshGc(), ButtonTone.Secondary, 13);
+            leaveBtn.CustomMinimumSize = new Vector2(100, 36);
+            btnRow.AddChild(leaveBtn);
+
+            var startBtn = AddButton("进入战场", () => _ = EnterRoomBattle(activeRoomId, BattleMapCatalog.GlobalConquestName, 5), ButtonTone.Primary, 13);
+            startBtn.CustomMinimumSize = new Vector2(150, 36);
+            btnRow.AddChild(startBtn);
+
+            leftCol.AddChild(btnRow);
+
+            var mapIntroPanel = new Panel { Name = "GcMapIntroPanel", SizeFlagsVertical = SizeFlags.ExpandFill };
+            MetalUiStyle.ApplyMetalPanel(mapIntroPanel, MetalUiStyle.Steel, 1, 8, 4);
+            var mapBox = AddVBox(mapIntroPanel, "GcMapBox", 8, new Vector2(12, 10), new Vector2(-12, -10));
+
+            mapBox.AddChild(AddLabel("地图介绍：全球争霸大地图", 15, WarningText, HorizontalAlignment.Left));
+
+            var previewRect = new TextureRect
+            {
+                Name = "GcMapPreview",
+                CustomMinimumSize = new Vector2(0, 150),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill
+            };
+            try
+            {
+                previewRect.Texture = GD.Load<Texture2D>("res://assets/campaign/level5.jpg");
+            }
+            catch
+            {
+                // Fallback
+            }
+            mapBox.AddChild(previewRect);
+
+            var statsGrid = new GridContainer { Columns = 2, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            statsGrid.AddThemeConstantOverride("h_separation", 16);
+            statsGrid.AddThemeConstantOverride("v_separation", 6);
+
+            AddGridRow(statsGrid, "地图尺寸:", "200% 标准陆战地图 (沙漠绿洲)");
+            AddGridRow(statsGrid, "建造半径:", "160米 (宽广前沿基地部署)");
+            AddGridRow(statsGrid, "胜利条件:", "清空敌对势力的全部基地并夺取控制权");
+            AddGridRow(statsGrid, "核心机制:", "主基地受损后无法自动重建, 需保障外部据点");
+
+            mapBox.AddChild(statsGrid);
+
+            var descText = "全球争霸战役在庞大的沙漠中心爆发。战场相比普通1v1对抗地图放大了整整两倍，长距离行军与多路进攻对玩家阵营间默契配合提出了极高要求。\n\n" +
+                           "核心基地一旦陷落无法直接重建。玩家需要通过部署防线与初始主力协同扩张，夺取沙漠核心区域的控制权。此役极为考验长途调兵与侦察牵制技巧。";
+            var descLabel = AddLabel(descText, 11, PanelText, HorizontalAlignment.Left);
+            descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            mapBox.AddChild(descLabel);
+
+            rightCol.AddChild(mapIntroPanel);
+        }
+        else
+        {
+            modalTitle.Text = "全球争霸组队大厅";
+
+            var lobbyPanel = new Panel { Name = "GcLobbyPanel", CustomMinimumSize = new Vector2(0, 110) };
+            MetalUiStyle.ApplyMetalPanel(lobbyPanel, MetalUiStyle.Steel, 1, 8, 4);
+            var lobbyBox = AddVBox(lobbyPanel, "GcLobbyBox", 8, new Vector2(12, 10), new Vector2(-12, -10));
+
+            var row = new HBoxContainer { Name = "GcLobbyRow" };
+            row.AddThemeConstantOverride("separation", 8);
+
+            var createBtn = AddButton("创建5人组队团", () => _ = CreateGlobalConquestRoom(), ButtonTone.Primary, 13);
+            row.AddChild(createBtn);
+            var soloBtn = AddButton("单人直接匹配", () => _ = StartGlobalConquestSolo(), ButtonTone.Gold, 13);
+            row.AddChild(soloBtn);
+            var refreshBtn = AddButton("刷新队伍列表", () => _ = RefreshRooms(), ButtonTone.Secondary, 13);
+            row.AddChild(refreshBtn);
+            lobbyBox.AddChild(row);
+
+            lobbyBox.AddChild(AddLabel("全球争霸独占大地图，支持最多5人战术组队协同对抗敌军；在此您可以组建您的团队，或者单独开战。", 12, WarningText, HorizontalAlignment.Left));
+
+            roomStatusLabel = AddLabel("正在获取队伍列表...", 13, MutedText, HorizontalAlignment.Left);
+            lobbyBox.AddChild(roomStatusLabel);
+            modalBody.AddChild(lobbyPanel);
+
+            var scroll = new ScrollContainer
+            {
+                Name = "GcRoomScroll",
+                SizeFlagsVertical = SizeFlags.ExpandFill,
+                HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
+            };
+            roomRows = new VBoxContainer { Name = "RoomRows", SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            roomRows.AddThemeConstantOverride("separation", 8);
+            scroll.AddChild(roomRows);
+            modalBody.AddChild(scroll);
+
+            _ = RefreshRooms();
+        }
+
+        ShowModal();
         return Task.CompletedTask;
     }
 
@@ -3803,6 +5073,7 @@ public partial class LobbyScreen : Control
         var starter = BattleUnitCatalog.Get(faction.StarterUnitKey);
         SelectModeInternal(GlobalConquestMode, BattleMapCatalog.GlobalConquestName, false);
         GameState.Instance?.SetGlobalConquestStarterUnit(starter.Key);
+        GameState.Instance?.SetGlobalConquestFactionChosen(true);
         GameState.Instance?.ClearCurrentRoom();
         CloseModal();
         ShowToast($"全球争霸阵营已设为{faction.DisplayName}");
@@ -3824,6 +5095,146 @@ public partial class LobbyScreen : Control
         SelectModeInternal("战役", selectedMap, false);
         GameState.Instance?.ClearCurrentRoom();
         await StartBattle();
+    }
+
+    struct CampaignLevelData
+    {
+        public string LevelNum;
+        public string LevelName;
+        public string MapName;
+        public string Description;
+        public string Reward;
+        public string PreviewPath;
+    }
+
+    static readonly CampaignLevelData[] CampaignLevels = new[]
+    {
+        new CampaignLevelData { LevelNum = "第一关", LevelName = "战役 - 基础行动指令", MapName = "沙漠绿洲", Description = "框选并移动你的战斗单位，击毁中央的敌军哨所及基地。", Reward = "400金币", PreviewPath = "res://assets/campaign/level1.jpg" },
+        new CampaignLevelData { LevelNum = "第二关", LevelName = "战役 - 基地展开与采矿", MapName = "丛林战场", Description = "建造发电厂以获取电力，展开采矿场以收集资金，训练步兵并消灭敌方基地。", Reward = "700金币", PreviewPath = "res://assets/campaign/level2.jpg" },
+        new CampaignLevelData { LevelNum = "第三关", LevelName = "战役 - 坦克风暴克制协同", MapName = "冰雪要塞", Description = "训练克制兵种协同作战，摧毁敌方核心雷达站及基地。", Reward = "700金币", PreviewPath = "res://assets/campaign/level3.jpg" },
+        new CampaignLevelData { LevelNum = "第四关", LevelName = "战役 - 要塞死守防御战", MapName = "城市废墟", Description = "建造机枪碉堡构筑防御线，抵御进攻并消灭所有敌军基地。", Reward = "900金币", PreviewPath = "res://assets/campaign/level4.jpg" },
+        new CampaignLevelData { LevelNum = "第五关", LevelName = "战役 - 终极模拟演习", MapName = "全球争霸", Description = "研发全线科技解锁终极单位，摧毁敌方所有防线和AI基地。", Reward = "1400金币", PreviewPath = "res://assets/campaign/level5.jpg" }
+    };
+
+    async Task StartCampaignLevel(string mapName)
+    {
+        SelectModeInternal("战役", mapName, false);
+        GameState.Instance?.ClearCurrentRoom();
+        await StartBattle();
+    }
+
+    void ShowCampaignModal()
+    {
+        OpenFeatureModal("战役关卡选择", "指战员，选择你要部署的战役关卡进行战区推演并赢取丰厚金币奖励。");
+        AddModalSummaryRow(
+            AddStatCard("当前关卡", "1 关", "沙漠绿洲", WarningText),
+            AddStatCard("可挑战关卡", "5 关", "全部开放", PanelText),
+            AddStatCard("战役总金币", "4,100 金币", "包含所有章节任务", GoodText));
+
+        var section = AddModalSectionPanel("战役关卡列表", "选择一条战役线路，指挥部会为你准备对应编组方案。", WarningText);
+        foreach (var lvl in CampaignLevels)
+        {
+            section.AddChild(CreateCampaignLevelCard(lvl));
+        }
+        ShowModal();
+    }
+
+    Control CreateCampaignLevelCard(CampaignLevelData level)
+    {
+        var card = new Panel
+        {
+            Name = "CampaignLevelCard_" + level.MapName,
+            CustomMinimumSize = new Vector2(0, 140),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin,
+            ClipContents = true
+        };
+        MetalUiStyle.ApplyMetalPanel(card, MakeModeCardPalette(new Color(0.18f, 0.42f, 0.65f)), 1, 8, 4);
+        AddTopAccentStripe(card, new Color(0.24f, 0.58f, 0.88f, 0.82f), 3);
+
+        var shade = new ColorRect
+        {
+            Name = "Shade_" + level.MapName,
+            Color = new Color(0.02f, 0.03f, 0.03f, 0.35f)
+        };
+        shade.SetAnchorsPreset(LayoutPreset.FullRect);
+        card.AddChild(shade);
+
+        var row = new HBoxContainer
+        {
+            Name = "Row_" + level.MapName,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        row.SetAnchorsPreset(LayoutPreset.FullRect);
+        row.OffsetLeft = 12;
+        row.OffsetRight = -12;
+        row.OffsetTop = 10;
+        row.OffsetBottom = -10;
+        row.AddThemeConstantOverride("separation", 14);
+        card.AddChild(row);
+
+        var thumb = new TextureRect
+        {
+            Name = "Thumb_" + level.MapName,
+            Texture = LoadTexture(level.PreviewPath),
+            CustomMinimumSize = new Vector2(160, 100),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter
+        };
+        row.AddChild(thumb);
+
+        var info = new VBoxContainer
+        {
+            Name = "Info_" + level.MapName,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        info.AddThemeConstantOverride("separation", 4);
+        row.AddChild(info);
+
+        var titleRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        titleRow.AddThemeConstantOverride("separation", 8);
+
+        var numLabel = AddLabel(level.LevelNum, 14, WarningText, HorizontalAlignment.Left);
+        numLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        titleRow.AddChild(numLabel);
+
+        var nameLabel = AddLabel(level.LevelName, 14, PanelText, HorizontalAlignment.Left);
+        nameLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        titleRow.AddChild(nameLabel);
+
+        var mapLabel = AddLabel($"[{level.MapName}]", 12, new Color(0.6f, 0.8f, 0.9f), HorizontalAlignment.Right);
+        mapLabel.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+        titleRow.AddChild(mapLabel);
+
+        info.AddChild(titleRow);
+
+        var descLabel = AddLabel(level.Description, 11, MutedText, HorizontalAlignment.Left);
+        descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        descLabel.ClipText = false;
+        descLabel.SizeFlagsVertical = SizeFlags.ExpandFill;
+        info.AddChild(descLabel);
+
+        var bottomRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ShrinkEnd };
+        bottomRow.AddThemeConstantOverride("separation", 12);
+
+        var rewardLabel = AddLabel($"通关奖励: {level.Reward}", 12, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left);
+        rewardLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        bottomRow.AddChild(rewardLabel);
+
+        var deployBtn = AddButton("部署行动", () => {
+            CloseModal();
+            _ = StartCampaignLevel(level.MapName);
+        }, ButtonTone.Gold, 12);
+        deployBtn.CustomMinimumSize = new Vector2(86, 28);
+        bottomRow.AddChild(deployBtn);
+
+        info.AddChild(bottomRow);
+
+        return card;
     }
 
     void SelectModeInternal(string mode, string mapName, bool showToast)
@@ -4097,12 +5508,6 @@ public partial class LobbyScreen : Control
 
         var section = AddModalSectionPanel("本地操作", "下面的动作会立即作用到当前本地档案。", WarningText);
         section.AddChild(CreateSettingsActionRow(
-            "清空公告",
-            "移除当前大厅里保留的公告记录。",
-            "清空",
-            ClearAnnouncementsFromSettings,
-            ButtonTone.Secondary));
-        section.AddChild(CreateSettingsActionRow(
             "重置战场屏蔽与举报",
             "清除战斗设置里已保存的文字、语音屏蔽与举报标记。",
             "重置",
@@ -4163,14 +5568,6 @@ public partial class LobbyScreen : Control
         return panel;
     }
 
-    void ClearAnnouncementsFromSettings()
-    {
-        foreach (var entry in GetVisibleAnnouncements())
-            clearedAnnouncementIds.Add(entry.Id);
-        SaveAnnouncementState();
-        ShowSettingsModal();
-        ShowToast("公告已清空");
-    }
 
     void ResetBattlePreferencesFromSettings()
     {
@@ -4204,23 +5601,34 @@ public partial class LobbyScreen : Control
             AddStatCard("日期", $"{dayCount} 天", "按天归档", PanelText),
             AddStatCard("最近更新", latestDate, "本地记录日期", new Color(0.64f, 0.90f, 1f)));
 
-        var actionRow = new HBoxContainer { Name = "AnnouncementActionRow" };
-        actionRow.AddThemeConstantOverride("separation", 8);
-        var helper = AddLabel("公告会保存在本地；清空后当前列表不会再次自动弹回。", 12, MutedText, HorizontalAlignment.Left);
-        helper.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        helper.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        actionRow.AddChild(helper);
-        var clearButton = AddButton("清空公告", ClearAnnouncements, ButtonTone.Secondary, 12);
-        clearButton.Disabled = visible.Count == 0;
-        actionRow.AddChild(clearButton);
-        modalBody.AddChild(actionRow);
-
         if (visible.Count == 0)
         {
             modalBody.AddChild(AddEmptyStateCard("当前没有待查看公告。", "新的大厅更新会按日期出现在这里。"));
             ShowModal();
             return;
         }
+
+        if (modalTitle?.GetParent() is HBoxContainer header)
+        {
+            var trashBtn = new Button
+            {
+                Name = "ModalTrashButton",
+                Icon = LoadTexture(KenneyGameIconRoot + "trashcan.png"),
+                ExpandIcon = true,
+                TooltipText = "清空公告",
+                MouseDefaultCursorShape = CursorShape.PointingHand,
+                CustomMinimumSize = new Vector2(40, 38),
+                SizeFlagsHorizontal = SizeFlags.ShrinkEnd
+            };
+            trashBtn.Pressed += ClearAnnouncements;
+            ApplyTransparentIconStyle(trashBtn, 10);
+            header.AddChild(trashBtn);
+            header.MoveChild(trashBtn, header.GetChildCount() - 2);
+        }
+
+        var helper = AddLabel("公告会保存在本地；清空后当前列表不会再次自动弹回。", 12, MutedText, HorizontalAlignment.Left);
+        helper.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        modalBody.AddChild(helper);
 
         string currentDate = "";
         VBoxContainer? section = null;
@@ -4253,30 +5661,68 @@ public partial class LobbyScreen : Control
         var card = new Panel
         {
             Name = "Announcement_" + entry.Id,
-            CustomMinimumSize = new Vector2(0, 86)
+            CustomMinimumSize = new Vector2(0, 68)
         };
         MetalUiStyle.ApplyMetalPanel(card, MetalUiStyle.Steel, 1, 8, 4);
         AddTopAccentStripe(card, new Color(0.84f, 0.67f, 0.28f, 0.74f), 2);
 
-        var box = AddVBox(card, "AnnouncementBox_" + entry.Id, 6, new Vector2(14, 12), new Vector2(-14, -12));
-        var header = new HBoxContainer
+        var clickButton = new Button
         {
-            Name = "AnnouncementHeader_" + entry.Id,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
+            Name = "ClickBtn_" + entry.Id,
+            Flat = true,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(0, 68),
+            Position = Vector2.Zero
         };
-        header.AddThemeConstantOverride("separation", 8);
-        box.AddChild(header);
+        clickButton.SetAnchorsPreset(LayoutPreset.FullRect);
+        clickButton.Pressed += () => ShowAnnouncementDetail(entry);
+        card.AddChild(clickButton);
 
-        var title = AddLabel(entry.Title, 15, PanelText, HorizontalAlignment.Left);
-        title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        title.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        header.AddChild(title);
-        header.AddChild(CreateTag(entry.Kind, new Color(0.22f, 0.29f, 0.35f, 0.94f), new Color(0.94f, 0.97f, 0.99f)));
+        var box = AddVBox(card, "AnnouncementBox_" + entry.Id, 2, new Vector2(14, 8), new Vector2(-14, -8));
+        box.MouseFilter = MouseFilterEnum.Ignore;
 
-        var body = AddLabel(entry.Body, 12, MutedText, HorizontalAlignment.Left);
-        body.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        box.AddChild(body);
+        var titleRow = AddHBox(box, "TitleRow_" + entry.Id, 10);
+        titleRow.MouseFilter = MouseFilterEnum.Ignore;
+
+        var timeLabel = AddLabel($"[{entry.DateKey}]", 12, MutedText, HorizontalAlignment.Left);
+        timeLabel.MouseFilter = MouseFilterEnum.Ignore;
+        titleRow.AddChild(timeLabel);
+
+        var titleLabel = AddLabel(entry.Title, 14, PanelText, HorizontalAlignment.Left);
+        titleLabel.MouseFilter = MouseFilterEnum.Ignore;
+        titleRow.AddChild(titleLabel);
+
+        var typeTag = CreateTag(entry.Kind, new Color(0.18f, 0.34f, 0.40f, 0.92f), new Color(0.94f, 0.97f, 0.98f));
+        typeTag.MouseFilter = MouseFilterEnum.Ignore;
+        titleRow.AddChild(typeTag);
+
+        var summaryText = entry.Body;
+        if (summaryText.Length > 15)
+            summaryText = summaryText.Substring(0, 15);
+
+        var noteLabel = AddLabel(summaryText + "...", 12, MutedText, HorizontalAlignment.Left);
+        noteLabel.MouseFilter = MouseFilterEnum.Ignore;
+        box.AddChild(noteLabel);
+
         return card;
+    }
+
+    void ShowAnnouncementDetail(AnnouncementEntry entry)
+    {
+        OpenFeatureModal("公告详情", $"发布时间: {entry.DateKey} | 类型: {entry.Kind}");
+
+        var detailSection = AddModalSectionPanel(entry.Title, $"发布日期: {entry.DateKey}", new Color(0.70f, 0.92f, 1f));
+        
+        var bodyLabel = AddLabel(entry.Body, 13, PanelText, HorizontalAlignment.Left);
+        bodyLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        detailSection.AddChild(bodyLabel);
+
+        var actions = AddModalSectionPanel("操作", "阅读完毕后返回公告列表", PanelText);
+        var backBtn = AddButton("返回公告列表", RenderAnnouncementModal, ButtonTone.Secondary, 14);
+        actions.AddChild(backBtn);
+
+        ShowModal();
     }
 
     void LoadAnnouncementState()
@@ -4362,10 +5808,30 @@ public partial class LobbyScreen : Control
         var changed = false;
         foreach (var entry in BuildAnnouncementSeed())
         {
-            if (HasAnnouncementEntry(entry.Id))
-                continue;
-            announcementArchive.Add(entry);
-            changed = true;
+            int existingIdx = -1;
+            for (int i = 0; i < announcementArchive.Count; i++)
+            {
+                if (announcementArchive[i].Id == entry.Id)
+                {
+                    existingIdx = i;
+                    break;
+                }
+            }
+
+            if (existingIdx >= 0)
+            {
+                var existing = announcementArchive[existingIdx];
+                if (existing.Title != entry.Title || existing.Body != entry.Body || existing.Kind != entry.Kind || existing.DateKey != entry.DateKey)
+                {
+                    announcementArchive[existingIdx] = entry;
+                    changed = true;
+                }
+            }
+            else
+            {
+                announcementArchive.Add(entry);
+                changed = true;
+            }
         }
 
         if (changed)
@@ -4385,7 +5851,7 @@ public partial class LobbyScreen : Control
                 DateKey = today.AddDays(-2).ToString("yyyy-MM-dd"),
                 Title = "大厅基础面板接入完成",
                 Body = "房间、好友、任务、科技与排行榜入口已经接入真实面板，后续继续补服务端数据。",
-                Kind = "澶у巺"
+                Kind = "大厅"
             },
             new()
             {
@@ -4393,7 +5859,7 @@ public partial class LobbyScreen : Control
                 DateKey = today.AddDays(-1).ToString("yyyy-MM-dd"),
                 Title = "排行榜与邀请面板提速",
                 Body = "排行榜和邀请增加了 45 秒本地缓存，首次打开先显示上次结果，再后台刷新。",
-                Kind = "浼樺寲"
+                Kind = "优化"
             },
             new()
             {
@@ -4474,12 +5940,29 @@ public partial class LobbyScreen : Control
         tween.TweenProperty(modalPanel, "modulate:a", 1f, 0.16).SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Cubic);
     }
 
+    void ExpandModalPanel(bool expand)
+    {
+        if (modalPanel is null || !GodotObject.IsInstanceValid(modalPanel))
+            return;
+        if (expand)
+        {
+            Place(modalPanel, new Rect2(0.120f, 0.100f, 0.760f, 0.800f));
+            modalPanel.CustomMinimumSize = new Vector2(920, 520);
+        }
+        else
+        {
+            Place(modalPanel, new Rect2(0.245f, 0.130f, 0.510f, 0.740f));
+            modalPanel.CustomMinimumSize = new Vector2(620, 500);
+        }
+    }
+
     void CloseModal()
     {
         activeFeatureModal = "";
         modalShade.Visible = false;
         modalPanel.Visible = false;
         ClearChildren(modalBody);
+        ExpandModalPanel(false);
     }
 
     async void ShowToast(string message)
@@ -4970,7 +6453,10 @@ public partial class LobbyScreen : Control
     bool IsCustomRoomModalContext()
         => IsLive(modalBody)
         && IsLive(modalTitle)
-        && string.Equals(modalTitle.Text, "自定义房间", StringComparison.Ordinal);
+        && (string.Equals(modalTitle.Text, "自定义房间", StringComparison.Ordinal)
+            || string.Equals(modalTitle.Text, "全球争霸组队", StringComparison.Ordinal)
+            || string.Equals(modalTitle.Text, "全球争霸 5人组队团", StringComparison.Ordinal)
+            || string.Equals(modalTitle.Text, "全球争霸组队大厅", StringComparison.Ordinal));
 
     static Color StatusColor(string status)
     {
@@ -5074,16 +6560,19 @@ public partial class LobbyScreen : Control
             return 2;
         if (maxPlayers <= 4)
             return 4;
+        if (maxPlayers <= 5)
+            return 5;
         return MaxCustomRoomPlayers;
     }
 
     static bool IsSupportedCustomRoomSize(int maxPlayers)
-        => maxPlayers == 2 || maxPlayers == 4 || maxPlayers == MaxCustomRoomPlayers;
+        => maxPlayers == 2 || maxPlayers == 4 || maxPlayers == 5 || maxPlayers == MaxCustomRoomPlayers;
 
     static string DescribeRoomModeHint(int maxPlayers) => maxPlayers switch
     {
         <= 2 => "1v1实时战斗",
         <= 4 => "2v2组房",
+        5 => "5人战术协同",
         _ => "3v3组房"
     };
 

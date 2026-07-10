@@ -4349,13 +4349,13 @@ public partial class BattleHud : CanvasLayer
             return;
         }
 
-        settingsTextMuteButton.Visible = true;
-        settingsVoiceMuteButton.Visible = true;
-        settingsReportButton.Visible = true;
-
         var pref = GameState.Instance?.GetBattleCommunicationPreference(participant.ParticipantId, participant.DisplayName) ?? default;
         var canControl = CanControlBattleParticipant(participant);
         var canReport = participant.CanReport && !participant.IsLocalPlayer;
+
+        settingsTextMuteButton.Visible = canControl;
+        settingsVoiceMuteButton.Visible = canControl;
+        settingsReportButton.Visible = canReport;
 
         settingsParticipantTitle.Text = participant.IsLocalPlayer ? $"{participant.DisplayName}（自己）" : participant.DisplayName;
         settingsParticipantRole.Text = $"身份：{participant.Role}";

@@ -53,6 +53,13 @@ public partial class WorldHealthBar3D : Node3D
 
     public override void _Process(double delta)
     {
+        var parent = GetParent();
+        if (parent is Node3D parentNode && GodotObject.IsInstanceValid(parentNode))
+        {
+            GlobalPosition = parentNode.GlobalPosition + Vector3.Up * HeightOffset;
+            GlobalRotation = Vector3.Zero;
+        }
+
         var (current, max, selected, enemy) = ReadOwnerState();
         if (max <= 0f)
         {
@@ -63,7 +70,6 @@ public partial class WorldHealthBar3D : Node3D
         var ratio = Mathf.Clamp(current / max, 0f, 1f);
         
         // 检测是否为建造中/重建中的建筑，展示对应的 3D 进度条；或者单位有等离子护盾
-        var parent = GetParent();
         var showProgress = false;
         var progressRatio = 0f;
         if (parent is RtsBuilding building && (building.UnderConstruction || building.IsRebuilding))
@@ -143,7 +149,8 @@ public partial class WorldHealthBar3D : Node3D
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             NoDepthTest = true,
-            RenderPriority = 10
+            RenderPriority = 10,
+            BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled
         });
     }
 }

@@ -137,6 +137,9 @@ public static class BattleMapCatalog
                 return true;
         }
 
+        if (string.Equals(GlobalConquestName, mapName, StringComparison.Ordinal))
+            return true;
+
         return false;
     }
 

@@ -1,16 +1,18 @@
-# Windows Server 部署版本
+# Windows Server Deployment
 
-适用于 Windows Server 2019/2022。服务使用 PM2 单实例运行，并通过计划任务在登录时恢复 PM2 进程。
+Applies to Windows Server 2019/2022.
 
-## 首次安装
+The service runs as a single PM2 process and restores through a scheduled task on login.
 
-先安装：
+## Prerequisites
+
+Install:
 
 - Node.js LTS
 - Git for Windows
-- MySQL 8.x 或兼容版本
+- MySQL 8.x or a compatible server
 
-然后在 PowerShell 中执行：
+## First install
 
 ```powershell
 git clone <your-repo-url> UnityRTS
@@ -18,30 +20,46 @@ cd UnityRTS\Server
 powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1
 ```
 
-第一次运行会自动生成 `Server\.env` 并退出。编辑数据库配置后再运行一次：
+The first run creates `Server\.env` and exits.
+
+Edit it, then run the installer again:
 
 ```powershell
 notepad .env
 powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1
 ```
 
-必须修改：
+Required values:
 
+- `JWT_SECRET`
 - `MYSQL_HOST`
+- `MYSQL_PORT`
 - `MYSQL_USER`
 - `MYSQL_PASSWORD`
 - `MYSQL_DATABASE`
 
-如果暂时没有 MySQL，可把 `DB_BACKEND=json`，但正式服务器建议用 MySQL。
+If you really need a temporary no-MySQL setup, you can set `DB_BACKEND=json`, but production deployment should use MySQL.
 
-## 热更新
+## First deploy data safety
+
+Before letting players in, you can run the migration flow manually:
+
+```powershell
+npm run migrate:mysql:dry
+npm run migrate:mysql
+npm run verify:mysql
+```
+
+That migrates `Server\data\*.json` into MySQL and verifies the imported content.
+
+## Hot update
 
 ```powershell
 cd UnityRTS\Server
 powershell -ExecutionPolicy Bypass -File .\scripts\hot-update.ps1 -Branch main
 ```
 
-## 检查
+## Checks
 
 ```powershell
 npm run health
@@ -49,10 +67,13 @@ pm2 status
 pm2 logs unity-rts-server
 ```
 
-Windows 防火墙需要放行入站 TCP `8080` 和 `8081`。云服务器安全组也要同时放行这两个端口。
+Open inbound Windows Firewall and cloud security group rules for:
 
-## 开机自启
+- TCP `8080`
+- TCP `8081`
 
-`install-windows.ps1` 默认注册计划任务 `UnityRTS-PM2-Resurrect`，用户登录 Windows 后会执行 `pm2 resurrect` 恢复服务。
+## Startup
 
-如果需要“不登录也启动”的服务模式，建议后续用 NSSM 或专门的 Windows service 包装 PM2；当前脚本先走稳定简单的登录自启。
+`install-windows.ps1` registers the scheduled task `UnityRTS-PM2-Resurrect`, which runs `pm2 resurrect` after user login.
+
+If you later need true background startup without login, wrap PM2 with NSSM or a dedicated Windows service.

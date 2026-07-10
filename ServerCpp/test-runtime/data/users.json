@@ -1,0 +1,98 @@
+{
+  "84c58cd6-c5b0-4255-a242-8cc5e1fbb1d2": {
+    "createdAt": 1783382978000,
+    "creditedOrderIds": [],
+    "gems": 50,
+    "gold": 500,
+    "id": "84c58cd6-c5b0-4255-a242-8cc5e1fbb1d2",
+    "isGuest": true,
+    "level": 1,
+    "lobbyState": {
+      "dailyLoginClaimed": false,
+      "day": "2026-07-07",
+      "destroyClaimed": false,
+      "killsToday": 0,
+      "win3Claimed": false,
+      "winsToday": 0
+    },
+    "losses": 0,
+    "password": "",
+    "passwordHash": "",
+    "rankTitle": "Recruit",
+    "settledBattleIds": [],
+    "username": "Alpha",
+    "wins": 0
+  },
+  "c0764e35-abb4-4cf9-bf1f-40f16a416c91": {
+    "createdAt": 1783382943000,
+    "creditedOrderIds": [],
+    "gems": 50,
+    "gold": 500,
+    "id": "c0764e35-abb4-4cf9-bf1f-40f16a416c91",
+    "isGuest": true,
+    "level": 1,
+    "lobbyState": {
+      "dailyLoginClaimed": false,
+      "day": "2026-07-07",
+      "destroyClaimed": false,
+      "killsToday": 0,
+      "win3Claimed": false,
+      "winsToday": 0
+    },
+    "losses": 0,
+    "password": "",
+    "passwordHash": "",
+    "rankTitle": "Recruit",
+    "settledBattleIds": [],
+    "username": "Bravo",
+    "wins": 0
+  },
+  "d59e82a7-8906-4239-bbe4-31357cc034ae": {
+    "createdAt": 1783382943000,
+    "creditedOrderIds": [],
+    "gems": 50,
+    "gold": 500,
+    "id": "d59e82a7-8906-4239-bbe4-31357cc034ae",
+    "isGuest": true,
+    "level": 1,
+    "lobbyState": {
+      "dailyLoginClaimed": false,
+      "day": "2026-07-07",
+      "destroyClaimed": false,
+      "killsToday": 0,
+      "win3Claimed": false,
+      "winsToday": 0
+    },
+    "losses": 0,
+    "password": "",
+    "passwordHash": "",
+    "rankTitle": "Recruit",
+    "settledBattleIds": [],
+    "username": "Alpha",
+    "wins": 0
+  },
+  "fd81bed6-51b7-41c2-be25-d654fade14cb": {
+    "createdAt": 1783382978000,
+    "creditedOrderIds": [],
+    "gems": 50,
+    "gold": 500,
+    "id": "fd81bed6-51b7-41c2-be25-d654fade14cb",
+    "isGuest": true,
+    "level": 1,
+    "lobbyState": {
+      "dailyLoginClaimed": false,
+      "day": "2026-07-07",
+      "destroyClaimed": false,
+      "killsToday": 0,
+      "win3Claimed": false,
+      "winsToday": 0
+    },
+    "losses": 0,
+    "password": "",
+    "passwordHash": "",
+    "rankTitle": "Recruit",
+    "settledBattleIds": [],
+    "username": "Bravo",
+    "wins": 0
+  }
+}

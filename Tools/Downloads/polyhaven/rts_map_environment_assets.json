@@ -1,0 +1,106 @@
+{
+  "provider": "Poly Haven",
+  "license": "CC0",
+  "licenseUrl": "https://polyhaven.com/license",
+  "notes": "Selected to mimic common modern RTS map layering: grassland, forest floor, rocky trail, gravel road, shore sand, mud, snow, and worn hard surfaces.",
+  "textures": [
+    {
+      "surface": "Grassland",
+      "assetId": "forrest_ground_01",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "ForestFloor",
+      "assetId": "forest_ground_04",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "DirtRoad",
+      "assetId": "rocky_trail",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "Gravel",
+      "assetId": "gravel_road",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "Shore",
+      "assetId": "aerial_beach_01",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "Mud",
+      "assetId": "aerial_mud_1",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "Snow",
+      "assetId": "snow_03",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "Concrete",
+      "assetId": "concrete_floor_damaged_01",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "Asphalt",
+      "assetId": "asphalt_02",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    },
+    {
+      "surface": "BattleScar",
+      "assetId": "rock_ground_02",
+      "resolution": "1k",
+      "maps": ["Diffuse", "nor_gl", "AO", "Rough"]
+    }
+  ],
+  "models": [
+    {
+      "slot": "TreeSmall02",
+      "assetId": "tree_small_02",
+      "resolution": "1k",
+      "format": "fbx"
+    },
+    {
+      "slot": "FirTree01",
+      "assetId": "fir_tree_01",
+      "resolution": "1k",
+      "format": "fbx"
+    },
+    {
+      "slot": "Shrub01",
+      "assetId": "shrub_01",
+      "resolution": "1k",
+      "format": "fbx"
+    },
+    {
+      "slot": "Fern02",
+      "assetId": "fern_02",
+      "resolution": "1k",
+      "format": "fbx"
+    },
+    {
+      "slot": "GrassMedium01",
+      "assetId": "grass_medium_01",
+      "resolution": "1k",
+      "format": "fbx"
+    },
+    {
+      "slot": "GrassBermuda01",
+      "assetId": "grass_bermuda_01",
+      "resolution": "1k",
+      "format": "fbx"
+    }
+  ]
+}

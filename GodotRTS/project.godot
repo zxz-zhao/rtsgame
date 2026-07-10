@@ -28,7 +28,7 @@ project/assembly_name="GodotRTS"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/rts_map_studio/plugin.cfg")
+enabled=PackedStringArray("res://addons/terrain_3d/plugin.cfg")
 
 [input]
 

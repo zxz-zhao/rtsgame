@@ -2447,12 +2447,144 @@ public class LobbySceneBuilder
 
     static Texture2D GenButtonFrame(bool warm)
     {
+        if (warm)
+            return GenBrightGoldMetalButtonFrame();
+
         Color fillDark = warm ? new Color(0.28f, 0.18f, 0.055f, 1f) : new Color(0.075f, 0.085f, 0.065f, 1f);
         Color fillLight = warm ? new Color(0.58f, 0.38f, 0.095f, 1f) : new Color(0.18f, 0.18f, 0.13f, 1f);
         Color edgeLight = warm ? new Color(0.96f, 0.82f, 0.46f, 1f) : new Color(0.74f, 0.68f, 0.45f, 1f);
         Color accent = warm ? new Color(0.78f, 0.58f, 0.17f, 1f) : new Color(0.47f, 0.40f, 0.22f, 1f);
         return GenFramedPlate(160, 64, fillDark, fillLight, edgeLight,
             new Color(0.03f, 0.02f, 0.015f, 1f), accent, bolts: false, cornerCut: 10f);
+    }
+
+    static Texture2D GenBrightGoldMetalButtonFrame()
+    {
+        int w = 160, h = 64;
+        const int scale = 8;
+        int sw = w * scale, sh = h * scale;
+        var hi = new Texture2D(sw, sh, TextureFormat.RGBA32, false);
+        var t = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        Color outerShadow = new Color(0.085f, 0.040f, 0.010f, 1f);
+        Color rimDark = new Color(0.16f, 0.080f, 0.018f, 1f);
+        Color rimMid = new Color(0.66f, 0.43f, 0.125f, 1f);
+        Color innerDark = new Color(0.34f, 0.205f, 0.060f, 1f);
+        Color innerGold = new Color(0.74f, 0.46f, 0.115f, 1f);
+        Color glint = new Color(1.00f, 0.89f, 0.500f, 1f);
+        Color lowerWarm = new Color(0.36f, 0.180f, 0.038f, 1f);
+        Color lineDark = new Color(0.055f, 0.034f, 0.012f, 1f);
+
+        float cut = 10f * scale;
+        Vector2 topLeft = new Vector2(cut, 2f * scale);
+        Vector2 topRight = new Vector2(sw - cut - 1f, 2f * scale);
+        Vector2 rightTop = new Vector2(sw - 2f * scale, cut);
+        Vector2 rightBottom = new Vector2(sw - 2f * scale, sh - cut - 1f);
+        Vector2 bottomRight = new Vector2(sw - cut - 1f, sh - 2f * scale);
+        Vector2 bottomLeft = new Vector2(cut, sh - 2f * scale);
+        Vector2 leftBottom = new Vector2(2f * scale, sh - cut - 1f);
+        Vector2 leftTop = new Vector2(2f * scale, cut);
+        Vector2[] outer = { topLeft, topRight, rightTop, rightBottom, bottomRight, bottomLeft, leftBottom, leftTop };
+
+        for (int y = 0; y < sh; y++)
+        for (int x = 0; x < sw; x++)
+        {
+            Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+            if (!PointInPoly(p, outer))
+            {
+                hi.SetPixel(x, y, Color.clear);
+                continue;
+            }
+
+            float fx = x / (float)(sw - 1);
+            float fy = y / (float)(sh - 1);
+            float centerX = Mathf.Clamp01(1f - Mathf.Abs(fx - 0.5f) * 2f);
+            float centerY = Mathf.Clamp01(1f - Mathf.Abs(fy - 0.52f) * 2f);
+            float faceLift = Mathf.Pow(centerX * centerY, 0.55f);
+            Color face = Color.Lerp(innerDark, innerGold, Mathf.Clamp01(0.28f + faceLift * 0.48f));
+
+            float faceSheen = Mathf.Clamp01(1f - Mathf.Abs(fy - 0.39f) * 5.8f) * Mathf.Pow(centerX, 0.58f);
+            face = Color.Lerp(face, glint, faceSheen * 0.08f);
+            float lowerFace = Mathf.Clamp01((fy - 0.66f) / 0.26f);
+            face = Color.Lerp(face, lowerWarm, lowerFace * 0.10f);
+
+            float dTop = DistanceToSegment(p, topLeft, topRight);
+            float dTopLeft = DistanceToSegment(p, leftTop, topLeft);
+            float dTopRight = DistanceToSegment(p, topRight, rightTop);
+            float dBottom = DistanceToSegment(p, bottomLeft, bottomRight);
+            float dBottomLeft = DistanceToSegment(p, leftBottom, bottomLeft);
+            float dBottomRight = DistanceToSegment(p, bottomRight, rightBottom);
+            float dLeft = DistanceToSegment(p, leftTop, leftBottom);
+            float dRight = DistanceToSegment(p, rightTop, rightBottom);
+            float dEdge = Mathf.Min(Mathf.Min(Mathf.Min(dTop, dBottom), Mathf.Min(dLeft, dRight)),
+                Mathf.Min(Mathf.Min(dTopLeft, dTopRight), Mathf.Min(dBottomLeft, dBottomRight)));
+            float rimMask = Mathf.Clamp01(1f - dEdge / (5.2f * scale));
+            float rimPeak = Mathf.Clamp01(1f - Mathf.Abs(dEdge - 2.2f * scale) / (2.0f * scale));
+            float innerLip = Mathf.Clamp01(1f - Mathf.Abs(dEdge - 5.1f * scale) / (0.70f * scale));
+            float outerLip = Mathf.Clamp01(1f - dEdge / (0.90f * scale));
+            float topLeftLight = Mathf.Clamp01((0.62f - fy) / 0.62f) * 0.78f
+                + Mathf.Clamp01((0.36f - fx) / 0.36f) * 0.22f;
+            float lowerRightShade = Mathf.Clamp01((fy - 0.42f) / 0.58f) * 0.72f
+                + Mathf.Clamp01((fx - 0.60f) / 0.40f) * 0.28f;
+
+            Color rim = Color.Lerp(rimDark, rimMid, Mathf.Clamp01(0.22f + rimPeak * 0.68f));
+            rim = Color.Lerp(rim, glint, Mathf.Clamp01(topLeftLight) * (rimPeak * 0.36f + rimMask * 0.08f));
+            rim = Color.Lerp(rim, outerShadow, Mathf.Clamp01(lowerRightShade) * (rimPeak * 0.22f + rimMask * 0.16f));
+
+            Color col = Color.Lerp(face, rim, rimMask);
+            if (innerLip > 0f)
+                col = Color.Lerp(col, fy < 0.52f ? glint : outerShadow, innerLip * (fy < 0.52f ? 0.14f : 0.20f));
+            if (outerLip > 0f)
+                col = Color.Lerp(col, lineDark, outerLip * 0.42f);
+
+            Vector2[] bolts = {
+                new Vector2(10f * scale, 10f * scale),
+                new Vector2(sw - 11f * scale, 10f * scale),
+                new Vector2(10f * scale, sh - 11f * scale),
+                new Vector2(sw - 11f * scale, sh - 11f * scale)
+            };
+            for (int i = 0; i < bolts.Length; i++)
+            {
+                float bd = Vector2.Distance(p, bolts[i]);
+                if (bd < 2.2f * scale)
+                {
+                    float k = Mathf.Clamp01(1f - bd / (2.2f * scale));
+                    col = Color.Lerp(col, bd < 0.85f * scale ? lineDark : glint, k * 0.45f);
+                }
+            }
+
+            col.a = 1f;
+            hi.SetPixel(x, y, col);
+        }
+
+        for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+        {
+            float sumA = 0f;
+            float sumR = 0f;
+            float sumG = 0f;
+            float sumB = 0f;
+            for (int yy = 0; yy < scale; yy++)
+            for (int xx = 0; xx < scale; xx++)
+            {
+                Color sample = hi.GetPixel(x * scale + xx, y * scale + yy);
+                sumA += sample.a;
+                sumR += sample.r * sample.a;
+                sumG += sample.g * sample.a;
+                sumB += sample.b * sample.a;
+            }
+
+            float alpha = sumA / (scale * scale);
+            Color px = Color.clear;
+            if (alpha > 0.015f)
+            {
+                px = new Color(sumR / sumA, sumG / sumA, sumB / sumA, alpha);
+            }
+            t.SetPixel(x, y, px);
+        }
+
+        UnityEngine.Object.DestroyImmediate(hi);
+        t.Apply();
+        return t;
     }
 
     static Texture2D GenTechMetalButtonFrame()

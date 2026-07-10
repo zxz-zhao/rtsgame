@@ -120,6 +120,12 @@ public partial class NetClient : Node
     public Task<Godot.Collections.Dictionary> LeaveRoom(string roomId)
         => PostJson("/api/rooms/leave", new Godot.Collections.Dictionary { ["roomId"] = roomId });
 
+    public Task<Godot.Collections.Dictionary> KickRoomPlayer(string roomId, string targetUserId)
+        => PostJson("/api/rooms/kick", new Godot.Collections.Dictionary { ["roomId"] = roomId, ["targetUserId"] = targetUserId });
+
+    public Task<Godot.Collections.Dictionary> UpdateRoomSettings(string roomId, string mapName)
+        => PostJson("/api/rooms/update", new Godot.Collections.Dictionary { ["roomId"] = roomId, ["mapName"] = mapName });
+
     public Task<Godot.Collections.Dictionary> ReportMatchResult(bool win, int kills, int duration)
         => PostJson("/api/result", new Godot.Collections.Dictionary
         {
@@ -178,6 +184,10 @@ public partial class NetClient : Node
 
         if (responseCode == 401 || responseCode == 403)
         {
+            if (path == "/api/leaderboard" || path == "/api/friends" || path == "/api/rooms" || path == "/api/invites")
+            {
+                return Failure(responseCode == 401 ? "Unauthorized" : "Forbidden");
+            }
             GameState.Instance?.ClearSession();
             GetTree().ChangeSceneToFile("res://scenes/login/LoginScene.tscn");
         }

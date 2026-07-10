@@ -51,6 +51,7 @@ public partial class GameState : Node
     public string SelectedMapName { get; private set; } = BattleMapCatalog.DefaultMapName;
     public string SelectedMode { get; private set; } = "快速匹配";
     public string GlobalConquestStarterUnitKey { get; private set; } = "tank";
+    public bool HasChosenGlobalConquestFaction { get; private set; }
     public string CurrentRoomId { get; private set; } = "";
     public bool HasBattleEntry { get; private set; }
     public string LastBattleMode { get; private set; } = "";
@@ -199,6 +200,12 @@ public partial class GameState : Node
         GlobalConquestStarterUnitKey = BattleUnitCatalog.IsGlobalConquestStarter(normalized)
             ? normalized
             : "tank";
+        SaveSession();
+    }
+
+    public void SetGlobalConquestFactionChosen(bool chosen)
+    {
+        HasChosenGlobalConquestFaction = chosen;
         SaveSession();
     }
 
@@ -393,6 +400,7 @@ public partial class GameState : Node
         GlobalConquestStarterUnitKey = cfg.GetValue("battle", "global_conquest_starter", GlobalConquestStarterUnitKey).AsString();
         if (!BattleUnitCatalog.IsGlobalConquestStarter(GlobalConquestStarterUnitKey))
             GlobalConquestStarterUnitKey = "tank";
+        HasChosenGlobalConquestFaction = cfg.GetValue("battle", "has_chosen_faction", false).AsBool();
         CurrentRoomId = cfg.GetValue("battle", "current_room", CurrentRoomId).AsString();
         HasBattleEntry = cfg.GetValue("battle", "has_battle_entry", false).AsBool();
         LastBattleMode = cfg.GetValue("battle", "last_battle_mode", LastBattleMode).AsString();
@@ -421,6 +429,7 @@ public partial class GameState : Node
         cfg.SetValue("battle", "selected_map", SelectedMapName);
         cfg.SetValue("battle", "selected_mode", SelectedMode);
         cfg.SetValue("battle", "global_conquest_starter", GlobalConquestStarterUnitKey);
+        cfg.SetValue("battle", "has_chosen_faction", HasChosenGlobalConquestFaction);
         cfg.SetValue("battle", "current_room", CurrentRoomId);
         cfg.SetValue("battle", "has_battle_entry", HasBattleEntry);
         cfg.SetValue("battle", "last_battle_mode", LastBattleMode);

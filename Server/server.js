@@ -23,6 +23,8 @@ const DB_BACKEND = (process.env.DB_BACKEND || 'mysql').toLowerCase();
 const USE_MYSQL = DB_BACKEND !== 'json';
 const MYSQL_DB = process.env.MYSQL_DATABASE || process.env.DB_NAME || 'unity_rts';
 const MYSQL_TABLE = process.env.MYSQL_TABLE || 'rts_kv_store';
+const MYSQL_CONNECT_RETRIES = Math.max(1, Number(process.env.MYSQL_CONNECT_RETRIES || 10));
+const MYSQL_CONNECT_RETRY_DELAY_MS = Math.max(250, Number(process.env.MYSQL_CONNECT_RETRY_DELAY_MS || 3000));
 const MYSQL_CONFIG = {
   host: process.env.MYSQL_HOST || process.env.DB_HOST || '127.0.0.1',
   port: Number(process.env.MYSQL_PORT || process.env.DB_PORT || 3306),
@@ -123,10 +125,34 @@ function parseMysqlJson(v) {
   }
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function connectMysqlWithRetry(config) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= MYSQL_CONNECT_RETRIES; attempt++) {
+    try {
+      return await mysql.createConnection(config);
+    } catch (err) {
+      lastError = err;
+      if (attempt >= MYSQL_CONNECT_RETRIES)
+        break;
+      const delay = MYSQL_CONNECT_RETRY_DELAY_MS * attempt;
+      console.warn(
+        `[DB] MySQL connection attempt ${attempt}/${MYSQL_CONNECT_RETRIES} failed: ${err.message}. ` +
+        `Retrying in ${delay}ms...`
+      );
+      await sleep(delay);
+    }
+  }
+  throw lastError;
+}
+
 async function initMysqlStorage() {
   const bootstrapConfig = { ...MYSQL_CONFIG };
   delete bootstrapConfig.database;
-  const bootstrap = await mysql.createConnection(bootstrapConfig);
+  const bootstrap = await connectMysqlWithRetry(bootstrapConfig);
   await bootstrap.query(
     `CREATE DATABASE IF NOT EXISTS \`${MYSQL_DB}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
   );
@@ -247,6 +273,33 @@ if (!USE_MYSQL) {
 }
 
 // ── JWT 验证中间件 ──────────────────────────────────────────
+function normalizeRoomMaxPlayers(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 2;
+  return Math.min(100, Math.max(2, parsed));
+}
+
+function detachPlayerFromWaitingRooms(userId, exceptRoomId = '') {
+  const rooms = loadDB('rooms');
+  let changed = false;
+  for (const [id, room] of Object.entries(rooms)) {
+    if (!room || room.status !== 'waiting' || id === exceptRoomId || !Array.isArray(room.players) || !room.players.includes(userId))
+      continue;
+
+    room.players = room.players.filter(playerId => playerId !== userId);
+    if (room.players.length === 0) {
+      delete rooms[id];
+    } else if (room.hostId === userId) {
+      room.hostId = room.players[0];
+    }
+    changed = true;
+  }
+
+  if (changed)
+    saveDB('rooms', rooms);
+  return rooms;
+}
+
 function authMiddleware(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
   if (!token) return res.status(401).json({ error: '未授权' });
@@ -263,23 +316,51 @@ function makeToken(userId) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  AUTH 路由
+//  AUTH 辅助与路由
 // ════════════════════════════════════════════════════════════
+
+const blockedNames = [
+  "傻逼", "煞笔", "沙比", "操你妈", "肏", "妈的", "特么的", "王八蛋", "滚蛋", "垃圾", "废柴", "混蛋", "二百五", "婊子", "贱人",
+  "fuck", "bitch", "shit", "asshole", "bastard", "sb", "wocao", "caonima"
+];
+
+function getNameWeight(str) {
+  if (!str) return 0;
+  let w = 0;
+  for (let i = 0; i < str.length; i++) {
+    w += str.charCodeAt(i) > 127 ? 2 : 1;
+  }
+  return w;
+}
+
+function containsBlockedName(str) {
+  if (!str) return false;
+  const lower = str.toLowerCase();
+  return blockedNames.some(word => lower.includes(word));
+}
 
 app.post('/api/register', (req, res) => {
   const { username, password } = req.body;
-  if (!username || username.length < 3) return res.json({ success: false, error: '用户名至少3个字符' });
+  if (!username) return res.json({ success: false, error: '用户名不能为空' });
+  const trimmedUser = username.trim();
+  const weight = getNameWeight(trimmedUser);
+  if (weight < 4 || weight > 14) {
+    return res.json({ success: false, error: '账号长度不符合要求（中文字符算2，英文算1，要求4-14）' });
+  }
+  if (containsBlockedName(trimmedUser)) {
+    return res.json({ success: false, error: '账号包含敏感词或不当言论' });
+  }
   if (!password || password.length < 6) return res.json({ success: false, error: '密码至少6个字符' });
   const users = loadDB('users');
-  if (Object.values(users).find(u => u.username === username))
+  if (Object.values(users).find(u => u.username === trimmedUser))
     return res.json({ success: false, error: '用户名已存在' });
   const id   = uuidv4();
   const hash = bcrypt.hashSync(password, 8);
-  users[id]  = { id, username, password: hash, isGuest: false, level: 1, wins: 0, losses: 0, gold: 1000, gems: 100,
+  users[id]  = { id, username: trimmedUser, password: hash, isGuest: false, level: 1, wins: 0, losses: 0, gold: 1000, gems: 100,
     lobbyState: { day: todayStr(), dailyLoginClaimed: false, win3Claimed: false, destroyClaimed: false, winsToday: 0, killsToday: 0 },
     createdAt: Date.now() };
   saveDB('users', users);
-  res.json({ success: true, token: makeToken(id), userId: id, username, level: 1, gold: 1000, gems: 100, rankTitle: '列兵' });
+  res.json({ success: true, token: makeToken(id), userId: id, username: trimmedUser, level: 1, gold: 1000, gems: 100, rankTitle: '列兵' });
 });
 
 app.post('/api/login', (req, res) => {
@@ -301,6 +382,9 @@ app.post('/api/guest', (req, res) => {
     if (req.body && req.body.displayName)
       guestName = String(req.body.displayName).trim().replace(/[<>'"]/g, '');
   } catch (_) {}
+  if (guestName && (containsBlockedName(guestName) || getNameWeight(guestName) > 14 || getNameWeight(guestName) < 4)) {
+    guestName = '';
+  }
   if (!guestName || guestName.length < 2)
     guestName = '游客' + Math.floor(Math.random() * 9000 + 1000);
   if (guestName.length > 14) guestName = guestName.slice(0, 14);
@@ -530,6 +614,8 @@ app.post('/api/friends/invite', authMiddleware, (req, res) => {
 
   // 验证房间是否有效
   const room = rooms[roomId];
+  if (roomId && !room)
+    return res.json({ success: false, error: 'ROOM_NOT_FOUND' });
   if (roomId && room && room.status !== 'waiting')
     return res.json({ success: false, error: '该房间已无法加入' });
 
@@ -542,6 +628,8 @@ app.post('/api/friends/invite', authMiddleware, (req, res) => {
     fromId:     req.user.userId,
     roomId:     roomId || '',
     mapName:    room?.mapName || '',
+    maxPlayers: room?.maxPlayers || 2,
+    playerCount: room?.players?.length || 0,
     createdAt:  Date.now()
   };
   // 去重：若已有同一 sender+room 的未处理邀请则覆盖
@@ -576,7 +664,15 @@ app.post('/api/invites/respond', authMiddleware, (req, res) => {
   invites[req.user.userId] = myList;
   saveDB('invites', invites);
   if (accept && invite.roomId) {
-    return res.json({ success: true, roomId: invite.roomId, mapName: invite.mapName });
+    const rooms = loadDB('rooms');
+    const room = rooms[invite.roomId];
+    return res.json({
+      success: true,
+      roomId: invite.roomId,
+      mapName: room?.mapName || invite.mapName,
+      maxPlayers: room?.maxPlayers || invite.maxPlayers || 2,
+      playerCount: room?.players?.length || invite.playerCount || 0
+    });
   }
   res.json({ success: true });
 });
@@ -602,25 +698,32 @@ app.post('/api/rooms/create', authMiddleware, (req, res) => {
   const { mapName = '沙漠绿洲', roomName } = req.body;
   const users = loadDB('users');
   const user  = users[req.user.userId];
-  const rooms = loadDB('rooms');
+  const rooms = detachPlayerFromWaitingRooms(req.user.userId);
   const id    = uuidv4();
+  const maxPlayers = normalizeRoomMaxPlayers(req.body?.maxPlayers);
   const defaultName = (user?.username || '玩家') + '的房间';
   rooms[id]   = { id, name: (roomName && roomName.trim()) ? roomName.trim() : defaultName, mapName,
                   hostId: req.user.userId, status: 'waiting', players: [req.user.userId],
-                  maxPlayers: 2, createdAt: Date.now() };
+                  maxPlayers, createdAt: Date.now() };
   saveDB('rooms', rooms);
-  res.json({ success: true, roomId: id, mapName });
+  res.json({ success: true, roomId: id, mapName, maxPlayers, playerCount: 1 });
 });
 
 app.post('/api/rooms/join', authMiddleware, (req, res) => {
   const { roomId } = req.body;
-  const rooms = loadDB('rooms');
+  const rooms = detachPlayerFromWaitingRooms(req.user.userId, roomId);
   const room  = rooms[roomId];
   if (!room || room.status !== 'waiting') return res.json({ success: false, error: '房间不存在或已开始' });
   if (room.players.length >= room.maxPlayers) return res.json({ success: false, error: '房间已满' });
   if (!room.players.includes(req.user.userId)) room.players.push(req.user.userId);
   saveDB('rooms', rooms);
-  res.json({ success: true, roomId, mapName: room.mapName });
+  res.json({
+    success: true,
+    roomId,
+    mapName: room.mapName,
+    maxPlayers: room.maxPlayers || 2,
+    playerCount: room.players.length
+  });
 });
 
 app.post('/api/rooms/leave', authMiddleware, (req, res) => {
@@ -629,7 +732,11 @@ app.post('/api/rooms/leave', authMiddleware, (req, res) => {
   const room  = rooms[roomId];
   if (room) {
     room.players = room.players.filter(p => p !== req.user.userId);
-    if (room.players.length === 0) room.status = 'closed';
+    if (room.players.length === 0) {
+      delete rooms[roomId];
+    } else if (room.hostId === req.user.userId) {
+      room.hostId = room.players[0];
+    }
     saveDB('rooms', rooms);
   }
   res.json({ success: true });
@@ -672,7 +779,8 @@ app.post('/api/match/join', authMiddleware, (req, res) => {
     return res.json({ success: true, matched: true, roomId, mapName });
   }
   saveDB('match_queue', queue);
-  res.json({ success: true, matched: false });
+  const queueSize = Object.values(queue).filter(q => q.mapName === mapName).length;
+  res.json({ success: true, matched: false, queueSize });
 });
 
 app.post('/api/match/cancel', authMiddleware, (req, res) => {

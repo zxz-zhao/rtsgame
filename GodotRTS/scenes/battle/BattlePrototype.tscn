@@ -14,7 +14,7 @@
 [ext_resource type="PackedScene" path="res://assets/units/converted/heavy_tank.glb" id="16_heavytank"]
 [ext_resource type="PackedScene" path="res://assets/units/converted/artillery.glb" id="17_artillery"]
 [ext_resource type="PackedScene" path="res://assets/units/converted/scout_helicopter.glb" id="18_scoutheli"]
-[ext_resource type="PackedScene" path="res://assets/units/infantry/character_medium.glb" id="19_infantry"]
+[ext_resource type="PackedScene" path="res://assets/unity_migrated/Assets/External/Mixamo/BasicShooter/X Bot.fbx" id="19_infantry"]
 [ext_resource type="PackedScene" path="res://assets/units/aircraft/fighter_speeder.fbx" id="20_fighter"]
 [ext_resource type="PackedScene" path="res://assets/units/aircraft/bomber_cargo.fbx" id="21_bomber"]
 [ext_resource type="Script" path="res://scripts/debug/PreviewCapture.cs" id="11_capture"]

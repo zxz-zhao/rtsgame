@@ -1,0 +1,74 @@
+{
+  "129f0eb7-ce52-446b-848e-d177e0925ad0": {
+    "createdAt": 1783382943000,
+    "createdByUserId": "d59e82a7-8906-4239-bbe4-31357cc034ae",
+    "expiresAt": 1783390143000,
+    "id": "129f0eb7-ce52-446b-848e-d177e0925ad0",
+    "mapName": "Test Map",
+    "players": [
+      "d59e82a7-8906-4239-bbe4-31357cc034ae",
+      "c0764e35-abb4-4cf9-bf1f-40f16a416c91"
+    ],
+    "reports": [],
+    "rewardsApplied": false,
+    "roomId": "749437b9-d50f-4b33-af4f-c35f7f5307a3",
+    "settledAt": 0,
+    "startedAt": 1783382943000,
+    "status": "active",
+    "winnerUserId": ""
+  },
+  "97a01aad-290a-4b7f-9154-1d3072a03347": {
+    "createdAt": 1783382979000,
+    "createdByUserId": "fd81bed6-51b7-41c2-be25-d654fade14cb",
+    "expiresAt": 1783390179000,
+    "id": "97a01aad-290a-4b7f-9154-1d3072a03347",
+    "mapName": "Test Map",
+    "players": [
+      "84c58cd6-c5b0-4255-a242-8cc5e1fbb1d2",
+      "fd81bed6-51b7-41c2-be25-d654fade14cb"
+    ],
+    "reports": [],
+    "rewardsApplied": false,
+    "roomId": "48aa63a7-5a41-4b35-9df6-23c2cfc82527",
+    "settledAt": 0,
+    "startedAt": 1783382979000,
+    "status": "active",
+    "winnerUserId": ""
+  },
+  "9a388024-4589-4192-b216-90ba22af962f": {
+    "createdAt": 1783382979000,
+    "createdByUserId": "84c58cd6-c5b0-4255-a242-8cc5e1fbb1d2",
+    "expiresAt": 1783390179000,
+    "id": "9a388024-4589-4192-b216-90ba22af962f",
+    "mapName": "Test Map",
+    "players": [
+      "84c58cd6-c5b0-4255-a242-8cc5e1fbb1d2",
+      "fd81bed6-51b7-41c2-be25-d654fade14cb"
+    ],
+    "reports": [],
+    "rewardsApplied": false,
+    "roomId": "48aa63a7-5a41-4b35-9df6-23c2cfc82527",
+    "settledAt": 0,
+    "startedAt": 1783382979000,
+    "status": "active",
+    "winnerUserId": ""
+  },
+  "f83fe60b-45ad-4525-b312-9f0eb7ce5234": {
+    "createdAt": 1783382943000,
+    "createdByUserId": "c0764e35-abb4-4cf9-bf1f-40f16a416c91",
+    "expiresAt": 1783390143000,
+    "id": "f83fe60b-45ad-4525-b312-9f0eb7ce5234",
+    "mapName": "Test Map",
+    "players": [
+      "d59e82a7-8906-4239-bbe4-31357cc034ae",
+      "c0764e35-abb4-4cf9-bf1f-40f16a416c91"
+    ],
+    "reports": [],
+    "rewardsApplied": false,
+    "roomId": "749437b9-d50f-4b33-af4f-c35f7f5307a3",
+    "settledAt": 0,
+    "startedAt": 1783382943000,
+    "status": "active",
+    "winnerUserId": ""
+  }
+}

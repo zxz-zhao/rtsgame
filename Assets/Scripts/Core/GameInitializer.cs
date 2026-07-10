@@ -15,7 +15,7 @@ public class GameInitializer : MonoBehaviour
 
     IEnumerator Start()
     {
-        string mapName = PlayerPrefs.GetString("current_map", "????");
+        string mapName = PlayerPrefs.GetString("current_map", "沙漠绿洲");
         BattleMapDefinition map = BattleMapCatalog.Get(mapName);
         currentMap = map;
         Random.InitState(map.RandomSeed);
@@ -279,119 +279,119 @@ public class GameInitializer : MonoBehaviour
         Vector3 legacyAnchor = BattleMapDefinitionUtility.DefaultPlayerBaseAnchor;
         {
             var mb = SpawnBuilding<MainBase>("MainBase_P", TranslateFromPlayerAnchor(new Vector3(-120f,0f,-120f), legacyAnchor, anchor),
-                new Vector3(12,5,12), new Color(0.2f,0.4f,0.8f), true, "???");
-            AddBuildingLabel(mb.gameObject, "???", Color.white);
+                new Vector3(12,5,12), new Color(0.2f,0.4f,0.8f), true, "主基地");
+            AddBuildingLabel(mb.gameObject, "主基地", Color.white);
         }
         {
             var b = SpawnBuilding<Barracks>("Barracks_P", TranslateFromPlayerAnchor(new Vector3(-90f,0f,-120f), legacyAnchor, anchor),
-                new Vector3(8,4,8), new Color(0.3f,0.6f,0.3f), true, "???");
+                new Vector3(8,4,8), new Color(0.3f,0.6f,0.3f), true, "兵工厂");
             b.ProductionUnits = LoadPlayerUnitPrefabs("Infantry_P", "InfantryArtillery_P", "InfantryFlamethrower_P");
             b.ProductionTimes = new float[]{ 5f, 10f, 8f };
             b.ProductionCosts = new int[]  { 100, 160, 220 };
-            AddBuildingLabel(b.gameObject, "???", Color.yellow);
+            AddBuildingLabel(b.gameObject, "兵工厂", Color.yellow);
         }
         {
             var a = SpawnBuilding<AirFactory>("AirFactory_P", TranslateFromPlayerAnchor(new Vector3(-90f,0f,-90f), legacyAnchor, anchor),
-                new Vector3(9,4,9), new Color(0.2f,0.6f,0.8f), true, "???");
+                new Vector3(9,4,9), new Color(0.2f,0.6f,0.8f), true, "飞机厂");
             a.ProductionUnits = LoadPlayerUnitPrefabs("Fighter_P", "Bomber_P", "ScoutPlane_P");
             a.ProductionTimes = new float[]{ 10f, 18f, 8f };
             a.ProductionCosts = new int[]  { 200, 400, 120 };
-            AddBuildingLabel(a.gameObject, "???", new Color(0.4f,0.85f,1f));
+            AddBuildingLabel(a.gameObject, "飞机厂", new Color(0.4f,0.85f,1f));
         }
         {
             var af = SpawnBuilding<Airfield>("Airfield_P", TranslateFromPlayerAnchor(new Vector3(-120f,0f,-60f), legacyAnchor, anchor),
-                Airfield.ColliderSize, new Color(0.18f,0.42f,0.58f), true, "???");
-            AddBuildingLabel(af.gameObject, "???", new Color(0.55f,0.95f,1f));
+                Airfield.ColliderSize, new Color(0.18f,0.42f,0.58f), true, "停机场");
+            AddBuildingLabel(af.gameObject, "停机场", new Color(0.55f,0.95f,1f));
         }
         {
             var tk = SpawnBuilding<TankFactory>("TankFactory_P", TranslateFromPlayerAnchor(new Vector3(-60f,0f,-90f), legacyAnchor, anchor),
-                new Vector3(9,4,9), new Color(0.5f,0.35f,0.1f), true, "???");
+                new Vector3(9,4,9), new Color(0.5f,0.35f,0.1f), true, "特需厂");
             tk.ProductionUnits = LoadPlayerUnitPrefabs("Artillery_P", "AntiAirGun_P", "Flamethrower_P");
             tk.ProductionTimes = new float[]{ 10f, 9f, 8f };
             tk.ProductionCosts = new int[]  { 160, 180, 220 };
-            AddBuildingLabel(tk.gameObject, "???", new Color(1f,0.7f,0.2f));
+            AddBuildingLabel(tk.gameObject, "特需厂", new Color(1f,0.7f,0.2f));
         }
         {
             var armorFactory = SpawnBuilding<ArmorFactory>("ArmorFactory_P", TranslateFromPlayerAnchor(new Vector3(-60f,0f,-60f), legacyAnchor, anchor),
-                new Vector3(9,4,9), new Color(0.42f,0.44f,0.16f), true, "???");
+                new Vector3(9,4,9), new Color(0.42f,0.44f,0.16f), true, "坦克厂");
             armorFactory.ProductionUnits = LoadPlayerUnitPrefabs("LightTank_P", "MediumTank_P", "HeavyTank_P");
             armorFactory.ProductionTimes = new float[]{ 8f, 13f, 18f };
             armorFactory.ProductionCosts = new int[]  { 260, 420, 620 };
-            AddBuildingLabel(armorFactory.gameObject, "???", new Color(0.92f,0.88f,0.42f));
+            AddBuildingLabel(armorFactory.gameObject, "坦克厂", new Color(0.92f,0.88f,0.42f));
         }
         {
             var pw = SpawnBuilding<PowerPlant>("PowerPlant_P", TranslateFromPlayerAnchor(new Vector3(-120f,0f,-90f), legacyAnchor, anchor),
-                new Vector3(6,3,6), new Color(0.9f,0.8f,0.2f), true, "??");
-            AddBuildingLabel(pw.gameObject, "??", new Color(1f,0.95f,0.3f));
+                new Vector3(6,3,6), new Color(0.9f,0.8f,0.2f), true, "电厂");
+            AddBuildingLabel(pw.gameObject, "电厂", new Color(1f,0.95f,0.3f));
         }
         {
             var gm = SpawnBuilding<GoldMine>("GoldMine_P", TranslateFromPlayerAnchor(new Vector3(-60f,0f,-120f), legacyAnchor, anchor),
-                new Vector3(6,3,6), new Color(0.9f,0.7f,0.1f), true, "??");
-            AddBuildingLabel(gm.gameObject, "??", new Color(1f,0.85f,0.1f));
+                new Vector3(6,3,6), new Color(0.9f,0.7f,0.1f), true, "金矿");
+            AddBuildingLabel(gm.gameObject, "金矿", new Color(1f,0.85f,0.1f));
         }
     }
-    // ??????????????? Guest ????????
+    // 敌方阵营，Guest 联机时也会翻转归属
     void SpawnEnemyBase()
     {
         Vector3 anchor = BattleMapDefinitionUtility.GetEnemyBaseAnchor(currentMap);
         Vector3 legacyAnchor = BattleMapDefinitionUtility.DefaultEnemyBaseAnchor;
         {
             var mb = SpawnBuilding<MainBase>("MainBase_E", TranslateFromEnemyAnchor(new Vector3(120f,0f,120f), legacyAnchor, anchor),
-                new Vector3(12,5,12), new Color(0.7f,0.15f,0.15f), false, "?????");
-            AddBuildingLabel(mb.gameObject, "????", Color.white);
+                new Vector3(12,5,12), new Color(0.7f,0.15f,0.15f), false, "敌方主基地");
+            AddBuildingLabel(mb.gameObject, "敌方基地", Color.white);
         }
         {
             var eb = SpawnBuilding<Barracks>("Barracks_E", TranslateFromEnemyAnchor(new Vector3(90f,0f,120f), legacyAnchor, anchor),
-                new Vector3(8,4,8), new Color(0.55f,0.12f,0.12f), false, "????");
+                new Vector3(8,4,8), new Color(0.55f,0.12f,0.12f), false, "敌方兵营");
             eb.ProductionUnits = LoadPlayerUnitPrefabs("Infantry_E", "InfantryArtillery_E", "InfantryFlamethrower_E");
             eb.ProductionTimes = new float[]{ 5f, 10f, 8f };
             eb.ProductionCosts = new int[]  { 100, 160, 220 };
-            AddBuildingLabel(eb.gameObject, "??", new Color(1f,0.5f,0.5f));
+            AddBuildingLabel(eb.gameObject, "兵营", new Color(1f,0.5f,0.5f));
         }
         {
             var ea = SpawnBuilding<AirFactory>("AirFactory_E", TranslateFromEnemyAnchor(new Vector3(90f,0f,90f), legacyAnchor, anchor),
-                new Vector3(9,4,9), new Color(0.2f,0.3f,0.6f), false, "???");
+                new Vector3(9,4,9), new Color(0.2f,0.3f,0.6f), false, "飞机厂");
             ea.ProductionUnits = LoadPlayerUnitPrefabs("Fighter_E", "Bomber_E", "ScoutPlane_E");
             ea.ProductionTimes = new float[]{ 10f, 18f, 8f };
             ea.ProductionCosts = new int[]  { 200, 400, 120 };
-            AddBuildingLabel(ea.gameObject, "???", new Color(0.5f,0.7f,1f));
+            AddBuildingLabel(ea.gameObject, "飞机厂", new Color(0.5f,0.7f,1f));
         }
         {
             var eaf = SpawnBuilding<Airfield>("Airfield_E", TranslateFromEnemyAnchor(new Vector3(120f,0f,60f), legacyAnchor, anchor),
-                Airfield.ColliderSize, new Color(0.55f,0.30f,0.18f), false, "???");
-            AddBuildingLabel(eaf.gameObject, "???", new Color(1f,0.62f,0.42f));
+                Airfield.ColliderSize, new Color(0.55f,0.30f,0.18f), false, "停机场");
+            AddBuildingLabel(eaf.gameObject, "停机场", new Color(1f,0.62f,0.42f));
         }
         {
             var etk = SpawnBuilding<TankFactory>("TankFactory_E", TranslateFromEnemyAnchor(new Vector3(60f,0f,90f), legacyAnchor, anchor),
-                new Vector3(9,4,9), new Color(0.4f,0.15f,0.05f), false, "???");
+                new Vector3(9,4,9), new Color(0.4f,0.15f,0.05f), false, "特需厂");
             etk.ProductionUnits = LoadPlayerUnitPrefabs("Artillery_E", "AntiAirGun_E", "Flamethrower_E");
             etk.ProductionTimes = new float[]{ 10f, 9f, 8f };
             etk.ProductionCosts = new int[]  { 160, 180, 220 };
-            AddBuildingLabel(etk.gameObject, "???", new Color(1f,0.55f,0.2f));
+            AddBuildingLabel(etk.gameObject, "特需厂", new Color(1f,0.55f,0.2f));
         }
         {
             var enemyArmorFactory = SpawnBuilding<ArmorFactory>("ArmorFactory_E", TranslateFromEnemyAnchor(new Vector3(60f,0f,60f), legacyAnchor, anchor),
-                new Vector3(9,4,9), new Color(0.36f,0.22f,0.08f), false, "???");
+                new Vector3(9,4,9), new Color(0.36f,0.22f,0.08f), false, "坦克厂");
             enemyArmorFactory.ProductionUnits = LoadPlayerUnitPrefabs("LightTank_E", "MediumTank_E", "HeavyTank_E");
             enemyArmorFactory.ProductionTimes = new float[]{ 8f, 13f, 18f };
             enemyArmorFactory.ProductionCosts = new int[]  { 260, 420, 620 };
-            AddBuildingLabel(enemyArmorFactory.gameObject, "???", new Color(1f,0.78f,0.28f));
+            AddBuildingLabel(enemyArmorFactory.gameObject, "坦克厂", new Color(1f,0.78f,0.28f));
         }
         {
             var epw = SpawnBuilding<PowerPlant>("PowerPlant_E", TranslateFromEnemyAnchor(new Vector3(120f,0f,90f), legacyAnchor, anchor),
-                new Vector3(6,3,6), new Color(0.7f,0.5f,0.1f), false, "??");
-            AddBuildingLabel(epw.gameObject, "??", new Color(1f,0.9f,0.3f));
+                new Vector3(6,3,6), new Color(0.7f,0.5f,0.1f), false, "电厂");
+            AddBuildingLabel(epw.gameObject, "电厂", new Color(1f,0.9f,0.3f));
         }
         {
             var egm = SpawnBuilding<GoldMine>("GoldMine_E", TranslateFromEnemyAnchor(new Vector3(60f,0f,120f), legacyAnchor, anchor),
-                new Vector3(6,3,6), new Color(0.7f,0.5f,0.05f), false, "??");
-            AddBuildingLabel(egm.gameObject, "??", new Color(1f,0.85f,0.1f));
+                new Vector3(6,3,6), new Color(0.7f,0.5f,0.05f), false, "金矿");
+            AddBuildingLabel(egm.gameObject, "金矿", new Color(1f,0.85f,0.1f));
         }
         foreach (var tpos in new Vector3[]{ new Vector3(100f,0f,110f), new Vector3(130f,0f,100f), new Vector3(110f,0f,140f) })
         {
             var t = SpawnBuilding<Turret>("Turret_E", TranslateFromEnemyAnchor(tpos, legacyAnchor, anchor),
-                new Vector3(4,3,4), new Color(0.5f,0.1f,0.1f), false, "??");
-            AddBuildingLabel(t.gameObject, "??", new Color(1f,0.8f,0f));
+                new Vector3(4,3,4), new Color(0.5f,0.1f,0.1f), false, "炮塔");
+            AddBuildingLabel(t.gameObject, "炮塔", new Color(1f,0.8f,0f));
         }
     }
     static Vector3 TranslateFromPlayerAnchor(Vector3 position, Vector3 legacyAnchor, Vector3 targetAnchor)
@@ -402,7 +402,7 @@ public class GameInitializer : MonoBehaviour
     {
         return BattleMapDefinitionUtility.TranslateFromLegacyAnchor(position, legacyAnchor, targetAnchor);
     }
-    // ???? Prefab?Resources??????????
+    // 优先使用 Prefab；如果 Resources 中不存在，则退回程序化碰撞体
     static T SpawnBuilding<T>(string prefabName, Vector3 pos,
         Vector3 fallbackScale, Color fallbackColor, bool playerOwned, string displayName) where T : RTSBuilding
     {

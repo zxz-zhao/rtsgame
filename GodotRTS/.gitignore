@@ -7,5 +7,6 @@ assets_migrated/
 .codex-captures/
 .codex-tmp/
 PreviewOutput/
+tools/ClaudeCodeProcessWrapper/dist/
 *.tmp
 *.log

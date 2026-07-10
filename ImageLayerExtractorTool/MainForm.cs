@@ -19,6 +19,7 @@ internal sealed class MainForm : Form
     TextBox sourcePathBox = null!;
     TextBox outputPathBox = null!;
     Label statusLabel = null!;
+    ComboBox presetCombo = null!;
     ComboBox modeCombo = null!;
     ComboBox backgroundCombo = null!;
     CheckBox autoSnapCheck = null!;
@@ -44,6 +45,12 @@ internal sealed class MainForm : Form
     NumericUpDown frameDarkUpDown = null!;
     NumericUpDown frameCoverageUpDown = null!;
     NumericUpDown frameSnapPaddingUpDown = null!;
+    TextBox patchTextBox = null!;
+    NumericUpDown patchXUpDown = null!;
+    NumericUpDown patchYUpDown = null!;
+    NumericUpDown patchWUpDown = null!;
+    NumericUpDown patchHUpDown = null!;
+    NumericUpDown patchFontSizeUpDown = null!;
 
     Bitmap? currentSourceBitmap;
     Bitmap? currentCompositeBitmap;
@@ -58,8 +65,11 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         BuildUi();
         SyncSettingsFromUi();
+        TryLoadDefaultSource();
+        ApplySelectedPreset();
         UpdateFocusControlsEnabled();
-        UpdateStatus("Open an image to begin.");
+        if (currentSourceBitmap == null)
+            UpdateStatus("Open an image to begin.");
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -94,6 +104,7 @@ internal sealed class MainForm : Form
 
         AddRow(leftStack, "Source", BuildSourceRow());
         AddRow(leftStack, "Output", BuildOutputRow());
+        AddRow(leftStack, "Preset", BuildPresetRow());
         AddRow(leftStack, "Mode", modeCombo = BuildCombo(new[] { "AutoForeground", "FocusedRect" }));
         AddRow(leftStack, "Background", backgroundCombo = BuildCombo(new[] { "LightKey", "CornerSample" }));
         AddRow(leftStack, "Alpha", alphaUpDown = BuildNumber(0, 255, settings.AlphaThreshold));
@@ -119,6 +130,12 @@ internal sealed class MainForm : Form
         AddRow(leftStack, "Frame Dark", frameDarkUpDown = BuildNumber(0, 180, settings.FrameDarkThreshold));
         AddRow(leftStack, "Frame Cover", frameCoverageUpDown = BuildNumber(25, 95, (int)(settings.FrameCoverageThreshold * 100f)));
         AddRow(leftStack, "Frame Pad", frameSnapPaddingUpDown = BuildNumber(0, 12, settings.FrameSnapPadding));
+        AddRow(leftStack, "Patch Text", patchTextBox = new TextBox { Width = 260, Text = "新文字" });
+        AddRow(leftStack, "Patch X", patchXUpDown = BuildNumber(0, 100000, 0));
+        AddRow(leftStack, "Patch Y", patchYUpDown = BuildNumber(0, 100000, 0));
+        AddRow(leftStack, "Patch W", patchWUpDown = BuildNumber(0, 100000, 0));
+        AddRow(leftStack, "Patch H", patchHUpDown = BuildNumber(0, 100000, 0));
+        AddRow(leftStack, "Patch Font", patchFontSizeUpDown = BuildNumber(6, 160, 30));
 
         modeCombo.SelectedIndexChanged += (_, _) =>
         {
@@ -142,21 +159,6 @@ internal sealed class MainForm : Form
         openOutputBtn.Click += (_, _) => OpenOutputFolder();
         actions.Controls.AddRange(new Control[] { processBtn, exportCompositeBtn, exportAllBtn, openOutputBtn });
         leftScroll.Controls.Add(actions);
-
-        var presetRow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = true, Padding = new Padding(0, 0, 0, 8) };
-        foreach (var preset in ImageExtractor.GetFocusedRectPresets())
-        {
-            var button = new Button { Text = $"{preset.X},{preset.Y},{preset.Width}x{preset.Height}", AutoSize = true };
-            button.Click += (_, _) =>
-            {
-                settings.FocusRect = preset;
-                SyncSettingsToUi();
-                UpdateFocusControlsEnabled();
-                UpdateStatus("Loaded preset.");
-            };
-            presetRow.Controls.Add(button);
-        }
-        leftScroll.Controls.Add(presetRow);
 
         statusLabel = new Label
         {
@@ -205,6 +207,20 @@ internal sealed class MainForm : Form
         var clearBtn = new Button { Text = "Clear", AutoSize = true };
         clearBtn.Click += (_, _) => ClearSource();
         row.Controls.AddRange(new Control[] { sourcePathBox, loadBtn, clearBtn });
+        return row;
+    }
+
+    Control BuildPresetRow()
+    {
+        var row = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
+        presetCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+        foreach (FocusedRectPreset preset in ImageExtractor.GetFocusedRectPresets())
+            presetCombo.Items.Add(preset.Name);
+        presetCombo.SelectedIndex = 0;
+
+        var applyBtn = new Button { Text = "Apply", AutoSize = true };
+        applyBtn.Click += (_, _) => ApplySelectedPreset();
+        row.Controls.AddRange(new Control[] { presetCombo, applyBtn });
         return row;
     }
 
@@ -297,6 +313,35 @@ internal sealed class MainForm : Form
         UpdateStatus($"Loaded {Path.GetFileName(path)}.");
     }
 
+    void TryLoadDefaultSource()
+    {
+        string? path = FindDefaultSourceImage();
+        if (path == null)
+            return;
+
+        sourcePathBox.Text = path;
+        LoadSourceBitmap(path);
+    }
+
+    void ApplySelectedPreset()
+    {
+        FocusedRectPreset[] presets = ImageExtractor.GetFocusedRectPresets();
+        int index = Math.Clamp(presetCombo.SelectedIndex, 0, presets.Length - 1);
+        FocusedRectPreset preset = presets[index];
+
+        settings.Mode = ExtractionMode.FocusedRect;
+        settings.FocusRect = preset.Rect;
+        settings.ExactMask = preset.ExactMask;
+        settings.ClearMatchButtonBorderContent = preset.ClearMatchButtonBorderContent;
+        settings.FocusedElementName = preset.Name;
+        settings.ExactExportTrim = preset.ExportTrim;
+        settings.AutoSnapFocusedRect = preset.ExactMask == ExactPieceMask.None && settings.AutoSnapFocusedRect;
+
+        SyncSettingsToUi();
+        UpdateFocusControlsEnabled();
+        UpdateStatus($"Loaded preset {preset.Name}.");
+    }
+
     void ClearSource()
     {
         sourcePathBox.Clear();
@@ -374,12 +419,15 @@ internal sealed class MainForm : Form
             thumbs.Controls.Add(MiniPreview(element.DetailBitmap, "Detail"), 2, 0);
             card.Controls.Add(thumbs);
 
-            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 32, FlowDirection = FlowDirection.LeftToRight };
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 64, FlowDirection = FlowDirection.LeftToRight };
             buttons.Controls.Add(BuildExportButton(element, "full", element.FullBitmap));
             if (element.PlateBitmap != null)
                 buttons.Controls.Add(BuildExportButton(element, "plate", element.PlateBitmap));
             if (element.DetailBitmap != null)
                 buttons.Controls.Add(BuildExportButton(element, "detail", element.DetailBitmap));
+            buttons.Controls.Add(BuildRenderButton(element, "patched", () => ImageComposer.PatchText(element.FullBitmap, GetPatchRect(), GetPatchText(), GetPatchFontSize())));
+            buttons.Controls.Add(BuildRenderButton(element, "gold", () => ImageComposer.RenderGoldBevelButton(element.ExportBounds.Width, element.ExportBounds.Height, GetPatchText(), GetPatchFontSize())));
+            buttons.Controls.Add(BuildRenderButton(element, "rounded", () => ImageComposer.RenderGoldRoundedButton(element.ExportBounds.Width, element.ExportBounds.Height, GetPatchText(), GetPatchFontSize())));
             card.Controls.Add(buttons);
 
             elementsPanel.Controls.Add(card);
@@ -407,6 +455,17 @@ internal sealed class MainForm : Form
     {
         var button = new Button { Text = $"Export {suffix}", AutoSize = true };
         button.Click += (_, _) => ExportElementBitmap(element, suffix, bitmap);
+        return button;
+    }
+
+    Button BuildRenderButton(ExtractedElement element, string suffix, Func<Bitmap> render)
+    {
+        var button = new Button { Text = $"Export {suffix}", AutoSize = true };
+        button.Click += (_, _) =>
+        {
+            using Bitmap bitmap = render();
+            ExportRenderedElementBitmap(element, suffix, bitmap);
+        };
         return button;
     }
 
@@ -452,6 +511,13 @@ internal sealed class MainForm : Form
         UpdateStatus($"{element.Name} {suffix} exported.");
     }
 
+    void ExportRenderedElementBitmap(ExtractedElement element, string suffix, Bitmap bitmap)
+    {
+        string folder = EnsureOutputFolder();
+        SaveElementVariant(folder, element, suffix, bitmap);
+        UpdateStatus($"{element.Name} {suffix} rendered and exported.");
+    }
+
     void SaveElementVariant(string folder, ExtractedElement element, string suffix, Bitmap bitmap)
     {
         string baseName = GetBaseName();
@@ -488,6 +554,21 @@ internal sealed class MainForm : Form
         return Path.Combine(AppContext.BaseDirectory, "ExtractedLayers");
     }
 
+    static string? FindDefaultSourceImage()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            string candidate = Path.Combine(directory.FullName, "Assets", "Resources", "LobbyGen", "_ref_lobby_master.png");
+            if (File.Exists(candidate))
+                return candidate;
+
+            directory = directory.Parent;
+        }
+
+        return null;
+    }
+
     void UpdateStatus(string text)
     {
         statusLabel.Text = text;
@@ -517,6 +598,26 @@ internal sealed class MainForm : Form
         settings.FrameDarkThreshold = (int)frameDarkUpDown.Value;
         settings.FrameCoverageThreshold = (float)frameCoverageUpDown.Value / 100f;
         settings.FrameSnapPadding = (int)frameSnapPaddingUpDown.Value;
+
+        if (presetCombo.SelectedIndex >= 0)
+        {
+            FocusedRectPreset[] presets = ImageExtractor.GetFocusedRectPresets();
+            FocusedRectPreset preset = presets[Math.Clamp(presetCombo.SelectedIndex, 0, presets.Length - 1)];
+            if (settings.FocusRect == preset.Rect)
+            {
+                settings.ExactMask = preset.ExactMask;
+                settings.ClearMatchButtonBorderContent = preset.ClearMatchButtonBorderContent;
+                settings.FocusedElementName = preset.Name;
+                settings.ExactExportTrim = preset.ExportTrim;
+            }
+            else
+            {
+                settings.ExactMask = ExactPieceMask.None;
+                settings.ClearMatchButtonBorderContent = false;
+                settings.FocusedElementName = "Focused";
+                settings.ExactExportTrim = null;
+            }
+        }
     }
 
     void SyncSettingsToUi()
@@ -564,6 +665,19 @@ internal sealed class MainForm : Form
         frameCoverageUpDown.Enabled = focused && autoSnap;
         frameSnapPaddingUpDown.Enabled = focused && autoSnap;
     }
+
+    RectInt GetPatchRect()
+        => new(
+            (int)patchXUpDown.Value,
+            (int)patchYUpDown.Value,
+            (int)patchWUpDown.Value,
+            (int)patchHUpDown.Value);
+
+    string GetPatchText()
+        => string.IsNullOrWhiteSpace(patchTextBox.Text) ? "新文字" : patchTextBox.Text.Trim();
+
+    float GetPatchFontSize()
+        => (float)patchFontSizeUpDown.Value;
 
     void DisposeBitmaps()
     {

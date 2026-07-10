@@ -1,14 +1,13 @@
 [gd_scene load_steps=5 format=3 uid="uid://godotrtsmapstudio"]
 
 [ext_resource type="Script" path="res://scripts/map/BattleMapRenderer.cs" id="1_map_renderer"]
-[ext_resource type="Resource" path="res://data/maps/simulation_sandbox.tres" id="2_map_resource"]
 
 [node name="MapStudio" type="Node3D"]
 
 [node name="MapRenderer" type="Node3D" parent="."]
 script = ExtResource("1_map_renderer")
 PreviewMapName = "Simulation Sandbox"
-AuthoredMapResource = ExtResource("2_map_resource")
+AuthoredMapResourcePath = "res://data/maps/simulation_sandbox.tres"
 ShowSpawnMarkers = true
 TintImportedAssets = false
 LivePreviewInEditor = true
@@ -16,6 +15,9 @@ CameraPath = NodePath("../CameraRig/Camera3D")
 SunPath = NodePath("../Sun")
 
 [node name="TerrainRoot" type="Node3D" parent="."]
+
+[node name="Terrain3D" type="Terrain3D" parent="TerrainRoot"]
+data_directory = "res://data/terrain3d/mapstudio"
 
 [node name="GridMap" type="GridMap" parent="."]
 cell_size = Vector3(4, 2, 4)

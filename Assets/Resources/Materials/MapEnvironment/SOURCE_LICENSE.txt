@@ -1,0 +1,19 @@
+Poly Haven map environment materials
+
+Provider: Poly Haven
+License: CC0 / public domain dedication
+License URL: https://polyhaven.com/license
+Source root: Assets/External/PolyHaven/EnvironmentTextures
+Download helper: Tools/Downloads/polyhaven/download_rts_map_environment.py
+
+Selected texture asset pages:
+- https://polyhaven.com/a/forrest_ground_01
+- https://polyhaven.com/a/forest_ground_04
+- https://polyhaven.com/a/rocky_trail
+- https://polyhaven.com/a/gravel_road
+- https://polyhaven.com/a/aerial_beach_01
+- https://polyhaven.com/a/aerial_mud_1
+- https://polyhaven.com/a/snow_03
+- https://polyhaven.com/a/concrete_floor_damaged_01
+- https://polyhaven.com/a/asphalt_02
+- https://polyhaven.com/a/rock_ground_02

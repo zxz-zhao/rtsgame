@@ -161,11 +161,32 @@ public static class RuntimeBattleMapBuilder
 
     static readonly Dictionary<int, Texture2D> SurfaceAlbedoTextureCache = new Dictionary<int, Texture2D>();
     static readonly Dictionary<int, Texture2D> SurfaceNormalTextureCache = new Dictionary<int, Texture2D>();
+    static readonly Dictionary<SurfaceMaterialKind, string> InstalledSurfaceMaterialPaths = new Dictionary<SurfaceMaterialKind, string>
+    {
+        { SurfaceMaterialKind.Grassland, "Materials/MapEnvironment/Env_Grassland" },
+        { SurfaceMaterialKind.ForestFloor, "Materials/MapEnvironment/Env_ForestFloor" },
+        { SurfaceMaterialKind.DirtRoad, "Materials/MapEnvironment/Env_DirtRoad" },
+        { SurfaceMaterialKind.Asphalt, "Materials/MapEnvironment/Env_Asphalt" },
+        { SurfaceMaterialKind.Concrete, "Materials/MapEnvironment/Env_Concrete" },
+        { SurfaceMaterialKind.Gravel, "Materials/MapEnvironment/Env_Gravel" },
+        { SurfaceMaterialKind.Shore, "Materials/MapEnvironment/Env_Shore" },
+        { SurfaceMaterialKind.BasePad, "Materials/MapEnvironment/Env_BasePad" },
+        { SurfaceMaterialKind.BattleScar, "Materials/MapEnvironment/Env_BattleScar" },
+        { SurfaceMaterialKind.RuinDust, "Materials/MapEnvironment/Env_RuinDust" },
+        { SurfaceMaterialKind.Snow, "Materials/MapEnvironment/Env_Snow" },
+        { SurfaceMaterialKind.Mud, "Materials/MapEnvironment/Env_Mud" },
+    };
+    static readonly Dictionary<SurfaceMaterialKind, Material> InstalledSurfaceTemplateCache = new Dictionary<SurfaceMaterialKind, Material>();
+    static readonly HashSet<SurfaceMaterialKind> MissingInstalledSurfaceTemplates = new HashSet<SurfaceMaterialKind>();
 
     static Material MakeReadableSurfaceMat(string name, Color color, float glossiness)
     {
         SurfaceMaterialKind kind = ClassifySurfaceMaterialKind(name, color);
         color = MakeReadableSurfaceColor(kind, color);
+
+        Material installed;
+        if (TryMakeInstalledSurfaceMat(kind, color, glossiness, out installed))
+            return installed;
 
         Shader shader = Shader.Find("Standard") ?? Shader.Find("Unlit/Texture") ?? Shader.Find("Unlit/Color");
         var mat = new Material(shader);
@@ -188,6 +209,90 @@ public static class RuntimeBattleMapBuilder
         if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", PickSurfaceSmoothness(kind, glossiness));
         if (mat.HasProperty("_BumpScale")) mat.SetFloat("_BumpScale", PickSurfaceNormalScale(kind));
         return mat;
+    }
+
+    static bool TryMakeInstalledSurfaceMat(SurfaceMaterialKind kind, Color color, float glossiness, out Material material)
+    {
+        material = null;
+        Material template = LoadInstalledSurfaceTemplate(kind);
+        if (template == null)
+            return false;
+
+        material = new Material(template);
+        material.name = "InstalledSurface_" + kind;
+
+        Color tint = Color.Lerp(Color.white, color, PickInstalledSurfaceTintStrength(kind));
+        tint.a = color.a;
+        RendererColorUtil.TrySetColor(material, tint);
+
+        float smoothness = PickSurfaceSmoothness(kind, glossiness);
+        if (material.HasProperty("_Glossiness")) material.SetFloat("_Glossiness", smoothness);
+        if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", smoothness);
+        if (material.HasProperty("_GlossMapScale")) material.SetFloat("_GlossMapScale", smoothness);
+        if (material.HasProperty("_BumpScale")) material.SetFloat("_BumpScale", PickSurfaceNormalScale(kind));
+        if (material.HasProperty("_OcclusionStrength")) material.SetFloat("_OcclusionStrength", PickInstalledSurfaceOcclusion(kind));
+        if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", kind == SurfaceMaterialKind.Water ? 0.02f : 0f);
+        return true;
+    }
+
+    static Material LoadInstalledSurfaceTemplate(SurfaceMaterialKind kind)
+    {
+        Material material;
+        if (InstalledSurfaceTemplateCache.TryGetValue(kind, out material) && material != null)
+            return material;
+        if (MissingInstalledSurfaceTemplates.Contains(kind))
+            return null;
+
+        string path;
+        if (!InstalledSurfaceMaterialPaths.TryGetValue(kind, out path))
+        {
+            MissingInstalledSurfaceTemplates.Add(kind);
+            return null;
+        }
+
+        material = Resources.Load<Material>(path);
+        if (material == null)
+        {
+            MissingInstalledSurfaceTemplates.Add(kind);
+            return null;
+        }
+
+        InstalledSurfaceTemplateCache[kind] = material;
+        return material;
+    }
+
+    static float PickInstalledSurfaceTintStrength(SurfaceMaterialKind kind)
+    {
+        switch (kind)
+        {
+            case SurfaceMaterialKind.Grassland: return 0.18f;
+            case SurfaceMaterialKind.ForestFloor: return 0.14f;
+            case SurfaceMaterialKind.DirtRoad: return 0.10f;
+            case SurfaceMaterialKind.Asphalt: return 0.04f;
+            case SurfaceMaterialKind.Concrete: return 0.05f;
+            case SurfaceMaterialKind.Gravel: return 0.08f;
+            case SurfaceMaterialKind.Shore: return 0.10f;
+            case SurfaceMaterialKind.BasePad: return 0.05f;
+            case SurfaceMaterialKind.BattleScar: return 0.12f;
+            case SurfaceMaterialKind.RuinDust: return 0.10f;
+            case SurfaceMaterialKind.Snow: return 0.06f;
+            case SurfaceMaterialKind.Mud: return 0.14f;
+            default: return 0.10f;
+        }
+    }
+
+    static float PickInstalledSurfaceOcclusion(SurfaceMaterialKind kind)
+    {
+        switch (kind)
+        {
+            case SurfaceMaterialKind.ForestFloor: return 0.92f;
+            case SurfaceMaterialKind.DirtRoad: return 0.86f;
+            case SurfaceMaterialKind.Gravel: return 0.82f;
+            case SurfaceMaterialKind.Shore: return 0.72f;
+            case SurfaceMaterialKind.Mud: return 0.76f;
+            case SurfaceMaterialKind.Snow: return 0.68f;
+            default: return 0.80f;
+        }
     }
 
     static SurfaceMaterialKind ClassifySurfaceMaterialKind(string name, Color color)
@@ -1369,6 +1474,10 @@ public static class RuntimeBattleMapBuilder
                 renderer.sharedMaterial.mainTextureScale = tiling;
                 if (renderer.sharedMaterial.HasProperty("_BumpMap"))
                     renderer.sharedMaterial.SetTextureScale("_BumpMap", tiling);
+                if (renderer.sharedMaterial.HasProperty("_MetallicGlossMap"))
+                    renderer.sharedMaterial.SetTextureScale("_MetallicGlossMap", tiling);
+                if (renderer.sharedMaterial.HasProperty("_OcclusionMap"))
+                    renderer.sharedMaterial.SetTextureScale("_OcclusionMap", tiling);
             }
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = true;

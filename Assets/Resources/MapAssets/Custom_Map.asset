@@ -1,0 +1,215 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93facf1a6738d594aae7c296f2a82f6b, type: 3}
+  m_Name: Custom_Map
+  m_EditorClassIdentifier: 
+  Map:
+    Name: Standalone Compound
+    RandomSeed: 14621
+    GroundColor: {r: 0.27, g: 0.30, b: 0.24, a: 1}
+    RoadColor: {r: 0.31, g: 0.29, b: 0.27, a: 1}
+    RoadEdgeColor: {r: 0.50, g: 0.43, b: 0.36, a: 1}
+    WaterColor: {r: 0.10, g: 0.22, b: 0.31, a: 1}
+    PatchAColor: {r: 0.28, g: 0.28, b: 0.24, a: 1}
+    PatchBColor: {r: 0.45, g: 0.38, b: 0.36, a: 1}
+    PlayerBasePadColor: {r: 0.40, g: 0.43, b: 0.43, a: 1}
+    EnemyBasePadColor: {r: 0.45, g: 0.36, b: 0.37, a: 1}
+    RockColor: {r: 0.38, g: 0.37, b: 0.34, a: 1}
+    FoliageColor: {r: 0.12, g: 0.35, b: 0.13, a: 1}
+    TrunkColor: {r: 0.24, g: 0.16, b: 0.10, a: 1}
+    WallColor: {r: 0.25, g: 0.26, b: 0.24, a: 1}
+    RuinColor: {r: 0.54, g: 0.43, b: 0.39, a: 1}
+    SkyColor: {r: 0.50, g: 0.62, b: 0.62, a: 1}
+    FogColor: {r: 0.42, g: 0.48, b: 0.44, a: 1}
+    AmbientSkyColor: {r: 0.56, g: 0.62, b: 0.56, a: 1}
+    AmbientEquatorColor: {r: 0.35, g: 0.39, b: 0.30, a: 1}
+    AmbientGroundColor: {r: 0.16, g: 0.18, b: 0.14, a: 1}
+    FogStart: 175
+    FogEnd: 430
+    RockClusters:
+    - {x: -170, y: 0, z: -28}
+    - {x: 170, y: 0, z: 28}
+    - {x: -126, y: 0, z: 132}
+    - {x: 126, y: 0, z: -132}
+    - {x: -48, y: 0, z: 96}
+    - {x: 48, y: 0, z: -96}
+    - {x: -158, y: 0, z: -156}
+    - {x: 158, y: 0, z: 156}
+    TreePositions:
+    - {x: -184, y: 0, z: 176}
+    - {x: -164, y: 0, z: 126}
+    - {x: -184, y: 0, z: -176}
+    - {x: -136, y: 0, z: -174}
+    - {x: 184, y: 0, z: 176}
+    - {x: 136, y: 0, z: 174}
+    - {x: 184, y: 0, z: -176}
+    - {x: 164, y: 0, z: -126}
+    - {x: -182, y: 0, z: 48}
+    - {x: -178, y: 0, z: -74}
+    - {x: 182, y: 0, z: -48}
+    - {x: 178, y: 0, z: 74}
+    - {x: -82, y: 0, z: 178}
+    - {x: 82, y: 0, z: -178}
+    SpawnPoints:
+    - Name: PlayerSpawn
+      Position: {x: -128, y: 0, z: -128}
+      Yaw: 45
+      IsPlayer: 1
+      TeamIndex: 0
+    - Name: EnemySpawn1
+      Position: {x: 128, y: 0, z: 128}
+      Yaw: 225
+      IsPlayer: 0
+      TeamIndex: 1
+    Props:
+    - Name: CommandBlock
+      ResourcePath: builtin:house
+      Position: {x: -22, y: 0, z: 16}
+      Yaw: 6
+      Scale: 1.55
+      BlocksNavigation: 1
+    - Name: DepotBlock
+      ResourcePath: builtin:house
+      Position: {x: 24, y: 0, z: -18}
+      Yaw: 188
+      Scale: 1.38
+      BlocksNavigation: 1
+    - Name: WestGuardPost
+      ResourcePath: builtin:house
+      Position: {x: -74, y: 0, z: -4}
+      Yaw: 92
+      Scale: 1.05
+      BlocksNavigation: 1
+    - Name: EastGuardPost
+      ResourcePath: builtin:house
+      Position: {x: 74, y: 0, z: 4}
+      Yaw: 272
+      Scale: 1.05
+      BlocksNavigation: 1
+    RuinWalls:
+    - Center: {x: 0, y: 0, z: 82}
+      Angle: 0
+      Segments: 9
+    - Center: {x: 0, y: 0, z: -82}
+      Angle: 0
+      Segments: 9
+    - Center: {x: -108, y: 0, z: 0}
+      Angle: 90
+      Segments: 7
+    - Center: {x: 108, y: 0, z: 0}
+      Angle: 90
+      Segments: 7
+    - Center: {x: -42, y: 0, z: 36}
+      Angle: 8
+      Segments: 4
+    - Center: {x: 42, y: 0, z: -36}
+      Angle: 188
+      Segments: 4
+    SandbagRings:
+    - Center: {x: -128, y: 0, z: -128}
+      Radius: 25
+      Count: 9
+      IsEnemy: 0
+    - Center: {x: 128, y: 0, z: 128}
+      Radius: 25
+      Count: 9
+      IsEnemy: 1
+    - Center: {x: 0, y: 0, z: 0}
+      Radius: 43
+      Count: 12
+      IsEnemy: 0
+    Roads:
+    - Name: MainCauseway
+      Center: {x: 0, y: 0, z: 0}
+      Size: {x: 18, y: 330}
+      Angle: 45
+    - Name: CounterCauseway
+      Center: {x: 0, y: 0, z: 0}
+      Size: {x: 14, y: 244}
+      Angle: -45
+    - Name: NorthGateRun
+      Center: {x: 0, y: 0, z: 96}
+      Size: {x: 14, y: 160}
+      Angle: 90
+    - Name: SouthGateRun
+      Center: {x: 0, y: 0, z: -96}
+      Size: {x: 14, y: 160}
+      Angle: 90
+    - Name: WestServiceRoad
+      Center: {x: -128, y: 0, z: 0}
+      Size: {x: 11, y: 132}
+      Angle: 0
+    - Name: EastServiceRoad
+      Center: {x: 128, y: 0, z: 0}
+      Size: {x: 11, y: 132}
+      Angle: 0
+    Waters:
+    - Name: NorthMoat
+      Center: {x: 0, y: 0, z: 118}
+      Size: {x: 232, y: 22}
+      Angle: 0
+    - Name: SouthMoat
+      Center: {x: 0, y: 0, z: -118}
+      Size: {x: 232, y: 22}
+      Angle: 0
+    - Name: WestMoat
+      Center: {x: -136, y: 0, z: 0}
+      Size: {x: 22, y: 196}
+      Angle: 0
+    - Name: EastMoat
+      Center: {x: 136, y: 0, z: 0}
+      Size: {x: 22, y: 196}
+      Angle: 0
+    - Name: InnerWestChannel
+      Center: {x: -58, y: 0, z: 0}
+      Size: {x: 12, y: 118}
+      Angle: 0
+    - Name: InnerEastChannel
+      Center: {x: 58, y: 0, z: 0}
+      Size: {x: 12, y: 118}
+      Angle: 0
+    Patches:
+    - Name: PlayerBasePad
+      Center: {x: -128, y: 0, z: -128}
+      Size: {x: 92, y: 92}
+      Angle: 0
+      PaletteIndex: 2
+    - Name: EnemyBasePad
+      Center: {x: 128, y: 0, z: 128}
+      Size: {x: 92, y: 92}
+      Angle: 0
+      PaletteIndex: 3
+    - Name: CentralCompound
+      Center: {x: 0, y: 0, z: 0}
+      Size: {x: 178, y: 132}
+      Angle: 0
+      PaletteIndex: 1
+    - Name: NorthRampartFloor
+      Center: {x: 0, y: 0, z: 166}
+      Size: {x: 260, y: 44}
+      Angle: 0
+      PaletteIndex: 0
+    - Name: SouthRampartFloor
+      Center: {x: 0, y: 0, z: -166}
+      Size: {x: 260, y: 44}
+      Angle: 0
+      PaletteIndex: 0
+    - Name: WestRampartFloor
+      Center: {x: -176, y: 0, z: 0}
+      Size: {x: 44, y: 204}
+      Angle: 0
+      PaletteIndex: 0
+    - Name: EastRampartFloor
+      Center: {x: 176, y: 0, z: 0}
+      Size: {x: 44, y: 204}
+      Angle: 0
+      PaletteIndex: 0

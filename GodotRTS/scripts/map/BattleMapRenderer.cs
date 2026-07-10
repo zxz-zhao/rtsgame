@@ -47,12 +47,8 @@ public partial class BattleMapRenderer : Node3D
 
     readonly string[] temperateTreeScenes =
     {
-        NatureKitRoot + "tree_detailed.fbx",
-        NatureKitRoot + "tree_oak.fbx",
-        NatureKitRoot + "tree_fat.fbx",
-        NatureKitRoot + "tree_tall.fbx",
-        NatureKitRoot + "tree_default.fbx",
-        NatureKitRoot + "tree_small.fbx"
+        "res://assets/third_party/polyhaven/EnvironmentModels/tree_small_02/tree_small_02_1k.fbx",
+        "res://assets/third_party/polyhaven/EnvironmentModels/fir_tree_01/fir_tree_01_1k.fbx"
     };
     readonly string[] jungleTreeScenes =
     {
@@ -96,19 +92,13 @@ public partial class BattleMapRenderer : Node3D
     };
     readonly string[] bushScenes =
     {
-        NatureKitRoot + "plant_bush.fbx",
-        NatureKitRoot + "plant_bushDetailed.fbx",
-        NatureKitRoot + "plant_bushLarge.fbx",
-        NatureKitRoot + "plant_bushSmall.fbx"
+        "res://assets/third_party/polyhaven/EnvironmentModels/shrub_01/shrub_01_1k.fbx",
+        "res://assets/third_party/polyhaven/EnvironmentModels/fern_02/fern_02_1k.fbx"
     };
     readonly string[] grassScenes =
     {
-        NatureKitRoot + "grass_large.fbx",
-        NatureKitRoot + "grass_leafs.fbx",
-        NatureKitRoot + "grass_leafsLarge.fbx",
-        MilitaryExtractedRoot + "grass-patch.fbx",
-        MilitaryExtractedRoot + "grass-plant.fbx",
-        SurvivalKitRoot + "patch-grass.fbx"
+        "res://assets/third_party/polyhaven/EnvironmentModels/grass_medium_01/grass_medium_01_1k.fbx",
+        "res://assets/third_party/polyhaven/EnvironmentModels/grass_bermuda_01/grass_bermuda_01_1k.fbx"
     };
     readonly (string Path, Vector3 Position, float Yaw, float Height, float Span)[] cityRuinPlacements =
     {
@@ -1142,8 +1132,174 @@ public partial class BattleMapRenderer : Node3D
         imported.Rotation = rotation;
         if (TintImportedAssets && !preserveMaterials)
             TintImported(imported, tint);
+
+        if (path.Contains("polyhaven"))
+        {
+            if (path.Contains("tree_small_02"))
+                ApplyPolyHavenMaterials(imported, "tree_small_02");
+            else if (path.Contains("fir_tree_01"))
+                ApplyPolyHavenMaterials(imported, "fir_tree_01");
+            else if (path.Contains("shrub_01"))
+                ApplyPolyHavenMaterials(imported, "shrub_01");
+            else if (path.Contains("fern_02"))
+                ApplyPolyHavenMaterials(imported, "fern_02");
+            else if (path.Contains("grass_medium_01"))
+                ApplyPolyHavenMaterials(imported, "grass_medium_01");
+            else if (path.Contains("grass_bermuda_01"))
+                ApplyPolyHavenMaterials(imported, "grass_bermuda_01");
+        }
+
         generatedRoot!.AddChild(imported);
         return true;
+    }
+
+    static void ApplyPolyHavenMaterials(Node3D node, string assetId)
+    {
+        string baseDir = $"res://assets/third_party/polyhaven/EnvironmentModels/{assetId}/";
+        var trunkMat = new StandardMaterial3D();
+        var foliageMat = new StandardMaterial3D();
+
+        if (assetId == "tree_small_02")
+        {
+            SetMaterialTexture(trunkMat, baseDir + "tree_small_02_diff_1k.jpg", baseDir + "tree_small_02_nor_gl_1k.exr", baseDir + "tree_small_02_rough_1k.exr");
+            SetMaterialTexture(foliageMat, baseDir + "tree_small_02_leaves_diff_1k.png", baseDir + "tree_small_02_leaves_nor_gl_1k.png", baseDir + "tree_small_02_leaves_rough_1k.png");
+            foliageMat.Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor;
+            foliageMat.AlphaScissorThreshold = 0.5f;
+            foliageMat.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+
+            var branchMat = new StandardMaterial3D();
+            SetMaterialTexture(branchMat, baseDir + "tree_small_02_branch_diff_1k.png", baseDir + "tree_small_02_branch_nor_gl_1k.png", baseDir + "tree_small_02_branch_rough_1k.png");
+
+            ApplyMeshMaterials(node, trunkMat, foliageMat, branchMat);
+            return;
+        }
+        else if (assetId == "fir_tree_01")
+        {
+            SetMaterialTexture(trunkMat, baseDir + "fir_tree_01_bark_diff_1k.png", baseDir + "fir_tree_01_bark_nor_gl_1k.png", baseDir + "fir_tree_01_bark_rough_1k.png");
+            SetMaterialTexture(foliageMat, baseDir + "fir_tree_01_twig_diff_1k.png", baseDir + "fir_tree_01_twig_nor_gl_1k.png", baseDir + "fir_tree_01_twig_rough_1k.png");
+            foliageMat.Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor;
+            foliageMat.AlphaScissorThreshold = 0.5f;
+            foliageMat.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+        }
+        else if (assetId == "shrub_01")
+        {
+            if (ResourceLoader.Exists(baseDir + "shrub_01_alpha_1k.png"))
+            {
+                foliageMat.AlbedoTexture = LoadCombinedAlphaTexture(baseDir + "shrub_01_diff_1k.jpg", baseDir + "shrub_01_alpha_1k.png");
+                foliageMat.Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor;
+                foliageMat.AlphaScissorThreshold = 0.5f;
+                foliageMat.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+            }
+            else
+            {
+                SetMaterialTexture(foliageMat, baseDir + "shrub_01_diff_1k.jpg", baseDir + "shrub_01_nor_gl_1k.exr", baseDir + "shrub_01_rough_1k.exr");
+            }
+            trunkMat = foliageMat;
+        }
+        else if (assetId == "fern_02")
+        {
+            if (ResourceLoader.Exists(baseDir + "fern_02_alpha_1k.png"))
+            {
+                foliageMat.AlbedoTexture = LoadCombinedAlphaTexture(baseDir + "fern_02_diff_1k.jpg", baseDir + "fern_02_alpha_1k.png");
+                foliageMat.Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor;
+                foliageMat.AlphaScissorThreshold = 0.5f;
+                foliageMat.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+            }
+            else
+            {
+                SetMaterialTexture(foliageMat, baseDir + "fern_02_diff_1k.jpg", baseDir + "fern_02_nor_gl_1k.exr", baseDir + "fern_02_rough_1k.exr");
+            }
+            trunkMat = foliageMat;
+        }
+        else if (assetId == "grass_medium_01")
+        {
+            if (ResourceLoader.Exists(baseDir + "grass_medium_01_alpha_1k.png"))
+            {
+                foliageMat.AlbedoTexture = LoadCombinedAlphaTexture(baseDir + "grass_medium_01_diff_1k.jpg", baseDir + "grass_medium_01_alpha_1k.png");
+                foliageMat.Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor;
+                foliageMat.AlphaScissorThreshold = 0.5f;
+                foliageMat.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+            }
+            else
+            {
+                SetMaterialTexture(foliageMat, baseDir + "grass_medium_01_diff_1k.jpg", baseDir + "grass_medium_01_nor_gl_1k.exr", baseDir + "grass_medium_01_rough_1k.exr");
+            }
+            trunkMat = foliageMat;
+        }
+        else if (assetId == "grass_bermuda_01")
+        {
+            SetMaterialTexture(foliageMat, baseDir + "grass_bermuda_01_diff_1k.jpg", baseDir + "grass_bermuda_01_nor_gl_1k.exr", baseDir + "grass_bermuda_01_rough_1k.exr");
+            foliageMat.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+            trunkMat = foliageMat;
+        }
+
+        ApplyMeshMaterials(node, trunkMat, foliageMat, null);
+    }
+
+    static void SetMaterialTexture(StandardMaterial3D mat, string diff, string nor, string rough)
+    {
+        if (ResourceLoader.Exists(diff))
+            mat.AlbedoTexture = GD.Load<Texture2D>(diff);
+        if (ResourceLoader.Exists(nor))
+        {
+            mat.NormalEnabled = true;
+            mat.NormalTexture = GD.Load<Texture2D>(nor);
+        }
+        if (ResourceLoader.Exists(rough))
+            mat.RoughnessTexture = GD.Load<Texture2D>(rough);
+    }
+
+    static Texture2D LoadCombinedAlphaTexture(string diffPath, string alphaPath)
+    {
+        var diffImg = Image.LoadFromFile(ProjectSettings.GlobalizePath(diffPath));
+        var alphaImg = Image.LoadFromFile(ProjectSettings.GlobalizePath(alphaPath));
+        if (diffImg is not null && alphaImg is not null)
+        {
+            diffImg.Convert(Image.Format.Rgba8);
+            var size = diffImg.GetSize();
+            if (alphaImg.GetSize() != size)
+            {
+                alphaImg.Resize(size.X, size.Y);
+            }
+            
+            for (var y = 0; y < size.Y; y++)
+            {
+                for (var x = 0; x < size.X; x++)
+                {
+                    var color = diffImg.GetPixel(x, y);
+                    var alphaColor = alphaImg.GetPixel(x, y);
+                    color.A = alphaColor.R;
+                    diffImg.SetPixel(x, y, color);
+                }
+            }
+            return ImageTexture.CreateFromImage(diffImg);
+        }
+        return GD.Load<Texture2D>(diffPath);
+    }
+
+    static void ApplyMeshMaterials(Node node, Material trunk, Material foliage, Material? branch)
+    {
+        if (node is MeshInstance3D mesh)
+        {
+            string nameLower = mesh.Name.ToString().ToLower();
+            if (nameLower.Contains("leave") || nameLower.Contains("leaf") || nameLower.Contains("twig") || nameLower.Contains("foliage"))
+            {
+                mesh.MaterialOverride = foliage;
+            }
+            else if (nameLower.Contains("branch") && branch is not null)
+            {
+                mesh.MaterialOverride = branch;
+            }
+            else
+            {
+                mesh.MaterialOverride = trunk;
+            }
+        }
+
+        foreach (var child in node.GetChildren())
+        {
+            ApplyMeshMaterials(child, trunk, foliage, branch);
+        }
     }
 
     static Node3D? TryInstanceScene(string path, string name)

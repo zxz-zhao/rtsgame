@@ -404,7 +404,6 @@ public class LobbyUIToolkitController : MonoBehaviour
         }
 
         SetLabel("match-selected-map", "当前战区：" + selectedMatchMap);
-        SetLabel("match-status-label", "已锁定战区，点击开始匹配");
         SetButtonText("match-start-button", "开始匹配");
         RefreshMatchRuntimeState();
     }
@@ -428,7 +427,6 @@ public class LobbyUIToolkitController : MonoBehaviour
             SelectMatchMap(0);
 
         LobbyManager.Instance?.UiToolkitStartMatch(selectedMatchMap);
-        SetLabel("match-status-label", "匹配中：正在搜索对手");
         SetLabel("match-hint-label", "正在连接对手，匹配成功后自动进入战场。");
         SetButtonText("match-start-button", "开始匹配");
         SetButtonText("match-cancel-button", "取消匹配");
@@ -440,7 +438,6 @@ public class LobbyUIToolkitController : MonoBehaviour
         if (LobbyManager.Instance != null && LobbyManager.Instance.UiToolkitIsMatching())
             LobbyManager.Instance.UiToolkitCancelMatch();
 
-        SetLabel("match-status-label", "选择战区后开始匹配");
         SetLabel("match-timer-label", "--");
         SetLabel("match-hint-label", "将按当前高亮战区寻找对手，匹配成功后自动进入战场。");
         SetButtonText("match-start-button", "开始匹配");
@@ -462,9 +459,6 @@ public class LobbyUIToolkitController : MonoBehaviour
         SetLabel("match-timer-label", matching && LobbyManager.Instance != null
             ? LobbyManager.Instance.UiToolkitMatchElapsedSeconds() + "s"
             : "--");
-
-        if (matching)
-            SetLabel("match-status-label", "匹配中：正在搜索对手");
     }
 
     public void OpenToolkitNotifyPanel()
