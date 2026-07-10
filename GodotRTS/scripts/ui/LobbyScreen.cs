@@ -561,12 +561,17 @@ public partial class LobbyScreen : Control
         titleRow.AddChild(spacer);
 
         var refreshBtn = AddButton("🔄 刷新", () => _ = RefreshFriends(), ButtonTone.Secondary, 11);
-        refreshBtn.CustomMinimumSize = new Vector2(68, 22);
+        refreshBtn.CustomMinimumSize = new Vector2(58, 22);
         refreshBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         titleRow.AddChild(refreshBtn);
 
+        var addFriendBtn = AddButton("➕ 添加", () => ShowAddFriendModal(), ButtonTone.Primary, 11);
+        addFriendBtn.CustomMinimumSize = new Vector2(58, 22);
+        addFriendBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        titleRow.AddChild(addFriendBtn);
+
         var inviteBtn = AddButton("📩 邀请", () => _ = ShowInvitesModal(), ButtonTone.Gold, 11);
-        inviteBtn.CustomMinimumSize = new Vector2(68, 22);
+        inviteBtn.CustomMinimumSize = new Vector2(58, 22);
         inviteBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         titleRow.AddChild(inviteBtn);
 
@@ -574,45 +579,6 @@ public partial class LobbyScreen : Control
 
         friendStatusLabel = AddLabel("好友列表加载中...", 13, MutedText, HorizontalAlignment.Left);
         box.AddChild(friendStatusLabel);
-
-        var addRow = new HBoxContainer { Name = "AddFriendRow" };
-        addRow.AddThemeConstantOverride("separation", 6);
-        addFriendInput = new LineEdit
-        {
-            Name = "AddFriendInput",
-            PlaceholderText = "输入好友名称",
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
-        };
-        var editStyle = new StyleBoxFlat
-        {
-            BgColor = new Color(0.06f, 0.08f, 0.10f, 0.88f),
-            BorderColor = new Color(0.42f, 0.50f, 0.58f, 0.32f),
-            BorderWidthLeft = 1,
-            BorderWidthTop = 1,
-            BorderWidthRight = 1,
-            BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 4,
-            CornerRadiusTopRight = 4,
-            CornerRadiusBottomLeft = 4,
-            CornerRadiusBottomRight = 4
-        };
-        addFriendInput.AddThemeStyleboxOverride("normal", editStyle);
-        addFriendInput.AddThemeStyleboxOverride("focus", new StyleBoxFlat
-        {
-            BgColor = new Color(0.06f, 0.08f, 0.10f, 0.88f),
-            BorderColor = new Color(0.96f, 0.79f, 0.30f, 0.62f),
-            BorderWidthLeft = 1,
-            BorderWidthTop = 1,
-            BorderWidthRight = 1,
-            BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 4,
-            CornerRadiusTopRight = 4,
-            CornerRadiusBottomLeft = 4,
-            CornerRadiusBottomRight = 4
-        });
-        addRow.AddChild(addFriendInput);
-        addRow.AddChild(AddButton("添加", () => _ = AddFriend(), ButtonTone.Primary, 13));
-        box.AddChild(addRow);
 
         var scroll = new ScrollContainer
         {
@@ -1807,6 +1773,72 @@ public partial class LobbyScreen : Control
 
 
 
+    void ShowAddFriendModal()
+    {
+        modalTitle.Text = "添加好友";
+        ClearChildren(modalBody);
+
+        var wrap = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        wrap.AddThemeConstantOverride("separation", 16);
+
+        wrap.AddChild(AddLabel("请输入你要添加的好友玩家名称：", 14, MutedText, HorizontalAlignment.Left));
+
+        addFriendInput = new LineEdit
+        {
+            Name = "ModalAddFriendInput",
+            PlaceholderText = "输入好友名称",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        var editStyle = new StyleBoxFlat
+        {
+            BgColor = new Color(0.06f, 0.08f, 0.10f, 0.88f),
+            BorderColor = new Color(0.42f, 0.50f, 0.58f, 0.32f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        };
+        addFriendInput.AddThemeStyleboxOverride("normal", editStyle);
+        addFriendInput.AddThemeStyleboxOverride("focus", new StyleBoxFlat
+        {
+            BgColor = new Color(0.06f, 0.08f, 0.10f, 0.88f),
+            BorderColor = new Color(0.96f, 0.79f, 0.30f, 0.62f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        });
+        addFriendInput.TextSubmitted += (val) => _ = AddFriend();
+        wrap.AddChild(addFriendInput);
+
+        var btnRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ShrinkEnd };
+        btnRow.AddThemeConstantOverride("separation", 10);
+
+        var cancelBtn = AddButton("取消", CloseModal, ButtonTone.Secondary, 13);
+        cancelBtn.CustomMinimumSize = new Vector2(88, 30);
+        btnRow.AddChild(cancelBtn);
+
+        var confirmBtn = AddButton("发送申请", () => _ = AddFriend(), ButtonTone.Primary, 13);
+        confirmBtn.CustomMinimumSize = new Vector2(88, 30);
+        btnRow.AddChild(confirmBtn);
+
+        wrap.AddChild(btnRow);
+
+        modalBody.AddChild(wrap);
+        ShowModal();
+
+        // 弹窗显示后立即聚焦输入框
+        addFriendInput.GrabFocus();
+    }
+
     async Task AddFriend()
     {
         var name = addFriendInput.Text.Trim();
@@ -1831,7 +1863,7 @@ public partial class LobbyScreen : Control
             return;
         }
 
-        addFriendInput.Text = "";
+        CloseModal();
         ShowToast($"已发送好友申请给 {name}");
         await RefreshFriends();
     }
