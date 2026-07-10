@@ -2744,7 +2744,7 @@ public partial class BattleGameManager : Node
         if (building.GetNodeOrNull<MeshInstance3D>("Mesh") is { } oldMesh)
             oldMesh.Visible = false;
  
-        var visual = new Node3D { Name = "BuildingVisual" };
+        var visual = new Node3D { Name = "BuildingVisual", Position = new Vector3(0f, 0.06f, 0f) };
         building.AddChild(visual);
         
         var key = def.Key;
@@ -2939,15 +2939,11 @@ public partial class BattleGameManager : Node
                 : spanScale;
 
         // ── 先把 Scale 写入，再以缩放后的 bounds 计算底部偏移 ──────────
-        // 原来的写法用缩放前的 bounds.Position.Y 乘以 scale 来贴地，
-        // 但某些 FBX 文件内部有额外的层级 Transform，导致未缩放时的
-        // bounds 不准确，建筑底部比 Y=0 低，出现"沉入地底"现象。
-        // 正确做法：先应用 Scale，然后重新计算 bounds，用真实的最低点来
-        // 设置 Position.Y，保证底部精确落在父节点坐标系的 Y=0 上。
         node.Scale = Vector3.One * scale;
 
-        // 重新计算缩放后的局部 bounds
-        if (!TryGetLocalBounds(node, Transform3D.Identity, out var scaledBounds))
+        // 重新计算缩放后的局部 bounds (传入包含 scale 的 rootTransform)
+        var rootTransform = new Transform3D(Basis.FromScale(Vector3.One * scale), Vector3.Zero);
+        if (!TryGetLocalBounds(node, rootTransform, out var scaledBounds))
         {
             // Fallback：无法获取缩放后 bounds，用原来的方式估算
             var center = bounds.Position + bounds.Size * 0.5f;
