@@ -3,15 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cusjpmkooeg52"
-path="res://.godot/imported/tech_bg_speed_wings.png-673d3b859fb7395aeac9ddf57123947f.ctex"
-metadata={
-"vram_texture": false
-}
+valid=false
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_speed_wings.png"
-dest_files=["res://.godot/imported/tech_bg_speed_wings.png-673d3b859fb7395aeac9ddf57123947f.ctex"]
 
 [params]
 

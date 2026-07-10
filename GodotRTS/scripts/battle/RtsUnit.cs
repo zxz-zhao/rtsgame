@@ -1559,7 +1559,10 @@ public partial class RtsUnit : CharacterBody3D
         if (infantryVisualParts.Count == 0)
             return;
 
-        var stride = moving ? visualMotionTime * 10.5f : 0f;
+        // 根据实际运动速度按比例调节步伐周期
+        float speedRatio = Velocity.Length() / Mathf.Max(0.1f, MoveSpeed);
+        var stride = moving ? visualMotionTime * (6.5f + 4.0f * speedRatio) : 0f;
+
         foreach (var part in infantryVisualParts)
         {
             var wave = Mathf.Sin(stride + part.Phase);
@@ -1579,10 +1582,11 @@ public partial class RtsUnit : CharacterBody3D
                     ApplyInfantryLimbStride(part, moving, wave, 0.30f);
                     break;
                 default:
-                    var bob = moving ? Mathf.Abs(wave) * 0.070f : 0f;
-                    var forwardStep = moving ? Mathf.Cos(stride + part.Phase) * 0.035f : 0f;
-                    var sideSway = moving ? Mathf.Sin(stride * 0.5f + part.Phase) * 0.018f : 0f;
-                    var lean = moving ? wave * 0.045f : 0f;
+                    // 躯干上下起伏与偏航/侧倾 - 适当改小以防止士兵产生夸张的“弹簧震动”
+                    var bob = moving ? Mathf.Abs(wave) * 0.022f : 0f;
+                    var forwardStep = moving ? Mathf.Cos(stride + part.Phase) * 0.012f : 0f;
+                    var sideSway = moving ? Mathf.Sin(stride * 0.5f + part.Phase) * 0.006f : 0f;
+                    var lean = moving ? wave * 0.022f : 0f;
                     part.Node.Position = part.RestPosition + new Vector3(sideSway, bob, forwardStep);
                     part.Node.Rotation = part.RestRotation + new Vector3(lean * 0.45f, lean * 0.65f, lean);
                     break;
@@ -1599,8 +1603,14 @@ public partial class RtsUnit : CharacterBody3D
             return;
         }
 
-        part.Node.Position = part.RestPosition + new Vector3(0f, Mathf.Abs(wave) * 0.018f, wave * 0.050f);
-        part.Node.Rotation = part.RestRotation + new Vector3(wave * swing, 0f, wave * swing * 0.18f);
+        // 仅在 Y 轴做极小的提足抬升（最大 0.015m），移除 Z 轴前后平移以防肢体关节脱臼分离
+        float yOffset = (part.Kind == InfantryVisualPartKind.LeftLeg || part.Kind == InfantryVisualPartKind.RightLeg)
+            ? Mathf.Abs(wave) * 0.015f
+            : 0f;
+
+        part.Node.Position = part.RestPosition + new Vector3(0f, yOffset, 0f);
+        // 主轴在 X 轴前后摆动，并提供微小的 Z 轴 Roll 偏角以保持身形协调而不再外八字外翻
+        part.Node.Rotation = part.RestRotation + new Vector3(wave * swing, 0f, wave * swing * 0.04f);
     }
 
     void UpdatePropellers(float delta, bool moving)
@@ -1884,6 +1894,26 @@ public partial class RtsUnit : CharacterBody3D
             _ => GodotObject.IsInstanceValid(target)
         };
 
+    float GetUnitHealthBarHeight()
+    {
+        if (BattleUnitCatalog.IsAirUnit(UnitKey))
+            return 2.95f;
+        if (UnitKey.StartsWith("infantry"))
+            return 1.15f; // 步兵血条降低至1.15m高度，紧贴头顶
+        if (UnitKey.Contains("light_tank"))
+            return 1.65f;
+        return 2.05f; // 战车血条降为2.05m高度
+    }
+
+    float GetUnitHealthBarWidth()
+    {
+        if (BattleUnitCatalog.IsAirUnit(UnitKey))
+            return 2.8f;
+        if (UnitKey.StartsWith("infantry"))
+            return 0.9f; // 步兵血条缩窄为0.9m宽，匹配身形
+        return 2.2f;
+    }
+
     void EnsureCombatOverlays()
     {
         if (GetNodeOrNull<WorldHealthBar3D>("WorldHealthBar") is null)
@@ -1892,8 +1922,8 @@ public partial class RtsUnit : CharacterBody3D
             var bar = new WorldHealthBar3D
             {
                 Name = "WorldHealthBar",
-                Width = isAir ? 2.8f : 2.2f,
-                HeightOffset = isAir ? 2.95f : 2.55f,
+                Width = GetUnitHealthBarWidth(),
+                HeightOffset = GetUnitHealthBarHeight(),
                 Depth = isAir ? 0.20f : 0.18f
             };
             AddChild(bar);
@@ -1953,7 +1983,7 @@ public partial class RtsUnit : CharacterBody3D
     void RefreshCombatOverlays()
     {
         if (GetNodeOrNull<WorldHealthBar3D>("WorldHealthBar") is { } worldHealthBar)
-            worldHealthBar.Position = new Vector3(0f, BattleUnitCatalog.IsAirUnit(UnitKey) ? 2.95f : 2.55f, 0f);
+            worldHealthBar.Position = new Vector3(0f, GetUnitHealthBarHeight(), 0f);
 
         selectionRing ??= GetNodeOrNull<MeshInstance3D>("SelectionRing");
         if (selectionRing?.Mesh is TorusMesh selectionMesh)

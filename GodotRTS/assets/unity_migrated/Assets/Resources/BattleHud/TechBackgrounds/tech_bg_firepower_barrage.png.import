@@ -3,15 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://j0pmidgjj3iu"
-path="res://.godot/imported/tech_bg_firepower_barrage.png-f83609d2cba32257fc32dec91fb5fd7e.ctex"
-metadata={
-"vram_texture": false
-}
+valid=false
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_firepower_barrage.png"
-dest_files=["res://.godot/imported/tech_bg_firepower_barrage.png-f83609d2cba32257fc32dec91fb5fd7e.ctex"]
 
 [params]
 

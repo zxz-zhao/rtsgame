@@ -3,15 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://chfc3qd0idpid"
-path="res://.godot/imported/tech_bg_repair_workshop.png-bd3e7c70e8d36b0b37102424c66461b7.ctex"
-metadata={
-"vram_texture": false
-}
+valid=false
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_repair_workshop.png"
-dest_files=["res://.godot/imported/tech_bg_repair_workshop.png-bd3e7c70e8d36b0b37102424c66461b7.ctex"]
 
 [params]
 
