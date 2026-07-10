@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -1014,6 +1014,14 @@ public partial class PlayerController : Node
 
     bool TryProjectGroundPoint(Vector2 screenPos, out Vector3 position)
     {
+        var hit = Raycast(screenPos);
+        if (hit.Count > 0 && hit.ContainsKey("position"))
+        {
+            var hitPos = hit["position"].AsVector3();
+            position = new Vector3(hitPos.X, 0f, hitPos.Z);
+            return true;
+        }
+
         var origin = camera.ProjectRayOrigin(screenPos);
         var direction = camera.ProjectRayNormal(screenPos);
         if (Mathf.Abs(direction.Y) <= 0.0001f)

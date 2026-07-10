@@ -3283,6 +3283,18 @@ public partial class BattleHud : CanvasLayer
             return false;
         }
 
+        // 优先使用物理投射获取地面实际高度的水平交点，消除地形起伏导致的投影偏差
+        var origin = camera.ProjectRayOrigin(screenPos);
+        var end = origin + camera.ProjectRayNormal(screenPos) * 2000f;
+        var query = PhysicsRayQueryParameters3D.Create(origin, end);
+        var hit = GetViewport().World3D.DirectSpaceState.IntersectRay(query);
+        if (hit.Count > 0 && hit.ContainsKey("position"))
+        {
+            var hitPos = hit["position"].AsVector3();
+            point = new Vector3(hitPos.X, 0f, hitPos.Z);
+            return true;
+        }
+
         return TryProjectGroundPoint(camera, screenPos, out point);
     }
 
@@ -3661,6 +3673,10 @@ public partial class BattleHud : CanvasLayer
         gameOverTransitionTriggered = true;
         gameOverCountdownActive = false;
         UpdateGameOverCountdownLabel();
+        
+        // 战斗正式结束，清除大厅的“继续战斗”记录
+        GameState.Instance?.ClearBattleEntry();
+        
         GetTree().ChangeSceneToFile("res://scenes/lobby/LobbyScene.tscn");
     }
 
