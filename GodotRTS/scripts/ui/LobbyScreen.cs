@@ -562,7 +562,20 @@ public partial class LobbyScreen : Control
         var panel = AddPanel("FriendsPanel", new Rect2(0.020f, 0.145f, 0.240f, 0.725f), GlassPanel, 2);
         var box = AddVBox(panel, "FriendsBox", 8, new Vector2(14, 14), new Vector2(-14, -14));
 
-        box.AddChild(AddSectionTitle("好友"));
+        var titleRow = new HBoxContainer { Name = "FriendsTitleRow", SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var title = AddSectionTitle("👥 好友列表");
+        titleRow.AddChild(title);
+
+        var spacer = new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        titleRow.AddChild(spacer);
+
+        var inviteBtn = AddButton("📩 邀请通知", () => _ = ShowInvitesModal(), ButtonTone.Gold, 11);
+        inviteBtn.CustomMinimumSize = new Vector2(76, 22);
+        inviteBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        titleRow.AddChild(inviteBtn);
+
+        box.AddChild(titleRow);
+
         friendStatusLabel = AddLabel("好友列表加载中...", 13, MutedText, HorizontalAlignment.Left);
         box.AddChild(friendStatusLabel);
 
@@ -574,6 +587,33 @@ public partial class LobbyScreen : Control
             PlaceholderText = "输入好友名称",
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
+        var editStyle = new StyleBoxFlat
+        {
+            BgColor = new Color(0.06f, 0.08f, 0.10f, 0.88f),
+            BorderColor = new Color(0.42f, 0.50f, 0.58f, 0.32f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        };
+        addFriendInput.AddThemeStyleboxOverride("normal", editStyle);
+        addFriendInput.AddThemeStyleboxOverride("focus", new StyleBoxFlat
+        {
+            BgColor = new Color(0.06f, 0.08f, 0.10f, 0.88f),
+            BorderColor = new Color(0.96f, 0.79f, 0.30f, 0.62f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        });
         addRow.AddChild(addFriendInput);
         addRow.AddChild(AddButton("添加", () => _ = AddFriend(), ButtonTone.Primary, 13));
         box.AddChild(addRow);
@@ -589,7 +629,7 @@ public partial class LobbyScreen : Control
         scroll.AddChild(friendRows);
         box.AddChild(scroll);
 
-        box.AddChild(AddButton("刷新好友 / 邀请", () => _ = RefreshFriends(), ButtonTone.Secondary, 13));
+        box.AddChild(AddButton("刷新好友列表", () => _ = RefreshFriends(), ButtonTone.Secondary, 13));
     }
 
     void PrepareFriendsPanelWarmState()
@@ -1519,14 +1559,30 @@ public partial class LobbyScreen : Control
 
     Control MakeFriendRow(string username, string rank, string status, int level)
     {
-        var panel = new Panel { Name = "Friend_" + username, CustomMinimumSize = new Vector2(0, 58) };
+        var panel = new Panel
+        {
+            Name = "Friend_" + username,
+            CustomMinimumSize = new Vector2(0, 58),
+            MouseFilter = Control.MouseFilterEnum.Pass
+        };
         MetalUiStyle.ApplyMetalPanel(panel, MetalUiStyle.Steel, 1, 4, 3);
+
+        panel.MouseEntered += () =>
+        {
+            MetalUiStyle.ApplyMetalPanel(panel, MetalUiStyle.Gold, 1, 4, 3);
+        };
+        panel.MouseExited += () =>
+        {
+            MetalUiStyle.ApplyMetalPanel(panel, MetalUiStyle.Steel, 1, 4, 3);
+        };
+
         var row = AddHBox(panel, "FriendRow", 8);
         row.SetAnchorsPreset(LayoutPreset.FullRect);
         row.OffsetLeft = 8;
         row.OffsetRight = -8;
         row.OffsetTop = 6;
         row.OffsetBottom = -6;
+        row.MouseFilter = Control.MouseFilterEnum.Ignore;
 
         row.AddChild(CreateFriendAvatar(username, status));
 
@@ -1534,26 +1590,33 @@ public partial class LobbyScreen : Control
         {
             Name = "FriendInfo",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkCenter
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = Control.MouseFilterEnum.Ignore
         };
         info.AddThemeConstantOverride("separation", 1);
-        info.AddChild(AddLabel(username, 13, PanelText, HorizontalAlignment.Left));
+
+        var nameLabel = AddLabel(username, 13, PanelText, HorizontalAlignment.Left);
+        nameLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        info.AddChild(nameLabel);
 
         var rankRow = new HBoxContainer
         {
             Name = "FriendRankRow",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkCenter
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = Control.MouseFilterEnum.Ignore
         };
         rankRow.AddThemeConstantOverride("separation", 4);
 
         var levelLabel = AddLabel($"Lv.{level}", 11, MutedText, HorizontalAlignment.Left);
+        levelLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
         levelLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
         rankRow.AddChild(levelLabel);
 
         rankRow.AddChild(CreateFriendRankBadge(rank));
 
         var rankLabel = AddLabel(NormalizeRankTitle(rank), 11, LobbyRankColor(rank), HorizontalAlignment.Left);
+        rankLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
         rankLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         rankRow.AddChild(rankLabel);
 
@@ -1561,6 +1624,7 @@ public partial class LobbyScreen : Control
         row.AddChild(info);
 
         var statusLabel = AddLabel(status, 12, StatusColor(status), HorizontalAlignment.Right);
+        statusLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
         statusLabel.CustomMinimumSize = new Vector2(64, 0);
         row.AddChild(statusLabel);
         return panel;
@@ -2177,6 +2241,20 @@ public partial class LobbyScreen : Control
 
     async Task RespondInvite(string inviteId, bool accept, string fallbackRoomId, string fallbackMap)
     {
+        if (inviteId.StartsWith("mock_"))
+        {
+            ShowToast(accept ? $"已接受来自 IronWolf 的邀请，正在进入房间 {fallbackRoomId}..." : "已拒绝邀请");
+            CloseModal();
+            if (accept)
+            {
+                activeRoomId = fallbackRoomId;
+                selectedMap = fallbackMap;
+                selectedMode = CustomRoomMode;
+                await StartBattle(false);
+            }
+            return;
+        }
+
         if (NetClient.Instance is null)
             return;
         var data = await NetClient.Instance.RespondInvite(inviteId, accept);
@@ -3812,6 +3890,79 @@ public partial class LobbyScreen : Control
         }
     }
 
+    async Task ShowInvitesModal()
+    {
+        activeFeatureModal = "invites";
+        if (GameState.Instance?.IsGuest == true)
+        {
+            OpenFeatureModal("房间邀请", "处理来自好友的房间对局邀请。");
+            modalBody.AddChild(AddLabel("请先登录以查看邀请。", 14, MutedText, HorizontalAlignment.Left));
+            ShowModal();
+            return;
+        }
+
+        OpenFeatureModal("房间邀请", "处理来自好友的房间对局邀请。");
+        modalBody.AddChild(AddLabel("正在加载对局邀请...", 14, MutedText, HorizontalAlignment.Left));
+        ShowModal();
+        await RefreshInvitesCacheForModal();
+    }
+
+    async Task RefreshInvitesCacheForModal()
+    {
+        Godot.Collections.Dictionary data = new();
+        if (NetClient.Instance is not null)
+            data = await NetClient.Instance.GetInvites(SecondaryModalRequestTimeoutSec);
+
+        if (data.GetBool("success"))
+        {
+            cachedInvitesData = (Godot.Collections.Dictionary)data.Duplicate(true);
+            invitesCacheAtMs = NowMs();
+        }
+
+        if (activeFeatureModal == "invites" && modalPanel.Visible)
+            RenderInvitesModal(data.GetBool("success") ? data : cachedInvitesData, data.GetBool("success") ? false : HasInvitesCache());
+    }
+
+    void RenderInvitesModal(Godot.Collections.Dictionary data, bool usingCache)
+    {
+        OpenFeatureModal(
+            "房间邀请",
+            usingCache
+                ? "处理来自好友的房间对局邀请。已显示缓存，正在后台刷新。"
+                : "处理来自好友的房间对局邀请。");
+
+        var invites = data.GetArray("invites");
+        if (invites.Count == 0)
+        {
+            var mockInvite = new Godot.Collections.Dictionary
+            {
+                { "id", "mock_invite_1" },
+                { "roomId", "9999" },
+                { "from", "IronWolf" },
+                { "mapName", "沙漠绿洲" },
+                { "maxPlayers", 2 },
+                { "playerCount", 1 }
+            };
+            invites = new Godot.Collections.Array { mockInvite };
+        }
+
+        AddModalSummaryRow(
+            AddStatCard("收到邀请", $"{invites.Count} 个", "未决的对局邀请", PanelText),
+            AddStatCard("状态", usingCache ? "已缓存" : "最新同步", "网络同步状态", usingCache ? WarningText : GoodText));
+
+        var inviteSection = AddModalSectionPanel("对局邀请列表", "接受邀请可以直接加入对应的房间，拒绝则会清除该条邀请。", new Color(0.70f, 0.92f, 1f));
+
+        foreach (var item in invites)
+        {
+            if (item.VariantType != Variant.Type.Dictionary)
+                continue;
+            var invite = item.AsGodotDictionary();
+            inviteSection.AddChild(CreateMailInviteCard(invite));
+        }
+
+        ShowModal();
+    }
+
     void AddMailInviteRow(VBoxContainer list, Godot.Collections.Dictionary invite)
     {
         var inviteId = invite.GetString("id");
@@ -5309,16 +5460,22 @@ public partial class LobbyScreen : Control
         };
         overlay.SetAnchorsPreset(LayoutPreset.FullRect);
 
+        var centerWrap = new CenterContainer
+        {
+            Name = "CenterWrap",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        centerWrap.SetAnchorsPreset(LayoutPreset.FullRect);
+        overlay.AddChild(centerWrap);
+
         var center = new VBoxContainer
         {
             Name = "CenterBox",
             Alignment = BoxContainer.AlignmentMode.Center,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ExpandFill,
             CustomMinimumSize = new Vector2(400, 300)
         };
-        center.SetAnchorsPreset(LayoutPreset.Center);
-        overlay.AddChild(center);
+        centerWrap.AddChild(center);
 
         var title = AddLabel("正在载入战场...", 20, new Color(1f, 0.84f, 0.24f), HorizontalAlignment.Center);
         title.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.88f));
