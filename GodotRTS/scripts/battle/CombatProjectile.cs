@@ -30,6 +30,10 @@ public partial class CombatProjectile : Node3D
         var color = playerOwned
             ? new Color(1f, 0.82f, 0.26f, 1f)
             : new Color(1f, 0.32f, 0.18f, 1f);
+        if (attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower"))
+        {
+            color = new Color(1f, 0.45f, 0.05f, 1f);
+        }
         projectile.Configure(source, attacker, targetNode, destination, damageAmount, color, range, areaRadius, falloff, false, playerOwned);
         root.AddChild(projectile);
         projectile.GlobalPosition = source;
@@ -44,6 +48,10 @@ public partial class CombatProjectile : Node3D
         var color = playerOwned
             ? new Color(1f, 0.68f, 0.22f, 1f)
             : new Color(1f, 0.26f, 0.16f, 1f);
+        if (attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower"))
+        {
+            color = new Color(1f, 0.45f, 0.05f, 1f);
+        }
         projectile.Configure(source, attacker, null, destination, damageAmount, color, range, areaRadius, falloff, true, playerOwned);
         root.AddChild(projectile);
         projectile.GlobalPosition = source;
@@ -105,13 +113,17 @@ public partial class CombatProjectile : Node3D
         var direction = (lastTarget - start).Normalized();
         SpawnMuzzleFlash(this, start, direction, tint);
 
+        bool isFlame = attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower");
         var longRange = arcHeight > 2.5f;
+
         AddChild(new MeshInstance3D
         {
             Name = "Tracer",
-            Mesh = longRange
-                ? new CapsuleMesh { Radius = 0.11f, Height = 0.76f, RadialSegments = 8, Rings = 4 }
-                : new SphereMesh { Radius = 0.18f, Height = 0.36f, RadialSegments = 8, Rings = 4 },
+            Mesh = isFlame
+                ? (Mesh)new CapsuleMesh { Radius = 0.18f, Height = 0.95f, RadialSegments = 8, Rings = 4 }
+                : (longRange
+                    ? (Mesh)new CapsuleMesh { Radius = 0.11f, Height = 0.76f, RadialSegments = 8, Rings = 4 }
+                    : (Mesh)new SphereMesh { Radius = 0.18f, Height = 0.36f, RadialSegments = 8, Rings = 4 }),
             MaterialOverride = MakeMaterial(tint, true)
         });
 
@@ -122,6 +134,53 @@ public partial class CombatProjectile : Node3D
             LightEnergy = 0.35f,
             OmniRange = 4f
         });
+
+        if (isFlame)
+        {
+            var trail = new CpuParticles3D
+            {
+                Name = "FlameTrail",
+                Amount = 25,
+                Lifetime = 0.22f,
+                Spread = 20f,
+                Gravity = new Vector3(0f, 0.4f, 0f),
+                InitialVelocityMin = 0.4f,
+                InitialVelocityMax = 1.2f,
+                ScaleAmountMin = 0.18f,
+                ScaleAmountMax = 0.50f
+            };
+            
+            var flameSphere = new SphereMesh
+            {
+                Radius = 0.22f,
+                Height = 0.44f,
+                RadialSegments = 6,
+                Rings = 4
+            };
+            trail.Mesh = flameSphere;
+
+            var trailMat = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                AlbedoColor = new Color(1.0f, 0.38f, 0.05f, 0.9f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            };
+            trail.MaterialOverride = trailMat;
+
+            var scaleCurve = new Curve();
+            scaleCurve.AddPoint(new Vector2(0f, 1f));
+            scaleCurve.AddPoint(new Vector2(1f, 0.2f));
+            trail.ScaleAmountCurve = scaleCurve;
+
+            var colorRamp = new Gradient();
+            colorRamp.AddPoint(0f, new Color(1.0f, 0.58f, 0.08f, 0.95f));
+            colorRamp.AddPoint(0.5f, new Color(0.98f, 0.22f, 0.04f, 0.65f));
+            colorRamp.AddPoint(1.0f, new Color(0.24f, 0.08f, 0.02f, 0f));
+            trail.ColorRamp = colorRamp;
+
+            AddChild(trail);
+            trail.Emitting = true;
+        }
     }
 
     public override void _Process(double delta)
