@@ -872,11 +872,71 @@ public partial class BattleGameManager : Node
             affected++;
         }
 
+        // 播放技能释放视觉扩展环和 3D 文字提示
+        SpawnTechCastVfx(tech.DisplayName, point, tech.Radius, tech.Tint, level);
+
         var cooldowns = playerOwned ? playerBattleTechCooldownEnds : enemyBattleTechCooldownEnds;
         cooldowns[tech.Key] = GameTime + tech.Cooldown;
         ForceRefreshFogOfWar();
         message = $"{tech.DisplayName} (Lv.{level}) 已释放，影响 {affected} 个单位";
         return true;
+    }
+
+    void SpawnTechCastVfx(string techName, Vector3 position, float radius, Color color, int level)
+    {
+        var vfxNode = new Node3D { Position = new Vector3(position.X, 0.08f, position.Z) };
+
+        var meshInstance = new MeshInstance3D
+        {
+            Name = "RippleRing",
+            Mesh = new TorusMesh
+            {
+                InnerRadius = 0.94f,
+                OuterRadius = 1.0f,
+                RingSegments = 64
+            },
+            MaterialOverride = new StandardMaterial3D
+            {
+                AlbedoColor = color,
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                Roughness = 1.0f,
+                EmissionEnabled = true,
+                Emission = color * 1.5f
+            }
+        };
+        vfxNode.AddChild(meshInstance);
+
+        var label = new Label3D
+        {
+            Text = $"{techName}\nLv.{level}",
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            FontSize = 72,
+            OutlineSize = 16,
+            Modulate = color.Lightened(0.2f),
+            OutlineModulate = new Color(0f, 0f, 0f, 0.8f),
+            Position = new Vector3(0f, 1.5f, 0f)
+        };
+        vfxNode.AddChild(label);
+
+        GetTree().CurrentScene?.AddChild(vfxNode);
+
+        var tween = vfxNode.CreateTween();
+        vfxNode.Scale = Vector3.One * 0.1f;
+        tween.TweenProperty(vfxNode, "scale", Vector3.One * radius, 0.8f)
+             .SetTrans(Tween.TransitionType.Quad)
+             .SetEase(Tween.EaseType.Out);
+
+        tween.Parallel().TweenProperty(meshInstance.MaterialOverride, "albedo_color", new Color(color.R, color.G, color.B, 0f), 0.8f);
+        tween.Parallel().TweenProperty(meshInstance.MaterialOverride, "emission", new Color(0f, 0f, 0f, 0f), 0.8f);
+
+        tween.Parallel().TweenProperty(label, "position", new Vector3(0f, 4.5f, 0f), 1.2f)
+             .SetTrans(Tween.TransitionType.Sine)
+             .SetEase(Tween.EaseType.Out);
+        var textTint = color.Lightened(0.2f);
+        tween.Parallel().TweenProperty(label, "modulate", new Color(textTint.R, textTint.G, textTint.B, 0f), 1.2f);
+        tween.Parallel().TweenProperty(label, "outline_modulate", new Color(0f, 0f, 0f, 0f), 1.2f);
+
+        tween.TweenCallback(Callable.From(vfxNode.QueueFree));
     }
 
     public bool TrySpendEnemyGold(int amount)

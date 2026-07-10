@@ -126,6 +126,7 @@ public partial class RtsUnit : CharacterBody3D
     MeshInstance3D? selectionRing;
     MeshInstance3D? techRing;
     Node3D? visualRoot;
+    Vector3 currentNormal = Vector3.Up;
     Node3D? weaponYawNode;
     Node3D? weaponPitchNode;
     bool weaponPitchIsPivot;
@@ -1568,6 +1569,22 @@ public partial class RtsUnit : CharacterBody3D
         if (BattleUnitCatalog.IsNavalUnit(UnitKey))
         {
             UpdateNavalWaves(actuallyMoving, delta);
+        }
+
+        // 地形坡度贴合：使陆地单位（战车、士兵）的 3D 模型旋转方向与地面法线对齐，防止穿模或悬空
+        if (visualRoot is not null && !BattleUnitCatalog.IsAirUnit(UnitKey) && !BattleUnitCatalog.IsNavalUnit(UnitKey))
+        {
+            var targetNormal = IsOnFloor() ? GetFloorNormal() : Vector3.Up;
+            currentNormal = currentNormal.Lerp(targetNormal, 10f * delta).Normalized();
+
+            var parentForward = -GlobalTransform.Basis.Z;
+            var right = currentNormal.Cross(parentForward).Normalized();
+            var forward = right.Cross(currentNormal).Normalized();
+
+            var targetBasis = new Basis(right, currentNormal, forward);
+            var visualScale = visualRoot.Scale;
+            visualRoot.GlobalBasis = targetBasis;
+            visualRoot.Scale = visualScale;
         }
     }
 

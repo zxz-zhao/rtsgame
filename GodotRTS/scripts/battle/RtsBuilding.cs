@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -451,6 +451,18 @@ public partial class RtsBuilding : StaticBody3D
 
         constructionTimeLeft -= delta;
         Health = Mathf.Clamp(MaxHealth * Mathf.Lerp(0.28f, 1f, ConstructionProgress), 1f, MaxHealth);
+
+        // 建造过程视觉高度生长动画：高度 Y 从 0.1 渐变增长到 1.0
+        if (GetNodeOrNull<Node3D>("BuildingVisual") is { } visualRoot)
+        {
+            if (!visualRoot.HasMeta("base_scale"))
+            {
+                visualRoot.SetMeta("base_scale", visualRoot.Scale);
+            }
+            var baseScale = visualRoot.GetMeta("base_scale").AsVector3();
+            visualRoot.Scale = new Vector3(baseScale.X, baseScale.Y * Mathf.Lerp(0.1f, 1f, ConstructionProgress), baseScale.Z);
+        }
+
         if (constructionTimeLeft > 0f)
             return;
 
@@ -458,6 +470,12 @@ public partial class RtsBuilding : StaticBody3D
         constructionTimeLeft = 0f;
         Health = MaxHealth;
         UpdateConstructionSmoke();
+
+        // 恢复正常大小
+        if (GetNodeOrNull<Node3D>("BuildingVisual") is { } finalVisualRoot && finalVisualRoot.HasMeta("base_scale"))
+        {
+            finalVisualRoot.Scale = finalVisualRoot.GetMeta("base_scale").AsVector3();
+        }
     }
 
     void ProcessRebuild(float delta)
@@ -467,6 +485,20 @@ public partial class RtsBuilding : StaticBody3D
             return;
 
         rebuildTimeLeft -= delta;
+
+        // 重建过程视觉高度生长动画：高度 Y 从 0.4 渐变增长到 1.0
+        var duration = IsMainBase ? 45f : 30f;
+        var progress = Mathf.Clamp(1f - rebuildTimeLeft / duration, 0f, 1f);
+        if (GetNodeOrNull<Node3D>("BuildingVisual") is { } visualRoot)
+        {
+            if (!visualRoot.HasMeta("base_scale"))
+            {
+                visualRoot.SetMeta("base_scale", visualRoot.Scale);
+            }
+            var baseScale = visualRoot.GetMeta("base_scale").AsVector3();
+            visualRoot.Scale = new Vector3(baseScale.X, baseScale.Y * Mathf.Lerp(0.4f, 1f, progress), baseScale.Z);
+        }
+
         if (rebuildTimeLeft > 0f)
             return;
 
@@ -475,6 +507,12 @@ public partial class RtsBuilding : StaticBody3D
         Health = Mathf.Max(1f, MaxHealth * RebuildHealthFraction);
         EmitMainBaseStateChanged();
         UpdateConstructionSmoke();
+
+        // 恢复正常大小
+        if (GetNodeOrNull<Node3D>("BuildingVisual") is { } finalVisualRoot && finalVisualRoot.HasMeta("base_scale"))
+        {
+            finalVisualRoot.Scale = finalVisualRoot.GetMeta("base_scale").AsVector3();
+        }
     }
 
     void ProcessIncome(float delta)
