@@ -569,7 +569,7 @@ public partial class LobbyScreen : Control
         var spacer = new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         titleRow.AddChild(spacer);
 
-        var inviteBtn = AddButton("📩 邀请通知", () => _ = ShowInvitesModal(), ButtonTone.Gold, 11);
+        var inviteBtn = AddButton("📩 邀请通知", () => _ = ShowMailModal(), ButtonTone.Gold, 11);
         inviteBtn.CustomMinimumSize = new Vector2(76, 22);
         inviteBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         titleRow.AddChild(inviteBtn);
@@ -5452,13 +5452,32 @@ public partial class LobbyScreen : Control
 
     Control BuildLoadingOverlay(string mapName, string modeName)
     {
-        var overlay = new ColorRect
+        var overlay = new Control
         {
             Name = "LoadingOverlay",
-            Color = new Color(0.04f, 0.05f, 0.06f, 1f),
             MouseFilter = MouseFilterEnum.Stop
         };
         overlay.SetAnchorsPreset(LayoutPreset.FullRect);
+
+        var bg = new TextureRect
+        {
+            Name = "LoadingBG",
+            Texture = LoadTexture(UnityLobbyRoot + "user_lobby_background.png"),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        bg.SetAnchorsPreset(LayoutPreset.FullRect);
+        overlay.AddChild(bg);
+
+        var dim = new ColorRect
+        {
+            Name = "LoadingDim",
+            Color = new Color(0.02f, 0.03f, 0.04f, 0.72f),
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        dim.SetAnchorsPreset(LayoutPreset.FullRect);
+        overlay.AddChild(dim);
 
         var centerWrap = new CenterContainer
         {
