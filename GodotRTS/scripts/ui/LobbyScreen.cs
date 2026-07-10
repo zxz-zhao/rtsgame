@@ -4494,8 +4494,8 @@ public partial class LobbyScreen : Control
         GameState.Instance?.SelectMap(selectedMap, selectedMode);
 
         // 使用极其紧凑的特定对话框规格
-        Place(modalPanel, new Rect2(0.260f, 0.220f, 0.480f, 0.560f));
-        modalPanel.CustomMinimumSize = new Vector2(580, 360);
+        Place(modalPanel, new Rect2(0.260f, 0.300f, 0.480f, 0.400f));
+        modalPanel.CustomMinimumSize = new Vector2(580, 252);
 
         ClearChildren(modalBody);
         modalTitle.Text = "匹配就绪 - 3v3战术对抗";
@@ -4507,17 +4507,17 @@ public partial class LobbyScreen : Control
         modalBody.AddChild(topRow);
 
         // HBox for columns
-        var columns = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        var columns = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ShrinkBegin };
         columns.AddThemeConstantOverride("separation", 16);
         modalBody.AddChild(columns);
 
         // Blue Team Column
-        var blueCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        var blueCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ShrinkBegin };
         blueCol.AddThemeConstantOverride("separation", 6);
         columns.AddChild(blueCol);
 
         // Red Team Column
-        var redCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        var redCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ShrinkBegin };
         redCol.AddThemeConstantOverride("separation", 6);
         columns.AddChild(redCol);
 
