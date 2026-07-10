@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -1168,8 +1168,11 @@ public partial class BattleHud : CanvasLayer
         var showLog = battleCommunicationExpanded;
         var canTransmit = CanTransmitBattleCommunication();
         var hasMessages = HasBattleCommunicationMessages();
+        // 允许在本地离线或等待队友时显示输入框和发送按钮，方便测试消息和冒泡提示
+        var allowComposer = true;
+
         battleCommunicationPanel.Size = showLog
-            ? canTransmit ? new Vector2(416, 228) : new Vector2(416, 196)
+            ? allowComposer ? new Vector2(416, 228) : new Vector2(416, 196)
             : new Vector2(76, 78);
         battleCommunicationButton.Position = new Vector2(10, 8);
         battleCommunicationButton.Size = new Vector2(56, 48);
@@ -1178,18 +1181,18 @@ public partial class BattleHud : CanvasLayer
         battleCommunicationLatestLabel.Visible = showLog;
 
         battleCommunicationLogPlate.Position = new Vector2(12, 74);
-        battleCommunicationLogPlate.Size = new Vector2(392, canTransmit ? 108 : 116);
+        battleCommunicationLogPlate.Size = new Vector2(392, allowComposer ? 108 : 116);
         battleCommunicationLogPlate.Visible = showLog;
         battleCommunicationScroll.Position = new Vector2(18, 80);
-        battleCommunicationScroll.Size = new Vector2(380, canTransmit ? 96 : 104);
+        battleCommunicationScroll.Size = new Vector2(380, allowComposer ? 96 : 104);
         battleCommunicationScroll.Visible = showLog && hasMessages;
         battleCommunicationMessages.Visible = showLog && hasMessages;
         battleCommunicationComposerPlate.Position = new Vector2(12, 188);
         battleCommunicationComposerPlate.Size = new Vector2(392, 34);
-        battleCommunicationComposerPlate.Visible = showLog && canTransmit;
-        battleCommunicationInput.Visible = showLog && canTransmit;
-        battleCommunicationSendButton.Visible = showLog && canTransmit;
-        battleCommunicationVoiceButton.Visible = showLog && canTransmit;
+        battleCommunicationComposerPlate.Visible = showLog && allowComposer;
+        battleCommunicationInput.Visible = showLog && allowComposer;
+        battleCommunicationSendButton.Visible = showLog && allowComposer;
+        battleCommunicationVoiceButton.Visible = showLog && allowComposer;
         battleCommunicationInput.Position = new Vector2(86, 191);
         battleCommunicationInput.Size = new Vector2(236, 28);
         battleCommunicationSendButton.Position = new Vector2(330, 191);
@@ -1199,8 +1202,8 @@ public partial class BattleHud : CanvasLayer
         battleCommunicationEmptyLabel.Visible = showLog && !hasMessages;
         if (showLog && !hasMessages)
             battleCommunicationEmptyLabel.Text = BattleCommunicationEmptyStateText(canTransmit);
-        battleCommunicationEmptyLabel.Position = new Vector2(28, canTransmit ? 96 : 100);
-        battleCommunicationEmptyLabel.Size = new Vector2(360, canTransmit ? 60 : 70);
+        battleCommunicationEmptyLabel.Position = new Vector2(28, allowComposer ? 96 : 100);
+        battleCommunicationEmptyLabel.Size = new Vector2(360, allowComposer ? 60 : 70);
 
         UpdateBattleCommunicationMessageWidths(Mathf.Max(220f, battleCommunicationScroll.Size.X - 28f));
         if (showLog)
@@ -1294,8 +1297,8 @@ public partial class BattleHud : CanvasLayer
         if (canTransmit)
             return "通信频道已接通。\n可以发送文字，或按住左侧语音键联络队友。";
         if (!string.IsNullOrWhiteSpace(GameState.Instance?.CurrentRoomId))
-            return "房间已建立，正在等待队友接入。\n连接后会自动开放完整文字与语音面板。";
-        return "当前为离线演练。\n已接通本地战地通讯，可以直接发送文字指令。";
+            return "房间已建立，正在等待队友接入。\n您可以在下方输入消息并回车发送以测试冒泡通知。";
+        return "当前为离线演练。\n已接通本地战地通讯，可以直接发送测试消息指令。";
     }
 
     public void TriggerInvasionAlert(string message, bool isBaseAttack)
@@ -1328,21 +1331,46 @@ public partial class BattleHud : CanvasLayer
         if (string.IsNullOrWhiteSpace(message))
             return;
 
-        if (GameRelay.Instance?.IsNetworkGame != true || !GameRelay.Instance.PeerConnected)
-        {
-            ShowAlert("当前未连接队友，无法发送文字");
-        RefreshBattleCommunicationComposerState();
-            return;
-        }
-
         var senderId = LocalBattleParticipantId();
         var speaker = LocalBattleSpeakerName();
-        GameRelay.Instance.SendBattleChat(senderId, speaker, message);
+
+        if (GameRelay.Instance?.IsNetworkGame == true && GameRelay.Instance.PeerConnected)
+        {
+            GameRelay.Instance.SendBattleChat(senderId, speaker, message);
+        }
+        else
+        {
+            // 离线或等待联机时，支持本地消息输入并触发AI队友模拟回复
+            SimulateLocalTeammateReply(message);
+        }
+
         AppendBattleCommunicationMessage(speaker, message, new Color(0.74f, 1f, 0.82f));
         battleCommunicationInput.Text = "";
         RefreshBattleCommunicationPanelLayout();
         RefreshBattleCommunicationComposerState();
         battleCommunicationInput.GrabFocus();
+    }
+
+    async void SimulateLocalTeammateReply(string playerMessage)
+    {
+        await System.Threading.Tasks.Task.Delay(1000);
+        if (!GodotObject.IsInstanceValid(this) || !Visible)
+            return;
+
+        string reply = "收到，指挥官！无线电通信测试正常。";
+        var lower = playerMessage.ToLower();
+        if (lower.Contains("攻击") || lower.Contains("打") || lower.Contains("attack"))
+            reply = "收到！先锋部队已经锁定目标，正全力开火！";
+        else if (lower.Contains("撤") || lower.Contains("退") || lower.Contains("retreat"))
+            reply = "收到指令！后卫部队已布设阻滞火力，掩护撤退中。";
+        else if (lower.Contains("防守") || lower.Contains("守") || lower.Contains("defend"))
+            reply = "阵地防御系统已超载激活，全力顶住攻势！";
+        else if (lower.Contains("金币") || lower.Contains("钱") || lower.Contains("gold") || lower.Contains("money"))
+            reply = "前线金矿资源采集速度平稳，请指示主力升级方向！";
+        else if (lower.Contains("树") || lower.Contains("草") || lower.Contains("tree") || lower.Contains("grass"))
+            reply = "河畔树木茂盛，适合隐藏自行火炮打伏击！";
+
+        AppendBattleCommunicationMessage("队友(AI)", reply, new Color(0.86f, 0.96f, 1f));
     }
 
     void BeginBattleVoiceTransmit()
@@ -3541,13 +3569,14 @@ public partial class BattleHud : CanvasLayer
             Size = new Vector2(572, 160),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        gameOverReportGrid.AddThemeConstantOverride("h_separation", 12);
+        gameOverReportGrid.AddThemeConstantOverride("h_separation", 16);
         gameOverReportGrid.AddThemeConstantOverride("v_separation", 2);
         reportPanel.AddChild(gameOverReportGrid);
 
-        gameOverReportPlayerHeader = CreateReportCell(250, 16, HorizontalAlignment.Left, 12, new Color(0.42f, 0.94f, 0.76f), true);
-        gameOverReportCenterHeader = CreateReportCell(72, 16, HorizontalAlignment.Center, 12, new Color(1f, 0.86f, 0.42f), true);
-        gameOverReportEnemyHeader = CreateReportCell(250, 16, HorizontalAlignment.Right, 12, new Color(1f, 0.50f, 0.42f), true);
+        // 我方右对齐，项目居中对齐，敌方左对齐，宽度按 220-100-220 黄金比例分配
+        gameOverReportPlayerHeader = CreateReportCell(220, 16, HorizontalAlignment.Right, 12, new Color(0.42f, 0.94f, 0.76f), true);
+        gameOverReportCenterHeader = CreateReportCell(100, 16, HorizontalAlignment.Center, 12, new Color(1f, 0.86f, 0.42f), true);
+        gameOverReportEnemyHeader = CreateReportCell(220, 16, HorizontalAlignment.Left, 12, new Color(1f, 0.50f, 0.42f), true);
         gameOverReportGrid.AddChild(gameOverReportPlayerHeader);
         gameOverReportGrid.AddChild(gameOverReportCenterHeader);
         gameOverReportGrid.AddChild(gameOverReportEnemyHeader);
@@ -3565,9 +3594,9 @@ public partial class BattleHud : CanvasLayer
 
         while (gameOverReportPlayerValues.Count < report.Rows.Length)
         {
-            var player = CreateReportCell(250, 14, HorizontalAlignment.Left, 11, new Color(0.78f, 0.96f, 0.90f), false);
-            var metric = CreateReportCell(72, 14, HorizontalAlignment.Center, 11, new Color(0.68f, 0.75f, 0.78f), false);
-            var enemy = CreateReportCell(250, 14, HorizontalAlignment.Right, 11, new Color(1f, 0.78f, 0.74f), false);
+            var player = CreateReportCell(220, 14, HorizontalAlignment.Right, 11, new Color(0.78f, 0.96f, 0.90f), false);
+            var metric = CreateReportCell(100, 14, HorizontalAlignment.Center, 11, new Color(0.68f, 0.75f, 0.78f), false);
+            var enemy = CreateReportCell(220, 14, HorizontalAlignment.Left, 11, new Color(1f, 0.78f, 0.74f), false);
             gameOverReportPlayerValues.Add(player);
             gameOverReportMetricLabels.Add(metric);
             gameOverReportEnemyValues.Add(enemy);
@@ -4748,6 +4777,12 @@ public partial class BattleHud : CanvasLayer
         RefreshBattleCommunicationPanelLayout();
         RefreshBattleCommunicationHeader();
         CallDeferred(nameof(ScrollBattleCommunicationToBottom));
+
+        // 每次收到或发送消息时，在主屏上方进行可淡出的广播冒泡通知
+        if (speaker != "设置")
+        {
+            ShowAlert($"📻 [{speaker}]: {message}");
+        }
     }
 
     public void ReceiveBattleTextMessage(string participantId, string speaker, string message)
