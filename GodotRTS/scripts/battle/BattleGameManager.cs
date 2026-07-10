@@ -316,11 +316,17 @@ public partial class BattleGameManager : Node
         var mainBaseLevel = Mathf.Max(1, GetMainBaseLevel(playerOwned));
         return buildKey switch
         {
-            "barracks" or "air_factory" or "airfield" or "tank_factory" or "armor_factory" or "naval_yard" => mainBaseLevel switch
+            "barracks" => mainBaseLevel switch
             {
                 1 => 1,
                 2 => 2,
                 _ => 3
+            },
+            "air_factory" or "airfield" or "tank_factory" or "armor_factory" or "naval_yard" => mainBaseLevel switch
+            {
+                1 => 0, // Level 1 main base cannot construct advanced factory buildings
+                2 => 1,
+                _ => 2
             },
             "turret" => mainBaseLevel switch
             {
@@ -418,6 +424,16 @@ public partial class BattleGameManager : Node
                 ? "\u4e3b\u57fa\u5730\u5df2\u5931\u6548\uff0c\u65e0\u6cd5\u7ee7\u7eed\u5efa\u9020"
                 : "\u57fa\u5730\u5df2\u5931\u6548";
             return false;
+        }
+
+        // 主基地 1 级时，部分高阶功能性建筑锁死不可建造
+        if (baseLevel == 1)
+        {
+            if (buildKey == "tank_factory" || buildKey == "armor_factory" || buildKey == "airfield" || buildKey == "air_factory" || buildKey == "naval_yard")
+            {
+                message = $"{BattleBuildingCatalog.Get(buildKey).DisplayName}需要主基地升级到 Lv.2 才能建造";
+                return false;
+            }
         }
 
         var limit = GetBuildingLimit(buildKey, playerOwned);

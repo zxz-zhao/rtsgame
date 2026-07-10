@@ -2416,6 +2416,10 @@ public partial class BattleHud : CanvasLayer
 
     Control CreateBuildCard(BattleBuildingDefinition def)
     {
+        var manager = BattleGameManager.Instance;
+        var mainBaseLevel = manager is not null ? Mathf.Max(1, manager.GetMainBaseLevel(true)) : 1;
+        var isLocked = mainBaseLevel == 1 && (def.Key == "tank_factory" || def.Key == "armor_factory" || def.Key == "airfield" || def.Key == "air_factory" || def.Key == "naval_yard");
+
         var card = new Panel
         {
             CustomMinimumSize = new Vector2(116, 82),
@@ -2423,6 +2427,10 @@ public partial class BattleHud : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Stop,
             ClipContents = true
         };
+        if (isLocked)
+        {
+            card.Modulate = new Color(0.65f, 0.65f, 0.65f, 0.85f);
+        }
         card.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
             BgColor = Colors.Transparent,
@@ -2525,7 +2533,7 @@ public partial class BattleHud : CanvasLayer
         meta.MouseFilter = Control.MouseFilterEnum.Ignore;
         card.AddChild(meta);
 
-        var hint = HudLabel("点击建造", 11, new Color(0.82f, 0.88f, 0.92f));
+        var hint = HudLabel(isLocked ? "需要主基地 Lv.2" : "点击建造", 11, isLocked ? new Color(0.96f, 0.40f, 0.40f) : new Color(0.82f, 0.88f, 0.92f));
         hint.Position = new Vector2(8f, 58f);
         hint.Size = new Vector2(100f, 16f);
         hint.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.82f));
@@ -2541,7 +2549,8 @@ public partial class BattleHud : CanvasLayer
             AnchorBottom = 1f,
             GrowHorizontal = Control.GrowDirection.Both,
             GrowVertical = Control.GrowDirection.Both,
-            Flat = true
+            Flat = true,
+            Disabled = isLocked
         };
         button.Pressed += () => BeginBuild(def.Key);
         button.AddThemeStyleboxOverride("normal", new StyleBoxEmpty());
@@ -3008,13 +3017,21 @@ public partial class BattleHud : CanvasLayer
         };
         card.AddChild(stripe);
 
-        var glyph = HudLabel(tech.Glyph, 24, new Color(1f, 0.96f, 0.88f));
-        glyph.Position = new Vector2(8f, 6f);
-        glyph.Size = new Vector2(30f, 28f);
-        glyph.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.92f));
-        glyph.AddThemeConstantOverride("outline_size", 2);
-        glyph.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.AddChild(glyph);
+        var iconRect = new TextureRect
+        {
+            Name = "TechIcon",
+            Position = new Vector2(8f, 6f),
+            Size = new Vector2(28f, 28f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+            SelfModulate = new Color(tech.Tint.R, tech.Tint.G, tech.Tint.B, 1.0f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        if (ResourceLoader.Exists(tech.BackgroundTexturePath))
+        {
+            iconRect.Texture = ResourceLoader.Load<Texture2D>(tech.BackgroundTexturePath);
+        }
+        card.AddChild(iconRect);
 
         var title = HudLabel(tech.DisplayName, 15, new Color(1f, 0.90f, 0.62f));
         title.Position = new Vector2(40f, 8f);
