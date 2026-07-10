@@ -38,6 +38,16 @@ public partial class BattleMapRenderer : Node3D
     Node3D? generatedRoot;
     BattleMapResource? authoredMapResourceCache;
     string authoredMapResourceCachePath = string.Empty;
+
+    struct PolyHavenAssetMaterials
+    {
+        public Material Trunk;
+        public Material Foliage;
+        public Material? Branch;
+    }
+
+    static readonly System.Collections.Generic.Dictionary<string, Texture2D> combinedTextureCache = new();
+    static readonly System.Collections.Generic.Dictionary<string, PolyHavenAssetMaterials> polyHavenMaterialCache = new();
     string lastPreviewSignature = string.Empty;
     double livePreviewCooldown;
     /// <summary>所有已放置的树木节点，用于战斗时的淡化效果。</summary>
@@ -1155,9 +1165,16 @@ public partial class BattleMapRenderer : Node3D
 
     static void ApplyPolyHavenMaterials(Node3D node, string assetId)
     {
+        if (polyHavenMaterialCache.TryGetValue(assetId, out var cachedMats))
+        {
+            ApplyMeshMaterials(node, cachedMats.Trunk, cachedMats.Foliage, cachedMats.Branch);
+            return;
+        }
+
         string baseDir = $"res://assets/third_party/polyhaven/EnvironmentModels/{assetId}/";
         var trunkMat = new StandardMaterial3D();
         var foliageMat = new StandardMaterial3D();
+        Material? branchMat = null;
 
         if (assetId == "tree_small_02")
         {
@@ -1167,11 +1184,9 @@ public partial class BattleMapRenderer : Node3D
             foliageMat.AlphaScissorThreshold = 0.5f;
             foliageMat.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
 
-            var branchMat = new StandardMaterial3D();
-            SetMaterialTexture(branchMat, baseDir + "tree_small_02_branch_diff_1k.png", baseDir + "tree_small_02_branch_nor_gl_1k.png", baseDir + "tree_small_02_branch_rough_1k.png");
-
-            ApplyMeshMaterials(node, trunkMat, foliageMat, branchMat);
-            return;
+            var bMat = new StandardMaterial3D();
+            SetMaterialTexture(bMat, baseDir + "tree_small_02_branch_diff_1k.png", baseDir + "tree_small_02_branch_nor_gl_1k.png", baseDir + "tree_small_02_branch_rough_1k.png");
+            branchMat = bMat;
         }
         else if (assetId == "fir_tree_01")
         {
@@ -1233,7 +1248,15 @@ public partial class BattleMapRenderer : Node3D
             trunkMat = foliageMat;
         }
 
-        ApplyMeshMaterials(node, trunkMat, foliageMat, null);
+        var newMats = new PolyHavenAssetMaterials
+        {
+            Trunk = trunkMat,
+            Foliage = foliageMat,
+            Branch = branchMat
+        };
+        polyHavenMaterialCache[assetId] = newMats;
+
+        ApplyMeshMaterials(node, trunkMat, foliageMat, branchMat);
     }
 
     static void SetMaterialTexture(StandardMaterial3D mat, string diff, string nor, string rough)
@@ -1251,6 +1274,10 @@ public partial class BattleMapRenderer : Node3D
 
     static Texture2D LoadCombinedAlphaTexture(string diffPath, string alphaPath)
     {
+        string cacheKey = diffPath + "|" + alphaPath;
+        if (combinedTextureCache.TryGetValue(cacheKey, out var cachedTex))
+            return cachedTex;
+
         var diffImg = Image.LoadFromFile(ProjectSettings.GlobalizePath(diffPath));
         var alphaImg = Image.LoadFromFile(ProjectSettings.GlobalizePath(alphaPath));
         if (diffImg is not null && alphaImg is not null)
@@ -1272,9 +1299,13 @@ public partial class BattleMapRenderer : Node3D
                     diffImg.SetPixel(x, y, color);
                 }
             }
-            return ImageTexture.CreateFromImage(diffImg);
+            var tex = ImageTexture.CreateFromImage(diffImg);
+            combinedTextureCache[cacheKey] = tex;
+            return tex;
         }
-        return GD.Load<Texture2D>(diffPath);
+        var fallbackTex = GD.Load<Texture2D>(diffPath);
+        combinedTextureCache[cacheKey] = fallbackTex;
+        return fallbackTex;
     }
 
     static void ApplyMeshMaterials(Node node, Material trunk, Material foliage, Material? branch)
