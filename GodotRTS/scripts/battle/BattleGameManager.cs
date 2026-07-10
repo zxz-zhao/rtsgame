@@ -2280,6 +2280,7 @@ public partial class BattleGameManager : Node
             TintImportedModel(soldierRoot, infantryTint);
             // 注入 Mixamo 骨骼动画（idle / walk / fire）
             InfantryAnimationBridge.InjectAnimations(model);
+            AttachWeaponToInfantry(model, def.Key);
             squad.AddChild(soldierRoot);
         }
         unit.ConfigureVisualRig(def.Key, squad);
@@ -2341,6 +2342,78 @@ public partial class BattleGameManager : Node
 
         TryAddSizedImportedProp(soldierRoot, SpaceKitRoot + "weapon_gun.fbx", "GunModel",
             position, 0.18f, 0.50f, new Vector3(0f, Mathf.Pi, 0f), Colors.White);
+    }
+
+    static void AttachWeaponToInfantry(Node3D model, string unitKey)
+    {
+        var skeleton = FindSkeleton3D(model);
+        if (skeleton is null)
+            return;
+
+        string handBoneName = "";
+        for (int b = 0; b < skeleton.GetBoneCount(); b++)
+        {
+            var name = skeleton.GetBoneName(b);
+            if (name.Contains("RightHand") || name.Contains("Right_Hand") || name.Contains("RightWeapon"))
+            {
+                handBoneName = name;
+                break;
+            }
+        }
+
+        if (string.IsNullOrEmpty(handBoneName))
+            return;
+
+        string weaponPath = "";
+        Vector3 offsetPos = Vector3.Zero;
+        Vector3 offsetRot = Vector3.Zero;
+        Vector3 scale = Vector3.One;
+
+        if (unitKey == "infantry_artillery")
+        {
+            // 火箭筒模型 (blaster-o)
+            weaponPath = "res://assets/unity_migrated/Assets/External/Kenney/BlasterKit/Models/FBX format/blaster-o.fbx";
+            offsetPos = new Vector3(-0.06f, 0.08f, 0.04f);
+            offsetRot = new Vector3(0f, Mathf.Pi * 0.5f, -Mathf.Pi * 0.25f);
+            scale = Vector3.One * 0.65f;
+        }
+        else if (unitKey == "infantry")
+        {
+            // 步枪模型 (Merrick556)
+            weaponPath = "res://assets/unity_migrated/Assets/External/UserModels/Weapons/Merrick556/Merrick556.fbx";
+            offsetPos = new Vector3(-0.02f, 0.05f, 0.02f);
+            offsetRot = new Vector3(0f, Mathf.Pi * 0.5f, 0f);
+            scale = Vector3.One * 0.55f;
+        }
+
+        if (string.IsNullOrEmpty(weaponPath))
+            return;
+
+        var weaponScene = ResourceLoader.Load<PackedScene>(weaponPath);
+        if (weaponScene is null)
+            return;
+
+        var attachment = new BoneAttachment3D
+        {
+            Name = "WeaponAttachment",
+            BoneName = handBoneName
+        };
+        skeleton.AddChild(attachment);
+
+        var weaponInstance = weaponScene.Instantiate<Node3D>();
+        weaponInstance.Name = "WeaponModel";
+        weaponInstance.Position = offsetPos;
+        weaponInstance.Rotation = offsetRot;
+        weaponInstance.Scale = scale;
+        attachment.AddChild(weaponInstance);
+    }
+
+    static Skeleton3D? FindSkeleton3D(Node root)
+    {
+        if (root is Skeleton3D sk)
+            return sk;
+        var found = root.FindChildren("*", "Skeleton3D", true, false);
+        return found.Count > 0 ? found[0] as Skeleton3D : null;
     }
 
     static void AddPackedUnitVisual(RtsUnit unit, PackedScene scene, string name, BattleUnitDefinition def, bool playerOwned)
@@ -2865,9 +2938,29 @@ public partial class BattleGameManager : Node
                 ? heightScale
                 : spanScale;
 
-        var center = bounds.Position + bounds.Size * 0.5f;
-        node.Position = new Vector3(-center.X * scale, -bounds.Position.Y * scale, -center.Z * scale);
+        // ── 先把 Scale 写入，再以缩放后的 bounds 计算底部偏移 ──────────
+        // 原来的写法用缩放前的 bounds.Position.Y 乘以 scale 来贴地，
+        // 但某些 FBX 文件内部有额外的层级 Transform，导致未缩放时的
+        // bounds 不准确，建筑底部比 Y=0 低，出现"沉入地底"现象。
+        // 正确做法：先应用 Scale，然后重新计算 bounds，用真实的最低点来
+        // 设置 Position.Y，保证底部精确落在父节点坐标系的 Y=0 上。
         node.Scale = Vector3.One * scale;
+
+        // 重新计算缩放后的局部 bounds
+        if (!TryGetLocalBounds(node, Transform3D.Identity, out var scaledBounds))
+        {
+            // Fallback：无法获取缩放后 bounds，用原来的方式估算
+            var center = bounds.Position + bounds.Size * 0.5f;
+            node.Position = new Vector3(-center.X * scale, -bounds.Position.Y * scale, -center.Z * scale);
+            return;
+        }
+
+        // 用缩放后的 bounds 精确对齐底部到 Y=0，水平居中
+        var scaledCenter = scaledBounds.Position + scaledBounds.Size * 0.5f;
+        node.Position = new Vector3(
+            -scaledCenter.X,
+            -scaledBounds.Position.Y,   // 把 AABB 最低点推到 Y=0
+            -scaledCenter.Z);
     }
 
     static void AddBlock(Node3D parent, string name, Vector3 size, Vector3 position, Color color)

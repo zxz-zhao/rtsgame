@@ -139,6 +139,7 @@ public partial class RtsUnit : CharacterBody3D
     string fireAnimationName = "";
     string currentVisualAnimationName = "";
     float visualAnimationLockRemaining;
+    float crouchRatio;
     float stationaryDuration; // 记录单位静止持续时间，用于平滑移动与站立动画的切换，防止频繁抖动
     readonly List<AnimatedVisualPart> infantryVisualParts = new();
     CpuParticles3D? bowWaveParticles; // 船头浪花（两侧下落水粒）
@@ -748,6 +749,7 @@ public partial class RtsUnit : CharacterBody3D
         fireAnimationName = "";
         currentVisualAnimationName = "";
         visualAnimationLockRemaining = 0f;
+        crouchRatio = 0f;
         infantryVisualParts.Clear();
         propellerNodes.Clear();
 
@@ -1525,6 +1527,44 @@ public partial class RtsUnit : CharacterBody3D
         UpdateAnimationPlayback(moving, delta);
         UpdateInfantryStride(moving);
         UpdatePropellers(delta, moving);
+
+        // 迫击炮兵射击时蹲下姿势逻辑
+        if (visualKey == "infantry_artillery")
+        {
+            bool isFiring = visualAnimationLockRemaining > 0f && currentVisualAnimationName == fireAnimationName;
+            float targetCrouch = isFiring ? 1f : 0f;
+            crouchRatio = Mathf.Lerp(crouchRatio, targetCrouch, delta * 12f); // 平滑过渡
+
+            if (visualRoot is not null)
+            {
+                foreach (var child in visualRoot.GetChildren())
+                {
+                    if (child is Node3D soldierNode)
+                    {
+                        var modelNode = soldierNode.GetNodeOrNull<Node3D>("Model") ?? soldierNode.GetNodeOrNull<Node3D>("Body");
+                        if (modelNode is not null)
+                        {
+                            if (!modelNode.HasMeta("original_pos"))
+                            {
+                                modelNode.SetMeta("original_pos", modelNode.Position);
+                                modelNode.SetMeta("original_rot", modelNode.Rotation);
+                            }
+
+                            Vector3 origPos = modelNode.GetMeta("original_pos").AsVector3();
+                            Vector3 origRot = modelNode.GetMeta("original_rot").AsVector3();
+
+                            // 蹲姿参数：下沉 0.36m，前倾 22.5 度 (-0.39 rad)，并微调前移 0.15m 保持重心
+                            float crouchHeight = 0.36f;
+                            float tiltAngle = -0.39f;
+                            float forwardOffset = -0.15f;
+
+                            modelNode.Position = origPos + new Vector3(0f, -crouchHeight * crouchRatio, forwardOffset * crouchRatio);
+                            modelNode.Rotation = origRot + new Vector3(tiltAngle * crouchRatio, 0f, 0f);
+                        }
+                    }
+                }
+            }
+        }
 
         // 如果是舰船单位，在真实行驶状态下更新水面浪花和波纹粒子
         if (BattleUnitCatalog.IsNavalUnit(UnitKey))

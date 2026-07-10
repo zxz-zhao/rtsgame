@@ -425,7 +425,7 @@ public partial class BattleHud : CanvasLayer
             RefreshCommandPanel();
         });
 
-        commandPanel = Panel(new Vector2(852, 156), new Vector2(414, 332), new Color(0.035f, 0.045f, 0.025f, 0.92f));
+        commandPanel = Panel(new Vector2(852, 126), new Vector2(414, 372), new Color(0.035f, 0.045f, 0.025f, 0.92f));
         commandPanel.MouseFilter = Control.MouseFilterEnum.Stop;
         commandPanel.ClipContents = true;
         commandPanel.GuiInput += ConsumeHudPointerInput;
@@ -482,7 +482,7 @@ public partial class BattleHud : CanvasLayer
         var scroll = new ScrollContainer
         {
             Position = new Vector2(18, 40),
-            Size = new Vector2(378, 272),
+            Size = new Vector2(378, 312),
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
             ClipContents = true,
             MouseFilter = Control.MouseFilterEnum.Stop
@@ -2039,7 +2039,7 @@ public partial class BattleHud : CanvasLayer
             $"Lv.{nextLevel}",
             $"血量 {currentHealth:0} → {nextMaxHealth:0}\n人口 +{currentPopCap} → +{nextPopCap}\n收入 +{currentIncome} → +{nextIncome} / {building.GoldIncomeInterval:0.#}s",
             canUpgrade ? new Color(0.74f, 1f, 0.78f) : new Color(0.96f, 0.78f, 0.56f),
-            new Vector2(356f, 92f),
+            new Vector2(356f, 116f),
             12,
             16,
             11));
@@ -4866,7 +4866,7 @@ public partial class BattleHud : CanvasLayer
     void AddRequirementStatusSummary(IEnumerable<BattleBuildingRequirementStatus> requirements)
     {
         var requirementArray = requirements.ToArray();
-        var rowHeight = requirementArray.Length == 0 ? 62f : 34f + requirementArray.Length * 24f;
+        var rowHeight = requirementArray.Length == 0 ? 62f : 38f + requirementArray.Length * 26f;
         var card = Panel(Vector2.Zero, new Vector2(356f, rowHeight), new Color(0.030f, 0.044f, 0.050f, 0.96f));
         card.CustomMinimumSize = new Vector2(356f, rowHeight);
         card.MouseFilter = Control.MouseFilterEnum.Ignore;
@@ -4911,7 +4911,7 @@ public partial class BattleHud : CanvasLayer
             var row = new HBoxContainer
             {
                 Name = $"RequirementSummaryRow_{requirement.DisplayName}",
-                CustomMinimumSize = new Vector2(334f, 22f)
+                CustomMinimumSize = new Vector2(334f, 24f)
             };
             row.AddThemeConstantOverride("separation", 8);
             body.AddChild(row);
@@ -4924,7 +4924,7 @@ public partial class BattleHud : CanvasLayer
             row.AddChild(icon);
 
             var name = HudLabel(requirement.DisplayName, 12, new Color(0.92f, 0.95f, 0.98f));
-            name.CustomMinimumSize = new Vector2(174f, 20f);
+            name.CustomMinimumSize = new Vector2(174f, 22f);
             name.MouseFilter = Control.MouseFilterEnum.Ignore;
             row.AddChild(name);
 
@@ -4935,7 +4935,7 @@ public partial class BattleHud : CanvasLayer
                 ? new Color(0.72f, 1f, 0.76f)
                 : new Color(1f, 0.58f, 0.48f));
             progress.HorizontalAlignment = HorizontalAlignment.Right;
-            progress.CustomMinimumSize = new Vector2(118f, 20f);
+            progress.CustomMinimumSize = new Vector2(118f, 22f);
             progress.MouseFilter = Control.MouseFilterEnum.Ignore;
             row.AddChild(progress);
         }
@@ -4988,13 +4988,13 @@ public partial class BattleHud : CanvasLayer
         var noteLineCount = string.IsNullOrEmpty(note)
             ? 0
             : note.Split('\n').Length;
-        var singleLineNoteHeight = size.Y >= 88f ? 24f : 18f;
+        var singleLineNoteHeight = size.Y >= 88f ? 28f : 18f;
         var maxNoteHeight = Mathf.Max(singleLineNoteHeight, size.Y - 49f);
         var noteHeight = noteLineCount switch
         {
             <= 0 => 0f,
             1 => singleLineNoteHeight,
-            _ => Mathf.Min(maxNoteHeight, noteLineCount * (noteFontSize + 2f) + 2f)
+            _ => Mathf.Min(maxNoteHeight, noteLineCount * (noteFontSize + 4f) + 4f)
         };
 
         var valueLabel = HudLabel(value, valueFontSize, new Color(0.95f, 0.97f, 0.98f));
