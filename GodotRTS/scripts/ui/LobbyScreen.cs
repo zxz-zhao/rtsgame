@@ -2365,13 +2365,17 @@ public partial class LobbyScreen : Control
         if (inviteId.StartsWith("mock_"))
         {
             ShowToast(accept ? $"已接受来自 IronWolf 的邀请，正在进入房间 {fallbackRoomId}..." : "已拒绝邀请");
-            CloseModal();
             if (accept)
             {
                 activeRoomId = fallbackRoomId;
                 selectedMap = fallbackMap;
                 selectedMode = CustomRoomMode;
                 await StartBattle(false);
+                CloseModal();
+            }
+            else
+            {
+                CloseModal();
             }
             return;
         }
@@ -4857,9 +4861,9 @@ public partial class LobbyScreen : Control
             countdownLabel.Text = "所有玩家已确认！正在转入战场...";
             countdownLabel.AddThemeColorOverride("font_color", GoodText);
             await Task.Delay(800);
-            CloseModal();
             GameState.Instance?.SetCurrentRoom(roomId);
             await StartBattle(false);
+            CloseModal();
         }
         else
         {
@@ -5364,9 +5368,9 @@ public partial class LobbyScreen : Control
         GameState.Instance?.SetGlobalConquestStarterUnit(starter.Key);
         GameState.Instance?.SetGlobalConquestFactionChosen(true);
         GameState.Instance?.ClearCurrentRoom();
-        CloseModal();
         ShowToast($"全球争霸阵营已设为{faction.DisplayName}");
         await StartBattle(false);
+        CloseModal();
     }
 
     static string DescribeGlobalConquestStarter(string unitKey)
@@ -5515,8 +5519,8 @@ public partial class LobbyScreen : Control
         bottomRow.AddChild(rewardLabel);
 
         var deployBtn = AddButton("部署行动", () => {
-            CloseModal();
             _ = StartCampaignLevel(level.MapName);
+            CloseModal();
         }, ButtonTone.Gold, 12);
         deployBtn.CustomMinimumSize = new Vector2(86, 28);
         bottomRow.AddChild(deployBtn);
