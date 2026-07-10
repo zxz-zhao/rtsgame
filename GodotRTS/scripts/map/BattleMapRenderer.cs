@@ -229,7 +229,7 @@ public partial class BattleMapRenderer : Node3D
             Name = "Ground",
             Position = new Vector3(0f, GroundHeight, 0f),
             Mesh = new PlaneMesh { Size = new Vector2(mapSize, mapSize) },
-            MaterialOverride = Material(map.GroundColor, 0.9f)
+            MaterialOverride = CreateGroundMaterial(map.GroundColor)
         };
         generatedRoot.AddChild(mesh);
     }
@@ -263,13 +263,17 @@ public partial class BattleMapRenderer : Node3D
         for (var i = 0; i < strips.Length; i++)
         {
             var strip = strips[i];
+            Material matOverride = prefix == "Road"
+                ? CreateRoadMaterial(color, strip.Size)
+                : Material(color, prefix == "Water" ? 0.28f : 0.82f);
+
             var mesh = new MeshInstance3D
             {
                 Name = $"{prefix}_{strip.Name}",
                 Position = new Vector3(strip.Center.X, height, strip.Center.Z),
                 Rotation = new Vector3(0f, Mathf.DegToRad(strip.Angle), 0f),
                 Mesh = new PlaneMesh { Size = strip.Size },
-                MaterialOverride = Material(color, prefix == "Water" ? 0.28f : 0.82f)
+                MaterialOverride = matOverride
             };
             generatedRoot!.AddChild(mesh);
         }
@@ -350,7 +354,7 @@ public partial class BattleMapRenderer : Node3D
                 Position = new Vector3(patch.Center.X, PatchHeight, patch.Center.Z),
                 Rotation = new Vector3(0f, Mathf.DegToRad(patch.Angle), 0f),
                 Mesh = new PlaneMesh { Size = patch.Size },
-                MaterialOverride = Material(map.GetPatchColor(patch.PaletteIndex), 0.88f)
+                MaterialOverride = CreateGroundMaterial(map.GetPatchColor(patch.PaletteIndex))
             };
             generatedRoot!.AddChild(mesh);
         }
@@ -1436,6 +1440,53 @@ public partial class BattleMapRenderer : Node3D
             Roughness = roughness,
             Metallic = 0f
         };
+    }
+
+    static StandardMaterial3D CreateGroundMaterial(Color color)
+    {
+        var mat = new StandardMaterial3D();
+        mat.AlbedoColor = color;
+        mat.Roughness = 0.9f;
+
+        const string diffPath = "res://assets/unity_migrated/Assets/External/PolyHaven/EnvironmentTextures/forest_ground_04/forest_ground_04_diff_1k.jpg";
+        const string norPath = "res://assets/unity_migrated/Assets/External/PolyHaven/EnvironmentTextures/forest_ground_04/forest_ground_04_nor_gl_1k.png";
+        const string roughPath = "res://assets/unity_migrated/Assets/External/PolyHaven/EnvironmentTextures/forest_ground_04/forest_ground_04_rough_1k.jpg";
+
+        if (ResourceLoader.Exists(diffPath))
+        {
+            mat.AlbedoTexture = GD.Load<Texture2D>(diffPath);
+            mat.Uv1Triplanar = true;
+            mat.Uv1Scale = new Vector3(0.08f, 0.08f, 0.08f);
+        }
+        if (ResourceLoader.Exists(norPath))
+        {
+            mat.NormalEnabled = true;
+            mat.NormalTexture = GD.Load<Texture2D>(norPath);
+            mat.Uv1Triplanar = true;
+        }
+        if (ResourceLoader.Exists(roughPath))
+        {
+            mat.RoughnessTexture = GD.Load<Texture2D>(roughPath);
+            mat.Uv1Triplanar = true;
+        }
+
+        return mat;
+    }
+
+    static StandardMaterial3D CreateRoadMaterial(Color color, Vector2 size)
+    {
+        var mat = new StandardMaterial3D();
+        mat.AlbedoColor = color;
+        mat.Roughness = 0.85f;
+
+        const string diffPath = "res://assets/unity_migrated/Assets/External/UserModels/Props/WarScene/Tex_Road_D.png";
+        if (ResourceLoader.Exists(diffPath))
+        {
+            mat.AlbedoTexture = GD.Load<Texture2D>(diffPath);
+            mat.Uv1Scale = new Vector3(1f, size.Y / 8f, 1f);
+        }
+
+        return mat;
     }
 
     static bool IsRiverLike(TerrainStripSpec strip)
