@@ -10,7 +10,13 @@ uniform float edge_fade = 0.14;
 uniform float foam_scale = 0.38;
 uniform float metallic = 0.15;
 uniform float roughness = 0.08;
-uniform float wave_height = 0.15;        // Physical displacement height
+// ripple_scale: controls UV tiling frequency of the flowing ripple pattern
+uniform float ripple_scale = 12.5;
+// ripple_strength: controls how strongly ripple normals perturb the surface
+uniform float ripple_strength = 0.15;
+// shine_strength: extra specular highlight intensity on ripple crests
+uniform float shine_strength = 0.20;
+uniform float wave_height = 0.0;   // Keep 0 to prevent terrain clipping / Z-fighting
 
 varying vec3 world_pos;
 
@@ -28,14 +34,13 @@ float noise(vec2 p) {
                mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
 }
 
-// Fractional Brownian Motion (FBM) representing multi-frequency waves
+// Fractional Brownian Motion (FBM) – multi-frequency wave texture
 float fbm(vec2 p, float time) {
     vec2 flow = vec2(0.0, time * flow_speed);
     float value = 0.0;
     float amplitude = 0.5;
-    mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8)); // Rotation to prevent grid alignment
-    
-    // 4 Octaves of noise for detailed ripples
+    mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
+
     for (int i = 0; i < 4; i++) {
         value += amplitude * noise(p + flow);
         p = rot * p * 2.0 - flow * 0.4;
@@ -44,73 +49,89 @@ float fbm(vec2 p, float time) {
     return value;
 }
 
-// Primary wave function for vertex displacement and low frequency motion
-float get_primary_wave(vec2 pos, float time) {
-    vec2 p = pos * wave_scale;
-    float w1 = sin(p.y - time * 2.6 + p.x * 0.5) * 0.45;
-    float w2 = cos(p.y * 1.3 + time * 3.2 - p.x * 0.7) * 0.35;
-    float w3 = sin((p.x * 1.2 + p.y * 0.9) - time * 1.8) * 0.20;
-    return w1 + w2 + w3;
+// ──────────────────────────────────────────────────────────────────────────
+// Flowing ripple pattern: two overlapping scrolling sine waves oriented
+// along the downstream direction (world Z axis), shifted by 90° so that
+// the combination creates a convincing "wind-blown / current-driven" look.
+// Both layers scroll with flow_speed so they always move together.
+// ──────────────────────────────────────────────────────────────────────────
+float ripple(vec2 pos, float time) {
+    float t = time * flow_speed;
+    float freq = ripple_scale;
+
+    // Layer A – primary downstream ripples (along Z)
+    float layerA = sin(pos.y * freq       - t * 3.8 + pos.x * freq * 0.18) * 0.55
+                 + sin(pos.y * freq * 1.7 - t * 5.1 - pos.x * freq * 0.26) * 0.30
+                 + sin(pos.y * freq * 2.8 - t * 2.4 + pos.x * freq * 0.09) * 0.15;
+
+    // Layer B – diagonal cross-ripples for natural "breeze" effect
+    float layerB = sin((pos.x * 0.6 + pos.y) * freq * 0.9 - t * 4.2) * 0.40
+                 + sin((pos.x * 0.4 - pos.y) * freq * 1.3 + t * 3.0) * 0.25
+                 + sin( pos.x       * freq * 2.2            - t * 6.5) * 0.12;
+
+    return (layerA * 0.65 + layerB * 0.35) * 0.5 + 0.5; // remap to [0,1]
 }
 
 void vertex() {
-    // 1. Transform vertex from View space to World space
     vec3 world_vertex = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
-    
-    // 2. Compute wave displacement based on world xz coordinates
-    float flow = TIME * flow_speed;
-    float wave = get_primary_wave(world_vertex.xz, flow);
-    
-    // 3. Apply displacement along the world Y axis
-    world_vertex.y += wave * wave_height;
-    
-    // 4. Set world_pos for fragment shader
     world_pos = world_vertex;
-    
-    // 5. Transform back to View space and write to VERTEX
     VERTEX = (VIEW_MATRIX * vec4(world_vertex, 1.0)).xyz;
 }
 
 void fragment() {
     float flow = TIME * flow_speed;
     vec2 pos = world_pos.xz;
-    
-    // Wave slope perturbation via FBM noise finite difference
+
+    // ── Base FBM wave normals (low-frequency chop) ──
     float eps = 0.08;
     float h_l = fbm(pos - vec2(eps, 0.0), flow);
     float h_r = fbm(pos + vec2(eps, 0.0), flow);
     float h_d = fbm(pos - vec2(0.0, eps), flow);
     float h_u = fbm(pos + vec2(0.0, eps), flow);
-    
-    vec3 world_normal = normalize(vec3((h_l - h_r) * wave_strength, 1.0, (h_d - h_u) * wave_strength));
-    
-    // View space normal for rendering
+    vec3 base_normal = normalize(vec3((h_l - h_r) * wave_strength, 1.0, (h_d - h_u) * wave_strength));
+
+    // ── Flowing ripple normal perturbation (high-frequency direction-aware) ──
+    float reps = 0.04;
+    float r_l = ripple(pos - vec2(reps, 0.0), TIME);
+    float r_r = ripple(pos + vec2(reps, 0.0), TIME);
+    float r_d = ripple(pos - vec2(0.0, reps), TIME);
+    float r_u = ripple(pos + vec2(0.0, reps), TIME);
+    vec3 ripple_normal = normalize(vec3((r_l - r_r) * ripple_strength * 2.0,
+                                         1.0,
+                                        (r_d - r_u) * ripple_strength * 2.0));
+
+    // Blend the two normal layers
+    vec3 world_normal = normalize(base_normal * 0.55 + ripple_normal * 0.45);
     NORMAL = normalize(mat3(VIEW_MATRIX) * world_normal);
-    
-    // Detailed procedural foam on wave crests
+
+    // ── Ripple crest highlights ──
+    float ripple_val = ripple(pos, TIME);
+    float crest = smoothstep(0.60, 0.90, ripple_val);
+
+    // ── Foam on wave crests (FBM) ──
     float wave_val = fbm(pos * 0.8, flow);
-    float wave_01 = wave_val;
-    float foam = smoothstep(0.55, 0.85, wave_01);
-    
-    // Shore line transition
+    float foam = smoothstep(0.55, 0.85, wave_val);
+
+    // ── Shore-line transition ──
     float edge_x = min(UV.x, 1.0 - UV.x);
     float edge_y = min(UV.y, 1.0 - UV.y);
     float edge = 1.0 - smoothstep(0.0, edge_fade, min(edge_x, edge_y));
-    
-    // Fresnel Reflection
+
+    // ── Fresnel Reflection ──
     float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
-    
-    // Shallow/deep water color variation
-    vec3 deep_color = water_color.rgb;
+
+    // ── Color composition ──
+    vec3 deep_color    = water_color.rgb;
     vec3 shallow_color = mix(deep_color, vec3(0.05, 0.38, 0.58), wave_val * 0.3 + 0.3);
-    
-    // Blend components
+
     vec3 final_color = mix(shallow_color, foam_color.rgb, foam * foam_scale + edge * 0.45);
+    // Ripple-crest brightening (simulates sunlight catching moving water)
+    final_color += foam_color.rgb * crest * shine_strength;
     final_color = mix(final_color, foam_color.rgb * 1.12, fresnel * 0.36);
-    
-    ALBEDO = final_color;
-    ALPHA = mix(water_color.a, 1.0, edge * 0.5);
-    ROUGHNESS = roughness + (1.0 - foam) * 0.14;
-    METALLIC = metallic;
-    SPECULAR = 0.55 + foam * 0.25;
+
+    ALBEDO    = final_color;
+    ALPHA     = mix(water_color.a, 1.0, edge * 0.5);
+    ROUGHNESS = roughness + (1.0 - foam) * 0.14 - crest * 0.06;
+    METALLIC  = metallic;
+    SPECULAR  = 0.55 + foam * 0.25 + crest * shine_strength * 0.4;
 }

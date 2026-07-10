@@ -4,11 +4,11 @@ using System;
 [Tool]
 public partial class BattleMapRenderer : Node3D
 {
-    const float GroundHeight = -0.02f;
-    const float PatchHeight = 0.03f;
-    const float WaterModelHeight = 0.045f;
-    const float WaterSurfaceHeight = 0.06f;
-    const float RoadHeight = 0.08f;
+    const float GroundHeight = -0.05f;
+    const float PatchHeight = 0.02f;
+    const float WaterModelHeight = 0.06f;
+    const float WaterSurfaceHeight = 0.10f;
+    const float RoadHeight = 0.18f;
     const string WaterFlowShaderPath = "res://assets/shaders/water_flow.gdshader";
     const string NatureKitRoot = "res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/FBX format/";
     const string MilitaryExtractedRoot = "res://assets/unity_migrated/Assets/External/MilitaryModels/Kenney/Extracted/Models/FBX format/";
@@ -1032,7 +1032,8 @@ public partial class BattleMapRenderer : Node3D
         if (string.IsNullOrEmpty(CameraPath.ToString()) || GetNodeOrNull<Camera3D>(CameraPath) is not { } camera)
             return;
 
-        camera.Far = 500f; // Prevent ground culling/clipping on larger maps
+        camera.Near = 1f;
+        camera.Far = 800f; // Prevent ground culling/clipping on larger maps
 
         var playerBase = FindSpawn(map, "PlayerBase", new Vector3(-map.BaseSpawnOffset, 0f, -map.BaseSpawnOffset));
         var playerForward = FindSpawn(map, "PlayerForward", new Vector3(-map.ForwardSpawnOffset, 0f, -map.ForwardSpawnOffset));
@@ -1523,11 +1524,17 @@ public partial class BattleMapRenderer : Node3D
 
         material.SetShaderParameter("water_color", new Color(waterColor.R, waterColor.G, waterColor.B, riverLike ? 0.98f : 0.84f));
         material.SetShaderParameter("foam_color", foamColor);
-        material.SetShaderParameter("flow_speed", riverLike ? 0.82f : 0.30f);
-        material.SetShaderParameter("ripple_scale", riverLike ? 12.5f : 6.5f);
-        material.SetShaderParameter("ripple_strength", riverLike ? 0.15f : 0.07f);
+        // flow_speed: how fast the entire wave pattern scrolls downstream
+        material.SetShaderParameter("flow_speed", riverLike ? 1.10f : 0.42f);
+        // wave_scale / wave_strength: low-frequency FBM chop
+        material.SetShaderParameter("wave_scale", riverLike ? 0.55f : 0.32f);
+        material.SetShaderParameter("wave_strength", riverLike ? 0.55f : 0.28f);
+        // ripple_scale / ripple_strength: high-frequency direction-aware scrolling ripples
+        material.SetShaderParameter("ripple_scale", riverLike ? 0.18f : 0.09f);
+        material.SetShaderParameter("ripple_strength", riverLike ? 0.38f : 0.15f);
         material.SetShaderParameter("edge_fade", riverLike ? 0.28f : 0.12f);
-        material.SetShaderParameter("shine_strength", riverLike ? 0.20f : 0.10f);
+        material.SetShaderParameter("shine_strength", riverLike ? 0.28f : 0.12f);
+        material.SetShaderParameter("foam_scale", riverLike ? 0.45f : 0.28f);
         return material;
     }
 
@@ -1885,23 +1892,33 @@ public partial class BattleMapRenderer : Node3D
 
             var length = strip.Size.Y;
             var width = strip.Size.X;
-            
-            // Step size along Z (lengthwise) - say, every 3.5 units
-            var stepZ = 3.5f;
-            for (float z = -length * 0.45f; z <= length * 0.45f; z += stepZ)
+
+            // Step size along Z (lengthwise) – tighter spacing for denser bank vegetation
+            var stepZ = 2.4f;
+            for (float z = -length * 0.46f; z <= length * 0.46f; z += stepZ)
             {
-                // Left bank and Right bank X positions
-                // Kenney's straight river model has water width around 42%, so the banks start around X = 0.21 * width.
-                // We'll place items just outside the water edge, around X = 0.23 * width to 0.35 * width.
-                var baseLeftX = -width * rng.RandfRange(0.24f, 0.32f);
-                var baseRightX = width * rng.RandfRange(0.24f, 0.32f);
+                // Kenney's straight river model: water fills ~42% of strip width.
+                // Banks begin at ~X = 0.21*width; place items from ~0.22 to 0.38*width.
+                var baseLeftX  = -width * rng.RandfRange(0.22f, 0.36f);
+                var baseRightX =  width * rng.RandfRange(0.22f, 0.36f);
 
-                // Add random offsets to make it look organic
-                var leftPos = transform * new Vector3(baseLeftX, 0.03f, z + rng.RandfRange(-1.2f, 1.2f));
-                var rightPos = transform * new Vector3(baseRightX, 0.03f, z + rng.RandfRange(-1.2f, 1.2f));
-
-                SpawnRiverEdgeAsset(map, leftPos, rng, ref index);
+                // Primary bank positions
+                var leftPos  = transform * new Vector3(baseLeftX,  0.03f, z + rng.RandfRange(-1.0f, 1.0f));
+                var rightPos = transform * new Vector3(baseRightX, 0.03f, z + rng.RandfRange(-1.0f, 1.0f));
+                SpawnRiverEdgeAsset(map, leftPos,  rng, ref index);
                 SpawnRiverEdgeAsset(map, rightPos, rng, ref index);
+
+                // Second row further from bank for layered depth (~50% chance each)
+                if (rng.Randf() < 0.55f)
+                {
+                    var leftPos2 = transform * new Vector3(-width * rng.RandfRange(0.36f, 0.46f), 0.03f, z + rng.RandfRange(-1.4f, 1.4f));
+                    SpawnRiverEdgeAsset(map, leftPos2, rng, ref index);
+                }
+                if (rng.Randf() < 0.55f)
+                {
+                    var rightPos2 = transform * new Vector3(width * rng.RandfRange(0.36f, 0.46f), 0.03f, z + rng.RandfRange(-1.4f, 1.4f));
+                    SpawnRiverEdgeAsset(map, rightPos2, rng, ref index);
+                }
             }
         }
     }
@@ -1910,17 +1927,17 @@ public partial class BattleMapRenderer : Node3D
     {
         index++;
         var roll = rng.Randf();
-        
-        // 75% chance for grass/foliage, 15% chance for a small rock/pebble, 10% chance empty
-        if (roll < 0.75f)
+
+        // 78% foliage, 14% rock, 8% empty
+        if (roll < 0.78f)
         {
             var useGrass = rng.Randf() > 0.30f;
             var scenePath = useGrass ? PickGrassScene(map, index) : PickBushScene(map, index);
-            
             var targetHeight = useGrass ? rng.RandfRange(0.40f, 0.85f) : rng.RandfRange(0.60f, 1.10f);
-            var targetSpan = useGrass ? rng.RandfRange(0.60f, 1.20f) : rng.RandfRange(0.80f, 1.40f);
-            
-            TryAddImportedScenery(
+            var targetSpan   = useGrass ? rng.RandfRange(0.60f, 1.20f) : rng.RandfRange(0.80f, 1.40f);
+
+            // Try to load the imported polyhaven/kenney model first
+            bool placed = TryAddImportedScenery(
                 scenePath,
                 $"RiverFoliage_{index:00}",
                 worldPos,
@@ -1928,26 +1945,70 @@ public partial class BattleMapRenderer : Node3D
                 targetHeight,
                 targetSpan,
                 map.FoliageColor,
-                preserveMaterials: true
-            );
+                preserveMaterials: true);
+
+            // ── Fallback: procedural clump so banks are never bare ────────
+            if (!placed)
+            {
+                var foliageMat = Material(map.FoliageColor.Lerp(new Color(0.18f, 0.55f, 0.22f), 0.45f), 0.90f);
+                var stemMat    = Material(map.TrunkColor, 0.82f);
+                var clumpRoot  = new Node3D { Name = $"RiverFoliageFB_{index:00}", Position = worldPos };
+                var bladeCount = rng.RandiRange(3, 5);
+                for (var b = 0; b < bladeCount; b++)
+                {
+                    var bladePhi = rng.RandfRange(0f, Mathf.Tau);
+                    var bladeR   = rng.RandfRange(0.05f, 0.22f);
+                    var bladeH   = rng.RandfRange(targetHeight * 0.70f, targetHeight);
+                    var bladeW   = rng.RandfRange(0.06f, 0.14f);
+                    clumpRoot.AddChild(new MeshInstance3D
+                    {
+                        Name = $"Blade_{b}",
+                        Position = new Vector3(Mathf.Cos(bladePhi) * bladeR, bladeH * 0.5f, Mathf.Sin(bladePhi) * bladeR),
+                        Rotation = new Vector3(rng.RandfRange(-0.18f, 0.18f), bladePhi, rng.RandfRange(-0.12f, 0.12f)),
+                        Mesh = new CylinderMesh { TopRadius = bladeW * 0.15f, BottomRadius = bladeW, Height = bladeH, RadialSegments = 5 },
+                        MaterialOverride = foliageMat
+                    });
+                }
+                // Small bulge at base
+                clumpRoot.AddChild(new MeshInstance3D
+                {
+                    Name = "BaseClump",
+                    Position = new Vector3(0f, 0.05f, 0f),
+                    Mesh = new SphereMesh { Radius = targetSpan * 0.22f, Height = 0.18f, RadialSegments = 7, Rings = 3 },
+                    MaterialOverride = stemMat
+                });
+                generatedRoot!.AddChild(clumpRoot);
+            }
         }
-        else if (roll < 0.90f)
+        else if (roll < 0.92f)
         {
-            var rockPath = PickRockScene(map, index);
-            
+            var rockPath    = PickRockScene(map, index);
             var targetHeight = rng.RandfRange(0.25f, 0.65f);
-            var targetSpan = rng.RandfRange(0.45f, 0.95f);
-            
-            TryAddImportedScenery(
+            var targetSpan   = rng.RandfRange(0.45f, 0.95f);
+
+            bool placed = TryAddImportedScenery(
                 rockPath,
                 $"RiverRock_{index:00}",
-                new Vector3(worldPos.X, worldPos.Y - 0.05f, worldPos.Z), // slightly sink it
+                new Vector3(worldPos.X, worldPos.Y - 0.05f, worldPos.Z),
                 new Vector3(rng.RandfRange(-0.1f, 0.1f), rng.RandfRange(0f, Mathf.Tau), rng.RandfRange(-0.1f, 0.1f)),
                 targetHeight,
                 targetSpan,
                 map.RockColor,
-                preserveMaterials: true
-            );
+                preserveMaterials: true);
+
+            // Fallback: procedural pebble
+            if (!placed)
+            {
+                generatedRoot!.AddChild(new MeshInstance3D
+                {
+                    Name = $"RiverRockFB_{index:00}",
+                    Position = new Vector3(worldPos.X, worldPos.Y - 0.04f, worldPos.Z),
+                    Rotation = new Vector3(rng.RandfRange(-0.15f, 0.15f), rng.RandfRange(0f, Mathf.Tau), rng.RandfRange(-0.15f, 0.15f)),
+                    Scale = new Vector3(rng.RandfRange(0.7f, 1.4f), rng.RandfRange(0.4f, 0.7f), rng.RandfRange(0.7f, 1.4f)) * targetHeight,
+                    Mesh = new SphereMesh { Radius = 1f, Height = 1.1f, RadialSegments = 7, Rings = 4 },
+                    MaterialOverride = Material(map.RockColor, 0.94f)
+                });
+            }
         }
     }
 
