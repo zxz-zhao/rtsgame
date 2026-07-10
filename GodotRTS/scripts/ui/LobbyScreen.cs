@@ -2407,8 +2407,20 @@ public partial class LobbyScreen : Control
         modalBody.AddChild(CreateShopHeroBanner());
 
         var list = AddModalSectionPanel("军需精选", "统一购买补给、加速道具和全球争霸军备包。", WarningText);
+
+        var grid = new GridContainer
+        {
+            Name = "ShopGrid",
+            Columns = 3,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin
+        };
+        grid.AddThemeConstantOverride("h_separation", 14);
+        grid.AddThemeConstantOverride("v_separation", 14);
+        list.AddChild(grid);
+
         foreach (var offer in BuildShopOffers())
-            list.AddChild(CreateShopItemCard(offer));
+            grid.AddChild(CreateShopItemCard(offer));
         ShowModal();
     }
 
@@ -2638,8 +2650,8 @@ public partial class LobbyScreen : Control
         var card = new Panel
         {
             Name = "ShopItem_" + offer.Name,
-            CustomMinimumSize = new Vector2(0, offer.Highlights.Length > 2 ? 214 : 188),
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(280, 275), // Width 280, Height 275
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
             SizeFlagsVertical = SizeFlags.ShrinkBegin,
             ClipContents = true
         };
@@ -2686,121 +2698,56 @@ public partial class LobbyScreen : Control
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
         margin.SetAnchorsPreset(LayoutPreset.FullRect);
-        margin.AddThemeConstantOverride("margin_left", 14);
-        margin.AddThemeConstantOverride("margin_top", 14);
-        margin.AddThemeConstantOverride("margin_right", 14);
-        margin.AddThemeConstantOverride("margin_bottom", 14);
+        margin.AddThemeConstantOverride("margin_left", 12);
+        margin.AddThemeConstantOverride("margin_top", 12);
+        margin.AddThemeConstantOverride("margin_right", 12);
+        margin.AddThemeConstantOverride("margin_bottom", 12);
         card.AddChild(margin);
 
         var content = new VBoxContainer
         {
             Name = "ShopItemContent_" + offer.Name,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
+            SizeFlagsVertical = SizeFlags.ExpandFill
         };
-        content.AddThemeConstantOverride("separation", 10);
+        content.AddThemeConstantOverride("separation", 6);
         margin.AddChild(content);
 
-        var box = new HBoxContainer
-        {
-            Name = "ShopItemBox_" + offer.Name,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
-        };
-        box.AddThemeConstantOverride("separation", 14);
-        content.AddChild(box);
-
+        // 1. 上面一个大图标 (Top: Big Icon/Preview Block)
         var preview = CreateShopPreviewBlock(offer);
-        preview.SizeFlagsVertical = SizeFlags.ShrinkBegin;
-        box.AddChild(preview);
+        preview.CustomMinimumSize = new Vector2(256, 110);
+        content.AddChild(preview);
 
-        var info = new VBoxContainer
-        {
-            Name = "ShopItemInfo_" + offer.Name,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
-        };
-        info.AddThemeConstantOverride("separation", 6);
-        box.AddChild(info);
-
-        var topRow = new HBoxContainer
-        {
-            Name = "ShopItemTopRow_" + offer.Name,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
-        };
-        topRow.AddThemeConstantOverride("separation", 8);
-        info.AddChild(topRow);
-
-        var titleStack = new VBoxContainer
-        {
-            Name = "ShopItemTitleStack_" + offer.Name,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            CustomMinimumSize = new Vector2(0, 40)
-        };
-        titleStack.AddThemeConstantOverride("separation", 3);
-        topRow.AddChild(titleStack);
-
-        var title = AddLabel(offer.Name, 16, PanelText, HorizontalAlignment.Left);
+        // 2. 下面一行介绍 (Middle: Title & Description)
+        var title = AddLabel(offer.Name, 14, PanelText, HorizontalAlignment.Center);
         title.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        title.VerticalAlignment = VerticalAlignment.Top;
-        titleStack.AddChild(title);
+        content.AddChild(title);
 
-        var subtitle = AddLabel(offer.Subtitle, 12, new Color(0.86f, 0.91f, 0.94f), HorizontalAlignment.Left);
-        subtitle.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        subtitle.VerticalAlignment = VerticalAlignment.Top;
-        titleStack.AddChild(subtitle);
+        var detail = AddLabel(offer.Description, 10, MutedText, HorizontalAlignment.Center);
+        detail.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        detail.CustomMinimumSize = new Vector2(0, 32);
+        content.AddChild(detail);
 
+        // 3. 标签就是分类 (Middle: Tags for Category and Badge)
         var meta = new HFlowContainer
         {
             Name = "ShopItemMeta_" + offer.Name,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            CustomMinimumSize = new Vector2(0, 26)
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+            CustomMinimumSize = new Vector2(0, 22)
         };
         meta.AddThemeConstantOverride("h_separation", 6);
-        meta.AddThemeConstantOverride("v_separation", 6);
         meta.AddChild(CreateTag(offer.Category, new Color(0.20f, 0.28f, 0.36f, 0.92f), new Color(0.94f, 0.97f, 0.99f)));
         if (!string.IsNullOrWhiteSpace(offer.Badge))
             meta.AddChild(CreateTag(offer.Badge, new Color(0.34f, 0.24f, 0.08f, 0.94f), new Color(1f, 0.94f, 0.78f)));
-        info.AddChild(meta);
+        content.AddChild(meta);
 
-        var detail = AddLabel(offer.Description, 12, MutedText, HorizontalAlignment.Left);
-        detail.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        detail.VerticalAlignment = VerticalAlignment.Top;
-        detail.CustomMinimumSize = new Vector2(0, 34);
-        info.AddChild(detail);
+        // 4. 再下面是价格按钮，点击价格进入购买页
+        var priceBtn = CreateShopPriceButton(offer);
+        priceBtn.CustomMinimumSize = new Vector2(160, 32);
+        priceBtn.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
+        priceBtn.Pressed += () => ShowToast($"{offer.Name} 的购买接口待接入");
+        content.AddChild(priceBtn);
 
-        var buyColumn = new VBoxContainer
-        {
-            Name = "ShopItemBuyColumn_" + offer.Name,
-            SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin,
-            CustomMinimumSize = new Vector2(104, 0)
-        };
-        buyColumn.AddThemeConstantOverride("separation", 8);
-        box.AddChild(buyColumn);
-
-        buyColumn.AddChild(CreateShopPriceChip(offer));
-
-        var buyButton = AddButton(offer.ActionText, () => ShowToast($"{offer.Name} 的购买接口待接入"), offer.ActionTone, 12);
-        buyButton.CustomMinimumSize = new Vector2(84, 32);
-        buyButton.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
-        buyColumn.AddChild(buyButton);
-
-        if (offer.Highlights.Length > 0)
-        {
-            var highlights = new HFlowContainer
-            {
-                Name = "ShopItemHighlights_" + offer.Name,
-                SizeFlagsHorizontal = SizeFlags.ExpandFill,
-                SizeFlagsVertical = SizeFlags.ShrinkBegin,
-                CustomMinimumSize = new Vector2(0, offer.Highlights.Length > 2 ? 52 : 26)
-            };
-            highlights.AddThemeConstantOverride("h_separation", 6);
-            highlights.AddThemeConstantOverride("v_separation", 6);
-            foreach (var highlight in offer.Highlights)
-                highlights.AddChild(CreateTag(highlight, new Color(0.14f, 0.18f, 0.20f, 0.88f), new Color(0.92f, 0.94f, 0.90f)));
-            content.AddChild(highlights);
-        }
         return card;
     }
 
@@ -2809,8 +2756,8 @@ public partial class LobbyScreen : Control
         var holder = new Panel
         {
             Name = "ShopPreview_" + offer.Name,
-            CustomMinimumSize = new Vector2(124, 104),
-            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            CustomMinimumSize = new Vector2(256, 110),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
         holder.AddThemeStyleboxOverride("panel", new StyleBoxFlat
@@ -2855,11 +2802,9 @@ public partial class LobbyScreen : Control
             SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
             SizeFlagsVertical = SizeFlags.ShrinkCenter
         };
-        iconFrame.SetAnchorsPreset(LayoutPreset.FullRect);
-        iconFrame.OffsetLeft = 39;
-        iconFrame.OffsetTop = 29;
-        iconFrame.OffsetRight = -39;
-        iconFrame.OffsetBottom = -29;
+        iconFrame.SetAnchorsPreset(LayoutPreset.Center);
+        iconFrame.GrowHorizontal = GrowDirection.Both;
+        iconFrame.GrowVertical = GrowDirection.Both;
         iconFrame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
             BgColor = new Color(0.04f, 0.06f, 0.07f, 0.60f),
@@ -2893,16 +2838,18 @@ public partial class LobbyScreen : Control
         return holder;
     }
 
-    Control CreateShopPriceChip(ShopOfferUi offer)
+    Button CreateShopPriceButton(ShopOfferUi offer)
     {
-        var chip = new PanelContainer
+        var priceBtn = new Button
         {
-            Name = "ShopPriceChip_" + offer.Name,
-            CustomMinimumSize = new Vector2(104, 42),
+            Name = "ShopPriceButton_" + offer.Name,
+            CustomMinimumSize = new Vector2(160, 32),
             SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-            SizeFlagsVertical = SizeFlags.ShrinkCenter
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseDefaultCursorShape = CursorShape.PointingHand
         };
-        chip.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+
+        var normalStyle = new StyleBoxFlat
         {
             BgColor = offer.UsesGems
                 ? new Color(0.08f, 0.18f, 0.24f, 0.90f)
@@ -2912,29 +2859,48 @@ public partial class LobbyScreen : Control
             BorderWidthTop = 1,
             BorderWidthRight = 1,
             BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 21,
-            CornerRadiusTopRight = 21,
-            CornerRadiusBottomLeft = 21,
-            CornerRadiusBottomRight = 21
-        });
+            CornerRadiusTopLeft = 16,
+            CornerRadiusTopRight = 16,
+            CornerRadiusBottomLeft = 16,
+            CornerRadiusBottomRight = 16
+        };
+
+        var hoverStyle = (StyleBoxFlat)normalStyle.Duplicate(true);
+        hoverStyle.BgColor = offer.UsesGems
+            ? new Color(0.12f, 0.24f, 0.32f, 0.95f)
+            : new Color(0.38f, 0.28f, 0.12f, 0.95f);
+        hoverStyle.BorderColor = new Color(offer.Accent.R, offer.Accent.G, offer.Accent.B, 0.5f);
+
+        var pressedStyle = (StyleBoxFlat)normalStyle.Duplicate(true);
+        pressedStyle.BgColor = offer.UsesGems
+            ? new Color(0.05f, 0.12f, 0.18f, 0.95f)
+            : new Color(0.22f, 0.16f, 0.05f, 0.95f);
+
+        priceBtn.AddThemeStyleboxOverride("normal", normalStyle);
+        priceBtn.AddThemeStyleboxOverride("hover", hoverStyle);
+        priceBtn.AddThemeStyleboxOverride("pressed", pressedStyle);
+        priceBtn.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
 
         var margin = new MarginContainer
         {
-            Name = "ShopPriceChipMargin_" + offer.Name,
+            Name = "ShopPriceButtonMargin_" + offer.Name,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ExpandFill
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Ignore
         };
+        margin.SetAnchorsPreset(LayoutPreset.FullRect);
         margin.AddThemeConstantOverride("margin_left", 10);
-        margin.AddThemeConstantOverride("margin_top", 8);
+        margin.AddThemeConstantOverride("margin_top", 4);
         margin.AddThemeConstantOverride("margin_right", 10);
-        margin.AddThemeConstantOverride("margin_bottom", 8);
-        chip.AddChild(margin);
+        margin.AddThemeConstantOverride("margin_bottom", 4);
+        priceBtn.AddChild(margin);
 
         var row = new HBoxContainer
         {
-            Name = "ShopPriceChipRow_" + offer.Name,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkCenter
+            Name = "ShopPriceButtonRow_" + offer.Name,
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = MouseFilterEnum.Ignore
         };
         row.AddThemeConstantOverride("separation", 6);
         margin.AddChild(row);
@@ -2951,10 +2917,12 @@ public partial class LobbyScreen : Control
             SizeFlagsVertical = SizeFlags.ShrinkCenter
         });
 
-        var amount = AddLabel(offer.PriceText, 15, new Color(1f, 0.98f, 0.90f), HorizontalAlignment.Left);
+        var amount = AddLabel(offer.PriceText, 14, new Color(1f, 0.98f, 0.90f), HorizontalAlignment.Left);
         amount.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        amount.MouseFilter = MouseFilterEnum.Ignore;
         row.AddChild(amount);
-        return chip;
+
+        return priceBtn;
     }
 
     void ShowResearchModal()
@@ -4980,20 +4948,6 @@ public partial class LobbyScreen : Control
         await OpenGlobalConquestTeamPanel();
     }
 
-    async Task StartGlobalConquestSolo()
-    {
-        SelectModeInternal(GlobalConquestMode, BattleMapCatalog.GlobalConquestName, false);
-        if (GameState.Instance is not null && GameState.Instance.HasChosenGlobalConquestFaction)
-        {
-            GameState.Instance.ClearCurrentRoom();
-            await StartBattle(false);
-        }
-        else
-        {
-            ShowGlobalConquestStarterModal();
-        }
-    }
-
     async Task LeaveActiveRoomAndRefreshGc()
     {
         await LeaveActiveRoom();
@@ -5008,25 +4962,41 @@ public partial class LobbyScreen : Control
 
     async Task CreateGlobalConquestRoom()
     {
-        if (NetClient.Instance is null || string.IsNullOrEmpty(GameState.Instance?.Token))
+        var mapName = BattleMapCatalog.GlobalConquestName;
+        var maxPlayers = 5;
+
+        // 离线/游客/服务器未连接 fallback 到本地 5人战役房间
+        if (NetClient.Instance is null || string.IsNullOrEmpty(GameState.Instance?.Token) || GameState.Instance?.IsGuest == true)
         {
-            ShowToast("请先登录后再创建房间");
+            activeRoomId = "local_gc_room";
+            activeRoomMap = mapName;
+            activeRoomMaxPlayers = maxPlayers;
+            activeRoomPlayerCount = 5; // 填满 AI，让离线体验最佳
+            selectedMap = activeRoomMap;
+            GameState.Instance?.SelectMap(activeRoomMap, GlobalConquestMode);
+            GameState.Instance?.SetCurrentRoom(activeRoomId);
+            ShowToast("已进入本地全球争霸房间 (包含4名模拟盟友)");
+            _ = OpenGlobalConquestTeamPanel();
             return;
         }
-
-        var mapName = BattleMapCatalog.GlobalConquestName;
-        var roomName = $"{GameState.Instance?.Username ?? "玩家"}的全球争霸团";
-        var maxPlayers = 5;
 
         if (IsLive(roomStatusLabel))
             roomStatusLabel.Text = "创建中...";
 
+        var roomName = $"{GameState.Instance?.Username ?? "玩家"}的全球争霸团";
         var data = await NetClient.Instance.CreateRoom(mapName, roomName, maxPlayers);
         if (!data.GetBool("success"))
         {
-            if (IsLive(roomStatusLabel))
-                roomStatusLabel.Text = "创建失败";
-            ShowToast(FriendlyText(data.GetString("error"), "创建失败"));
+            // 服务器错误 fallback
+            ShowToast("服务器连线失败，已为您创建本地争霸房间");
+            activeRoomId = "local_gc_room";
+            activeRoomMap = mapName;
+            activeRoomMaxPlayers = maxPlayers;
+            activeRoomPlayerCount = 5;
+            selectedMap = activeRoomMap;
+            GameState.Instance?.SelectMap(activeRoomMap, GlobalConquestMode);
+            GameState.Instance?.SetCurrentRoom(activeRoomId);
+            _ = OpenGlobalConquestTeamPanel();
             return;
         }
 
@@ -5269,15 +5239,15 @@ public partial class LobbyScreen : Control
             var row = new HBoxContainer { Name = "GcLobbyRow" };
             row.AddThemeConstantOverride("separation", 8);
 
-            var createBtn = AddButton("创建5人组队团", () => _ = CreateGlobalConquestRoom(), ButtonTone.Primary, 13);
+            var createBtn = AddButton("进入5人房间 (开战)", () => _ = CreateGlobalConquestRoom(), ButtonTone.Primary, 13);
+            createBtn.CustomMinimumSize = new Vector2(162, 34);
             row.AddChild(createBtn);
-            var soloBtn = AddButton("单人直接匹配", () => _ = StartGlobalConquestSolo(), ButtonTone.Gold, 13);
-            row.AddChild(soloBtn);
             var refreshBtn = AddButton("刷新队伍列表", () => _ = RefreshRooms(), ButtonTone.Secondary, 13);
+            refreshBtn.CustomMinimumSize = new Vector2(142, 34);
             row.AddChild(refreshBtn);
             lobbyBox.AddChild(row);
 
-            lobbyBox.AddChild(AddLabel("全球争霸独占大地图，支持最多5人战术组队协同对抗敌军；在此您可以组建您的团队，或者单独开战。", 12, WarningText, HorizontalAlignment.Left));
+            lobbyBox.AddChild(AddLabel("全球争霸支持最多5人协作对抗敌军。您可以直接进入5人房间开始游戏或邀请好友组队。", 12, WarningText, HorizontalAlignment.Left));
 
             roomStatusLabel = AddLabel("正在获取队伍列表...", 13, MutedText, HorizontalAlignment.Left);
             lobbyBox.AddChild(roomStatusLabel);
