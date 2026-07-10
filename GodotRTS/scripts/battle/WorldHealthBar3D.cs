@@ -1,4 +1,4 @@
-using Godot;
+﻿using Godot;
 
 public partial class WorldHealthBar3D : Node3D
 {

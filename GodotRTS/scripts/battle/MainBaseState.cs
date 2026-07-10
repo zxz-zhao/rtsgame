@@ -1,4 +1,4 @@
-public enum MainBaseState
+﻿public enum MainBaseState
 {
     Active = 0,
     Ruined = 1,

@@ -1,4 +1,4 @@
-using Godot;
+﻿using Godot;
 using System;
 
 [Tool]
@@ -1928,8 +1928,71 @@ public partial class BattleMapRenderer : Node3D
         index++;
         var roll = rng.Randf();
 
-        // 78% foliage, 14% rock, 8% empty
-        if (roll < 0.78f)
+        if (roll < 0.22f)
+        {
+            // Spawn a tree!
+            var scenePath = PickTreeScene(map, index);
+            var targetHeight = rng.RandfRange(4.5f, 6.5f); // Slightly smaller than normal trees to fit banks nicely!
+            var targetSpan = targetHeight * 0.70f;
+            
+            var container = new Node3D
+            {
+                Name = $"RiverTreeGroup_{index:00}",
+                Position = worldPos
+            };
+            generatedRoot!.AddChild(container);
+            treeNodes.Add(container);
+            treePositions.Add(worldPos);
+
+            var imported = TryInstanceScene(scenePath, $"RiverTree_{index:00}");
+            if (imported is not null)
+            {
+                FitImportedNode(imported, targetHeight, targetSpan);
+                imported.Rotation = new Vector3(0f, rng.RandfRange(0f, Mathf.Tau), 0f);
+                container.AddChild(imported);
+            }
+            else
+            {
+                // Fallback to procedural trunk and canopy if fbx fails
+                var trunkMat = Material(map.TrunkColor, 0.82f);
+                var foliageMat = Material(map.FoliageColor.Lerp(new Color(0.18f, 0.55f, 0.22f), 0.45f), 0.90f);
+                
+                var trunk = new MeshInstance3D
+                {
+                    Name = "ProceduralTrunk",
+                    Position = new Vector3(0f, targetHeight * 0.3f, 0f),
+                    Mesh = new CylinderMesh { TopRadius = 0.12f, BottomRadius = 0.18f, Height = targetHeight * 0.6f, RadialSegments = 6 },
+                    MaterialOverride = trunkMat
+                };
+                container.AddChild(trunk);
+
+                var canopy = new MeshInstance3D
+                {
+                    Name = "ProceduralCanopy",
+                    Position = new Vector3(0f, targetHeight * 0.75f, 0f),
+                    Mesh = new SphereMesh { Radius = targetSpan * 0.6f, Height = targetSpan * 1.1f, RadialSegments = 7, Rings = 4 },
+                    MaterialOverride = foliageMat
+                };
+                container.AddChild(canopy);
+            }
+            
+            // If tree is placed successfully, also spawn a little grass clump at its foot to look nice!
+            if (rng.Randf() < 0.70f)
+            {
+                var grassPos = worldPos + new Vector3(rng.RandfRange(-0.4f, 0.4f), 0f, rng.RandfRange(-0.4f, 0.4f));
+                var grassScene = PickGrassScene(map, index + 1);
+                TryAddImportedScenery(
+                    grassScene,
+                    $"RiverTreeGrass_{index:00}",
+                    grassPos,
+                    new Vector3(0f, rng.RandfRange(0f, Mathf.Tau), 0f),
+                    rng.RandfRange(0.40f, 0.75f),
+                    rng.RandfRange(0.60f, 1.00f),
+                    map.FoliageColor,
+                    preserveMaterials: true);
+            }
+        }
+        else if (roll < 0.78f) // 0.22f to 0.78f = 56% standard foliage/grass
         {
             var useGrass = rng.Randf() > 0.30f;
             var scenePath = useGrass ? PickGrassScene(map, index) : PickBushScene(map, index);
