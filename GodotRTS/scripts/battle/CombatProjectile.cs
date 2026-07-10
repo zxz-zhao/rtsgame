@@ -116,16 +116,35 @@ public partial class CombatProjectile : Node3D
         bool isFlame = attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower");
         var longRange = arcHeight > 2.5f;
 
-        AddChild(new MeshInstance3D
+        if (isFlame)
         {
-            Name = "Tracer",
-            Mesh = isFlame
-                ? (Mesh)new CapsuleMesh { Radius = 0.18f, Height = 0.95f, RadialSegments = 8, Rings = 4 }
-                : (longRange
-                    ? (Mesh)new CapsuleMesh { Radius = 0.11f, Height = 0.76f, RadialSegments = 8, Rings = 4 }
-                    : (Mesh)new SphereMesh { Radius = 0.18f, Height = 0.36f, RadialSegments = 8, Rings = 4 }),
-            MaterialOverride = MakeMaterial(tint, true)
-        });
+            AddChild(new MeshInstance3D
+            {
+                Name = "Tracer",
+                Mesh = new CapsuleMesh { Radius = 0.18f, Height = 0.95f, RadialSegments = 8, Rings = 4 },
+                MaterialOverride = MakeMaterial(tint, true)
+            });
+        }
+        else
+        {
+            // 加载来自 Kenney TowerDefense 套件的写实穿甲炮弹模型，替代原有的纯颜色几何球体
+            var shellVisual = TryLoadBulletMesh();
+            if (shellVisual is not null)
+            {
+                AddChild(shellVisual);
+            }
+            else
+            {
+                AddChild(new MeshInstance3D
+                {
+                    Name = "Tracer",
+                    Mesh = longRange
+                        ? (Mesh)new CapsuleMesh { Radius = 0.11f, Height = 0.76f, RadialSegments = 8, Rings = 4 }
+                        : (Mesh)new SphereMesh { Radius = 0.18f, Height = 0.36f, RadialSegments = 8, Rings = 4 },
+                    MaterialOverride = MakeMaterial(tint, true)
+                });
+            }
+        }
 
         AddChild(new OmniLight3D
         {
@@ -645,5 +664,69 @@ public partial class CombatProjectile : Node3D
         var timer = container.CreateTween();
         timer.TweenInterval(0.9);
         timer.TweenCallback(Callable.From(container.QueueFree));
+    }
+
+    /// <summary>
+    /// 加载高品质穿甲炮弹 3D 模型 (.fbx)，并旋转对齐飞行弹道，替换基础球体
+    /// </summary>
+    Node3D? TryLoadBulletMesh()
+    {
+        const string path = "res://assets/unity_migrated/Assets/External/Kenney/TowerDefenseKit/Models/FBX format/weapon-ammo-bullet.fbx";
+        try
+        {
+            if (ResourceLoader.Exists(path))
+            {
+                var scene = ResourceLoader.Load<PackedScene>(path);
+                if (scene is not null)
+                {
+                    var wrapper = new Node3D { Name = "ShellWrapper" };
+                    var instance = scene.Instantiate<Node3D>();
+                    
+                    // Kenney的weapon-ammo-bullet模型在FBX中是立着的(Y轴向上)
+                    // 为了让其贴合Godot的LookAt朝向（-Z为向前），需要将其绕X轴旋转-90度
+                    instance.Rotation = new Vector3(-Mathf.Pi / 2f, 0f, 0f);
+                    
+                    // 将模型尺寸缩放到适当的大小
+                    instance.Scale = Vector3.One * 0.75f;
+                    
+                    wrapper.AddChild(instance);
+                    
+                    // 遍历模型子孙，为其添加带自发光的暗钢拟真金属材质，让其看起来像一枚高速行进的炽热穿甲弹
+                    SetShellMaterialModulateRecursive(instance, tint);
+                    
+                    return wrapper;
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[CombatProjectile] Failed to load custom bullet mesh: {ex.Message}");
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 递归为炮弹网格覆盖高品质拟真暗金属发光材质，赋予破空时尾迹的炽热流光感
+    /// </summary>
+    void SetShellMaterialModulateRecursive(Node node, Color emissionColor)
+    {
+        if (node is MeshInstance3D geom)
+        {
+            var mat = new StandardMaterial3D
+            {
+                AlbedoColor = new Color(0.18f, 0.18f, 0.18f),
+                Roughness = 0.22f,
+                Metallic = 0.85f,
+                EmissionEnabled = true,
+                Emission = emissionColor.Lightened(0.12f),
+                EmissionEnergyMultiplier = 1.6f
+            };
+            geom.MaterialOverride = mat;
+        }
+
+        foreach (var child in node.GetChildren())
+        {
+            SetShellMaterialModulateRecursive(child, emissionColor);
+        }
     }
 }
