@@ -3517,8 +3517,14 @@ public partial class LobbyScreen : Control
     {
         var total = Math.Max(1, wins + losses);
         var winRate = Mathf.RoundToInt(wins * 100f / total);
+
+        string rankStr = $"#{place}";
+        if (place == 1) rankStr = "★ #1 ★";
+        else if (place == 2) rankStr = "☆ #2 ☆";
+        else if (place == 3) rankStr = "☆ #3 ☆";
+
         list.AddChild(AddTableRow(
-            new[] { $"#{place}", $"{FriendlyText(username, "Commander")}  Lv.{level}", FriendlyText(rankTitle, "列兵"), $"{wins}胜 {losses}败", $"{winRate}%" },
+            new[] { rankStr, $"{FriendlyText(username, "Commander")}  Lv.{level}", FriendlyText(rankTitle, "列兵"), $"{wins}胜 {losses}败", $"{winRate}%" },
             new[] { 64f, 176f, 116f, 102f, 80f },
             "",
             null,
@@ -4462,7 +4468,10 @@ public partial class LobbyScreen : Control
         selectedMap = mapName;
         GameState.Instance?.SelectMap(selectedMap, selectedMode);
 
-        ExpandModalPanel(true);
+        // 使用极其紧凑的特定对话框规格
+        Place(modalPanel, new Rect2(0.260f, 0.220f, 0.480f, 0.560f));
+        modalPanel.CustomMinimumSize = new Vector2(580, 360);
+
         ClearChildren(modalBody);
         modalTitle.Text = "匹配就绪 - 3v3战术对抗";
 
@@ -4474,17 +4483,17 @@ public partial class LobbyScreen : Control
 
         // HBox for columns
         var columns = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
-        columns.AddThemeConstantOverride("separation", 24);
+        columns.AddThemeConstantOverride("separation", 16);
         modalBody.AddChild(columns);
 
         // Blue Team Column
         var blueCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
-        blueCol.AddThemeConstantOverride("separation", 10);
+        blueCol.AddThemeConstantOverride("separation", 6);
         columns.AddChild(blueCol);
 
         // Red Team Column
         var redCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
-        redCol.AddThemeConstantOverride("separation", 10);
+        redCol.AddThemeConstantOverride("separation", 6);
         columns.AddChild(redCol);
 
         // Define players
@@ -4499,7 +4508,7 @@ public partial class LobbyScreen : Control
         Action updateSlots = () => {
             // Blue Team Rows
             ClearChildren(blueCol);
-            blueCol.AddChild(AddLabel("蓝队 (己方)", 15, new Color(0.4f, 0.7f, 1.0f), HorizontalAlignment.Left));
+            blueCol.AddChild(AddLabel("蓝队 (己方)", 13, new Color(0.4f, 0.7f, 1.0f), HorizontalAlignment.Left));
             for (int i = 0; i < 3; i++)
             {
                 var rowPanel = BuildPlayerConfirmRow(bluePlayers[i], i == 0 ? LocalCommanderAvatarTexturePath() : ResolveFriendAvatarTexturePath(bluePlayers[i]), blueReady[i]);
@@ -4508,7 +4517,7 @@ public partial class LobbyScreen : Control
 
             // Red Team Rows
             ClearChildren(redCol);
-            redCol.AddChild(AddLabel("红队 (敌方)", 15, new Color(1.0f, 0.4f, 0.4f), HorizontalAlignment.Left));
+            redCol.AddChild(AddLabel("红队 (敌方)", 13, new Color(1.0f, 0.4f, 0.4f), HorizontalAlignment.Left));
             for (int i = 0; i < 3; i++)
             {
                 var rowPanel = BuildPlayerConfirmRow(redPlayers[i], ResolveFriendAvatarTexturePath(redPlayers[i]), redReady[i]);
@@ -4519,7 +4528,12 @@ public partial class LobbyScreen : Control
         updateSlots();
 
         // Control Buttons Row
-        var btnRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var btnRow = new HBoxContainer 
+        { 
+            Name = "TaskModalActions", 
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
         btnRow.AddThemeConstantOverride("separation", 16);
         
         var acceptBtn = AddButton("同意战斗", () => {
@@ -4528,13 +4542,13 @@ public partial class LobbyScreen : Control
             updateSlots();
             ShowToast("您已同意，等待其他玩家确认...");
         }, ButtonTone.Primary, 13);
-        acceptBtn.CustomMinimumSize = new Vector2(160, 36);
+        acceptBtn.CustomMinimumSize = new Vector2(160, 34);
         btnRow.AddChild(acceptBtn);
 
         var declineBtn = AddButton("拒绝匹配", () => {
             confState.Declined = true;
         }, ButtonTone.Secondary, 13);
-        declineBtn.CustomMinimumSize = new Vector2(120, 36);
+        declineBtn.CustomMinimumSize = new Vector2(120, 34);
         btnRow.AddChild(declineBtn);
         modalBody.AddChild(btnRow);
 
@@ -4587,7 +4601,9 @@ public partial class LobbyScreen : Control
             {
                 ShowToast("确认超时，已退出匹配队列。");
             }
-            if (NetClient.Instance is not null && !string.IsNullOrEmpty(GameState.Instance?.Token))
+
+            // 游客屏蔽网络接口调用，防止401强制退登
+            if (NetClient.Instance is not null && !string.IsNullOrEmpty(GameState.Instance?.Token) && GameState.Instance?.IsGuest != true)
             {
                 _ = NetClient.Instance.CancelMatch();
             }
@@ -4596,17 +4612,17 @@ public partial class LobbyScreen : Control
 
     Panel BuildPlayerConfirmRow(string name, string avatarPath, bool confirmed)
     {
-        var panel = new Panel { CustomMinimumSize = new Vector2(0, 42), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var panel = new Panel { CustomMinimumSize = new Vector2(0, 34), SizeFlagsHorizontal = SizeFlags.ExpandFill };
         MetalUiStyle.ApplyMetalPanel(panel, confirmed ? MetalUiStyle.Green : MetalUiStyle.Steel, 1, 4, 2);
 
         var box = AddHBox(panel, "PlayerConfirmRowBox", 8);
         box.SetAnchorsPreset(LayoutPreset.FullRect);
-        box.OffsetLeft = 6;
-        box.OffsetRight = -6;
+        box.OffsetLeft = 8;
+        box.OffsetRight = -8;
 
         var avatar = new TextureRect
         {
-            CustomMinimumSize = new Vector2(30, 30),
+            CustomMinimumSize = new Vector2(24, 24),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
@@ -4615,7 +4631,7 @@ public partial class LobbyScreen : Control
         };
         box.AddChild(avatar);
 
-        box.AddChild(AddLabel(name, 12, PanelText, HorizontalAlignment.Left));
+        box.AddChild(AddLabel(name, 11, PanelText, HorizontalAlignment.Left));
 
         if (confirmed)
         {
