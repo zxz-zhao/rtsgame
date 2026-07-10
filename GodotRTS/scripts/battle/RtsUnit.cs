@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 
 using System.Collections.Generic;
 using System.Linq;
@@ -789,10 +789,8 @@ public partial class RtsUnit : CharacterBody3D
                 weaponPitchIsPivot = false;
                 HidePanzerInteriorVisuals(root);
                 PreparePanzerTurretRig(root);
-                weaponYawNode = root.GetNodeOrNull<Node3D>("TurretPivot") ?? weaponYawNode;
-                weaponPitchNode = root.GetNodeOrNull<Node3D>("TurretPivot/GunPivot")
-                    ?? root.GetNodeOrNull<Node3D>("GunPivot")
-                    ?? weaponPitchNode;
+                weaponYawNode = root.FindChild("TurretPivot", true, false) as Node3D ?? weaponYawNode;
+                weaponPitchNode = root.FindChild("GunPivot", true, false) as Node3D ?? weaponPitchNode;
                 if (weaponPitchNode == root || weaponPitchNode == weaponYawNode)
                     weaponPitchNode = null;
                 weaponYawLookOffset = new Vector3(0f, Mathf.Pi, 0f);
@@ -1752,15 +1750,22 @@ public partial class RtsUnit : CharacterBody3D
 
     void PreparePanzerTurretRig(Node3D root)
     {
-        if (root.GetNodeOrNull<Node3D>("TurretPivot") is not null)
+        if (root.FindChild("TurretPivot", true, false) is not null)
             return;
 
         var turretAnchor = root.FindChild("turret_exterior", true, false) as Node3D
             ?? root.FindChild("mantlet_inner", true, false) as Node3D;
+        if (turretAnchor is null)
+            return;
+
+        var rigRoot = turretAnchor.GetParent() as Node3D;
+        if (rigRoot is null)
+            return;
+
         var gunPivotAnchor = root.FindChild("mantlet_inner", true, false) as Node3D
             ?? root.FindChild("barrel", true, false) as Node3D;
         var gunAnchor = root.FindChild("barrel", true, false) as Node3D;
-        if (turretAnchor is null || gunPivotAnchor is null || gunAnchor is null)
+        if (gunPivotAnchor is null || gunAnchor is null)
             return;
 
         var turretPivot = new Node3D
@@ -1768,7 +1773,7 @@ public partial class RtsUnit : CharacterBody3D
             Name = "TurretPivot",
             Position = turretAnchor.Position
         };
-        root.AddChild(turretPivot);
+        rigRoot.AddChild(turretPivot);
 
         var gunPivot = new Node3D
         {
@@ -1777,7 +1782,8 @@ public partial class RtsUnit : CharacterBody3D
         };
         turretPivot.AddChild(gunPivot);
 
-        foreach (var child in root.GetChildren().OfType<Node3D>().ToArray())
+        var candidates = rigRoot.GetChildren().OfType<Node3D>().ToArray();
+        foreach (var child in candidates)
         {
             if (child == turretPivot)
                 continue;
@@ -1785,7 +1791,7 @@ public partial class RtsUnit : CharacterBody3D
                 continue;
 
             var originalPosition = child.Position;
-            root.RemoveChild(child);
+            rigRoot.RemoveChild(child);
             if (BelongsToPanzerGun(child.Name))
             {
                 gunPivot.AddChild(child);
