@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -556,25 +556,6 @@ public partial class LobbyScreen : Control
         var titleRow = new HBoxContainer { Name = "FriendsTitleRow", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         var title = AddSectionTitle("👥 好友列表");
         titleRow.AddChild(title);
-
-        var spacer = new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        titleRow.AddChild(spacer);
-
-        var refreshBtn = AddButton("🔄 刷新", () => _ = RefreshFriends(), ButtonTone.Secondary, 11);
-        refreshBtn.CustomMinimumSize = new Vector2(58, 22);
-        refreshBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        titleRow.AddChild(refreshBtn);
-
-        var addFriendBtn = AddButton("➕ 添加", () => ShowAddFriendModal(), ButtonTone.Primary, 11);
-        addFriendBtn.CustomMinimumSize = new Vector2(58, 22);
-        addFriendBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        titleRow.AddChild(addFriendBtn);
-
-        var inviteBtn = AddButton("📩 邀请", () => _ = ShowInvitesModal(), ButtonTone.Gold, 11);
-        inviteBtn.CustomMinimumSize = new Vector2(58, 22);
-        inviteBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        titleRow.AddChild(inviteBtn);
-
         box.AddChild(titleRow);
 
         friendStatusLabel = AddLabel("好友列表加载中...", 13, MutedText, HorizontalAlignment.Left);
@@ -590,6 +571,27 @@ public partial class LobbyScreen : Control
         friendRows.AddThemeConstantOverride("separation", 6);
         scroll.AddChild(friendRows);
         box.AddChild(scroll);
+
+        // 底部按钮栏：避免顶部标题栏宽度不足导致的溢出挤压
+        var bottomRow = new HBoxContainer { Name = "FriendsBottomRow", SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        bottomRow.AddThemeConstantOverride("separation", 8);
+
+        var refreshBtn = AddButton("🔄 刷新", () => _ = RefreshFriends(), ButtonTone.Secondary, 11);
+        refreshBtn.CustomMinimumSize = new Vector2(72, 26);
+        refreshBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        bottomRow.AddChild(refreshBtn);
+
+        var addFriendBtn = AddButton("➕ 添加", () => ShowAddFriendModal(), ButtonTone.Primary, 11);
+        addFriendBtn.CustomMinimumSize = new Vector2(72, 26);
+        addFriendBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        bottomRow.AddChild(addFriendBtn);
+
+        var inviteBtn = AddButton("📩 邀请", () => _ = ShowInvitesModal(), ButtonTone.Gold, 11);
+        inviteBtn.CustomMinimumSize = new Vector2(72, 26);
+        inviteBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        bottomRow.AddChild(inviteBtn);
+
+        box.AddChild(bottomRow);
     }
 
     void PrepareFriendsPanelWarmState()
