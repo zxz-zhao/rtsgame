@@ -3688,7 +3688,7 @@ public partial class LobbyScreen : Control
             AddLeaderboardTableHeader(out var sampleList);
             AddLeaderboardRow(sampleList, 1, GameState.Instance?.Username ?? "Commander", GameState.Instance?.Level ?? 1, GameState.Instance?.Wins ?? 0, GameState.Instance?.Losses ?? 0, GameState.Instance?.RankTitle ?? "列兵", true);
             AddLeaderboardRow(sampleList, 2, "IronWolf", 8, 12, 4, "上将", false);
-            AddLeaderboardRow(sampleList, 3, "SeaHammer", 6, 9, 3, "涓皦", false);
+            AddLeaderboardRow(sampleList, 3, "SeaHammer", 6, 9, 3, "中将", false);
             AddLeaderboardRow(sampleList, 4, "SkyLancer", 5, 7, 5, "少将", false);
             ShowModal();
             return;
@@ -4239,6 +4239,38 @@ public partial class LobbyScreen : Control
         return row;
     }
 
+    Label CreateCellLabel(int colIndex, string text, float width, bool highlight, bool isLastColumn = false, bool hasAction = false)
+    {
+        Color cellColor = highlight ? GoodText : PanelText;
+        int fontSize = 12;
+
+        if (colIndex == 0) // 排名列
+        {
+            if (text.Contains("#1"))
+            {
+                cellColor = new Color(0.96f, 0.79f, 0.30f); // 亮金色
+                fontSize = 14;
+            }
+            else if (text.Contains("#2"))
+            {
+                cellColor = new Color(0.78f, 0.84f, 0.90f); // 亮银色
+                fontSize = 13;
+            }
+            else if (text.Contains("#3"))
+            {
+                cellColor = new Color(0.80f, 0.50f, 0.30f); // 亮铜色
+                fontSize = 13;
+            }
+        }
+
+        var label = AddLabel(text, fontSize, cellColor, HorizontalAlignment.Left);
+        label.CustomMinimumSize = new Vector2(width, 36);
+        label.SizeFlagsHorizontal = isLastColumn && !hasAction ? SizeFlags.ExpandFill : SizeFlags.ShrinkBegin;
+        label.VerticalAlignment = VerticalAlignment.Top;
+        label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        return label;
+    }
+
     Control AddTableRow(string[] cells, float[] widths, string actionText, Action? onAction, ButtonTone actionTone, bool highlight = false)
     {
         var panel = new PanelContainer
@@ -4273,11 +4305,7 @@ public partial class LobbyScreen : Control
 
         for (var i = 0; i < cells.Length; i++)
         {
-            var label = AddLabel(cells[i], 12, highlight ? GoodText : PanelText, HorizontalAlignment.Left);
-            label.CustomMinimumSize = new Vector2(widths[i], 36);
-            label.SizeFlagsHorizontal = i == cells.Length - 1 && string.IsNullOrEmpty(actionText) ? SizeFlags.ExpandFill : SizeFlags.ShrinkBegin;
-            label.VerticalAlignment = VerticalAlignment.Top;
-            label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            var label = CreateCellLabel(i, cells[i], widths[i], highlight, i == cells.Length - 1, !string.IsNullOrEmpty(actionText));
             row.AddChild(label);
         }
 
@@ -4326,10 +4354,7 @@ public partial class LobbyScreen : Control
 
         for (var i = 0; i < cells.Length; i++)
         {
-            var label = AddLabel(cells[i], 12, highlight ? GoodText : PanelText, HorizontalAlignment.Left);
-            label.CustomMinimumSize = new Vector2(widths[i], 36);
-            label.VerticalAlignment = VerticalAlignment.Top;
-            label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            var label = CreateCellLabel(i, cells[i], widths[i], highlight, i == cells.Length - 1, true);
             row.AddChild(label);
         }
 
