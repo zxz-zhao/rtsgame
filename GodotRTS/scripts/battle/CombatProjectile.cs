@@ -181,6 +181,52 @@ public partial class CombatProjectile : Node3D
             AddChild(trail);
             trail.Emitting = true;
         }
+        else
+        {
+            var trail = new CpuParticles3D
+            {
+                Name = "SmokeTrail",
+                Amount = 20,
+                Lifetime = 0.35f,
+                Spread = 10f,
+                Gravity = new Vector3(0f, 0.15f, 0f),
+                InitialVelocityMin = 0.1f,
+                InitialVelocityMax = 0.5f,
+                ScaleAmountMin = 0.08f,
+                ScaleAmountMax = 0.32f
+            };
+
+            var smokeSphere = new SphereMesh
+            {
+                Radius = 0.25f,
+                Height = 0.5f,
+                RadialSegments = 6,
+                Rings = 4
+            };
+            trail.Mesh = smokeSphere;
+
+            var trailMat = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                AlbedoColor = new Color(0.85f, 0.85f, 0.85f, 0.45f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            };
+            trail.MaterialOverride = trailMat;
+
+            var scaleCurve = new Curve();
+            scaleCurve.AddPoint(new Vector2(0f, 0.4f));
+            scaleCurve.AddPoint(new Vector2(1f, 1.6f));
+            trail.ScaleAmountCurve = scaleCurve;
+
+            var colorRamp = new Gradient();
+            colorRamp.AddPoint(0f, new Color(0.88f, 0.88f, 0.88f, 0.45f));
+            colorRamp.AddPoint(0.6f, new Color(0.82f, 0.82f, 0.82f, 0.2f));
+            colorRamp.AddPoint(1.0f, new Color(0.78f, 0.78f, 0.78f, 0f));
+            trail.ColorRamp = colorRamp;
+
+            AddChild(trail);
+            trail.Emitting = true;
+        }
     }
 
     public override void _Process(double delta)
@@ -435,39 +481,44 @@ public partial class CombatProjectile : Node3D
         var smokeParticles = new CpuParticles3D
         {
             Name = "MuzzleSmoke",
-            Amount = 12,
-            Lifetime = 0.65f,
+            Amount = 16,
+            Lifetime = 0.95f,
             OneShot = true,
-            Explosiveness = 0.9f,
+            Explosiveness = 0.92f,
             Direction = normalizedDir + Vector3.Up * 0.35f,
             Spread = 40f,
             Gravity = new Vector3(0f, 0.8f, 0f),
             InitialVelocityMin = 1.5f,
             InitialVelocityMax = 3.5f,
-            ScaleAmountMin = 0.25f,
-            ScaleAmountMax = 0.85f
+            ScaleAmountMin = 0.38f,
+            ScaleAmountMax = 1.35f
         };
         smokeParticles.Mesh = sphere;
 
         var smokeMat = new StandardMaterial3D
         {
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color(0.26f, 0.26f, 0.26f, 0.6f),
+            AlbedoColor = new Color(0.85f, 0.85f, 0.85f, 0.68f),
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha
         };
         smokeParticles.MaterialOverride = smokeMat;
-        smokeParticles.ScaleAmountCurve = scaleCurve;
+
+        var smokeScaleCurve = new Curve();
+        smokeScaleCurve.AddPoint(new Vector2(0f, 0.5f));
+        smokeScaleCurve.AddPoint(new Vector2(1f, 2.2f));
+        smokeParticles.ScaleAmountCurve = smokeScaleCurve;
 
         var smokeRamp = new Gradient();
-        smokeRamp.AddPoint(0f, new Color(0.35f, 0.35f, 0.35f, 0.6f));
-        smokeRamp.AddPoint(1f, new Color(0.18f, 0.18f, 0.18f, 0f));
+        smokeRamp.AddPoint(0f, new Color(0.88f, 0.88f, 0.88f, 0.65f));
+        smokeRamp.AddPoint(0.5f, new Color(0.82f, 0.82f, 0.82f, 0.35f));
+        smokeRamp.AddPoint(1f, new Color(0.78f, 0.78f, 0.78f, 0f));
         smokeParticles.ColorRamp = smokeRamp;
 
         container.AddChild(smokeParticles);
         smokeParticles.Emitting = true;
 
         var timer = container.CreateTween();
-        timer.TweenInterval(0.75);
+        timer.TweenInterval(1.2);
         timer.TweenCallback(Callable.From(container.QueueFree));
     }
 

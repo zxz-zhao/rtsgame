@@ -139,7 +139,10 @@ public partial class RtsUnit : CharacterBody3D
     string fireAnimationName = "";
     string currentVisualAnimationName = "";
     float visualAnimationLockRemaining;
+    float stationaryDuration;
     readonly List<AnimatedVisualPart> infantryVisualParts = new();
+    CpuParticles3D? bowWaveParticles;
+    CpuParticles3D? sternWakeParticles;
     readonly List<Node3D> propellerNodes = new();
     bool holdPosition;
     bool parkingAtAirfield;
@@ -1314,6 +1317,7 @@ public partial class RtsUnit : CharacterBody3D
 
         foreach (var player in visualAnimationPlayers)
         {
+            player.PlaybackDefaultBlendTime = 0.2f;
             foreach (var animation in player.GetAnimationList())
             {
                 var name = animation.ToString();
@@ -1504,10 +1508,25 @@ public partial class RtsUnit : CharacterBody3D
 
     void UpdateVisualState(float delta)
     {
-        var moving = Velocity.LengthSquared() > 0.08f || bombingRunActive || parkingAtAirfield;
+        var actuallyMoving = Velocity.LengthSquared() > 0.08f || bombingRunActive || parkingAtAirfield;
+        if (actuallyMoving)
+        {
+            stationaryDuration = 0f;
+        }
+        else
+        {
+            stationaryDuration += delta;
+        }
+
+        var moving = actuallyMoving || (stationaryDuration < 0.22f);
         UpdateAnimationPlayback(moving, delta);
         UpdateInfantryStride(moving);
         UpdatePropellers(delta, moving);
+
+        if (BattleUnitCatalog.IsNavalUnit(UnitKey))
+        {
+            UpdateNavalWaves(actuallyMoving, delta);
+        }
     }
 
     void UpdateAnimationPlayback(bool moving, float delta)
@@ -2194,6 +2213,130 @@ public partial class RtsUnit : CharacterBody3D
             }
             if (child is Node3D child3d)
                 SetNodeModulateRecursive(child3d, color);
+        }
+    }
+
+    void EnsureNavalWaveParticles()
+    {
+        if (bowWaveParticles is null)
+        {
+            var splashMesh = new SphereMesh
+            {
+                Radius = 0.22f,
+                Height = 0.44f,
+                RadialSegments = 6,
+                Rings = 3
+            };
+
+            var splashMat = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                AlbedoColor = new Color(0.9f, 0.95f, 1f, 0.72f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            };
+
+            var splashScale = new Curve();
+            splashScale.AddPoint(new Vector2(0f, 0.5f));
+            splashScale.AddPoint(new Vector2(1f, 1.5f));
+
+            var splashColor = new Gradient();
+            splashColor.AddPoint(0f, new Color(0.9f, 0.95f, 1f, 0.78f));
+            splashColor.AddPoint(0.7f, new Color(0.85f, 0.92f, 0.96f, 0.35f));
+            splashColor.AddPoint(1f, new Color(0.8f, 0.9f, 0.95f, 0f));
+
+            var halfLength = 1.1f;
+            if (UnitKey == "destroyer_ship")
+                halfLength = 1.6f;
+            else if (UnitKey == "transport_ship")
+                halfLength = 1.9f;
+
+            bowWaveParticles = new CpuParticles3D
+            {
+                Name = "BowWaveParticles",
+                Amount = 14,
+                Lifetime = 0.55f,
+                OneShot = false,
+                Direction = new Vector3(0f, 0.2f, 0.8f),
+                Spread = 35f,
+                Gravity = new Vector3(0f, -2.5f, 0f),
+                InitialVelocityMin = 1.8f,
+                InitialVelocityMax = 3.2f,
+                ScaleAmountMin = 0.4f,
+                ScaleAmountMax = 1.0f,
+                Mesh = splashMesh,
+                MaterialOverride = splashMat,
+                ScaleAmountCurve = splashScale,
+                ColorRamp = splashColor,
+                Position = new Vector3(0f, 0.05f, -halfLength),
+                Emitting = false
+            };
+            AddChild(bowWaveParticles);
+        }
+
+        if (sternWakeParticles is null)
+        {
+            var rippleMesh = new QuadMesh
+            {
+                Size = new Vector2(1f, 1f),
+                Orientation = PlaneMesh.OrientationEnum.Y
+            };
+
+            var rippleMat = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                AlbedoColor = new Color(0.8f, 0.92f, 0.98f, 0.42f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            };
+
+            var rippleScale = new Curve();
+            rippleScale.AddPoint(new Vector2(0f, 0.8f));
+            rippleScale.AddPoint(new Vector2(1f, 3.4f));
+
+            var rippleColor = new Gradient();
+            rippleColor.AddPoint(0f, new Color(0.85f, 0.95f, 1f, 0.52f));
+            rippleColor.AddPoint(0.5f, new Color(0.8f, 0.9f, 0.96f, 0.22f));
+            rippleColor.AddPoint(1f, new Color(0.75f, 0.85f, 0.9f, 0f));
+
+            var halfLength = 1.1f;
+            if (UnitKey == "destroyer_ship")
+                halfLength = 1.6f;
+            else if (UnitKey == "transport_ship")
+                halfLength = 1.9f;
+
+            sternWakeParticles = new CpuParticles3D
+            {
+                Name = "SternWakeParticles",
+                Amount = 10,
+                Lifetime = 0.92f,
+                OneShot = false,
+                Direction = new Vector3(0f, 0f, 1f),
+                Spread = 12f,
+                Gravity = Vector3.Zero,
+                InitialVelocityMin = 1.0f,
+                InitialVelocityMax = 2.0f,
+                ScaleAmountMin = 0.8f,
+                ScaleAmountMax = 1.4f,
+                Mesh = rippleMesh,
+                MaterialOverride = rippleMat,
+                ScaleAmountCurve = rippleScale,
+                ColorRamp = rippleColor,
+                Position = new Vector3(0f, 0.03f, halfLength),
+                Emitting = false
+            };
+            AddChild(sternWakeParticles);
+        }
+    }
+
+    void UpdateNavalWaves(bool moving, float delta)
+    {
+        EnsureNavalWaveParticles();
+        if (bowWaveParticles is not null && bowWaveParticles.Emitting != moving)
+        {
+            bowWaveParticles.Emitting = moving;
+        }
+        if (sternWakeParticles is not null && sternWakeParticles.Emitting != moving)
+        {
+            sternWakeParticles.Emitting = moving;
         }
     }
 }

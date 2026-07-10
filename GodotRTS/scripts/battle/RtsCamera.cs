@@ -22,6 +22,8 @@ public partial class RtsCamera : Node3D
     public override void _Ready()
     {
         camera = GetNode<Camera3D>("Camera3D");
+        camera.Near = 1f;
+        camera.Far = 800f;
     }
 
     public override void _Process(double delta)

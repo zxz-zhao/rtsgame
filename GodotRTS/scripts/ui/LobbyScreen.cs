@@ -2187,7 +2187,7 @@ public partial class LobbyScreen : Control
 
     async Task PollInvites()
     {
-        if (NetClient.Instance is null || GameState.Instance?.IsGuest == true)
+        if (NetClient.Instance is null)
             return;
         var data = await NetClient.Instance.GetInvites();
         if (!data.GetBool("success"))
@@ -3604,11 +3604,6 @@ public partial class LobbyScreen : Control
     async Task ShowMailModal()
     {
         activeFeatureModal = MailModalKind;
-        if (GameState.Instance?.IsGuest == true)
-        {
-            RenderMailModal(new Godot.Collections.Dictionary(), false);
-            return;
-        }
 
         if (HasInvitesCache())
         {
@@ -3625,8 +3620,6 @@ public partial class LobbyScreen : Control
 
     async Task WarmSecondaryModalCaches()
     {
-        if (GameState.Instance?.IsGuest == true)
-            return;
         await Task.Delay(250);
         _ = RefreshLeaderboardCache();
         _ = RefreshInvitesCache();
@@ -3657,8 +3650,6 @@ public partial class LobbyScreen : Control
 
     Task RefreshInvitesCache()
     {
-        if (GameState.Instance?.IsGuest == true)
-            return Task.CompletedTask;
 
         if (invitesRefreshTask is not null && !invitesRefreshTask.IsCompleted)
             return invitesRefreshTask;
@@ -3884,13 +3875,6 @@ public partial class LobbyScreen : Control
     async Task ShowInvitesModal()
     {
         activeFeatureModal = "invites";
-        if (GameState.Instance?.IsGuest == true)
-        {
-            OpenFeatureModal("房间邀请", "处理来自好友的房间对局邀请。");
-            modalBody.AddChild(AddLabel("请先登录以查看邀请。", 14, MutedText, HorizontalAlignment.Left));
-            ShowModal();
-            return;
-        }
 
         OpenFeatureModal("房间邀请", "处理来自好友的房间对局邀请。");
         modalBody.AddChild(AddLabel("正在加载对局邀请...", 14, MutedText, HorizontalAlignment.Left));

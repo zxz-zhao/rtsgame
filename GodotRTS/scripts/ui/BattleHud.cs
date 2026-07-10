@@ -1505,7 +1505,7 @@ public partial class BattleHud : CanvasLayer
             powerValueLabel.Text = $"{manager.PlayerPowerUsed}/{manager.PlayerPowerProvided}";
             powerValueLabel.AddThemeColorOverride("font_color", manager.PlayerPowerOnline
                 ? new Color(0.74f, 0.96f, 0.82f)
-                : new Color(1f, 0.68f, 0.52f));
+                : new Color(1f, 0.30f, 0.30f));
         }
         economyLabel.Text = $"人口 {manager.PlayerPopUsed}/{manager.PlayerPopCap}   {power}   时间 {FormatTime(manager.GameTime)}{pending}";
     }
@@ -3293,7 +3293,7 @@ public partial class BattleHud : CanvasLayer
             ? "指挥官，您精湛的即时战略指挥艺术让敌军闻风丧胆！"
             : "胜败乃兵家常事。建议多建造防空履带车以御敌，或优先升级科技中心。";
 
-        gameOverBody.Text = $"{reason}\n{encouragement}\n\n本局用时：{FormatTime(manager?.GameTime ?? 0f)}";
+        gameOverBody.Text = $"{reason}\n{encouragement}";
 
         RefreshGameOverSummary(playerWon, manager);
         SetGameplayHudVisible(false);
@@ -3366,11 +3366,11 @@ public partial class BattleHud : CanvasLayer
         gameOverTitle.Size = new Vector2(440, 58);
         gameOverPanel.AddChild(gameOverTitle);
 
-        gameOverBody = HudLabel("", 18, Colors.White);
+        gameOverBody = HudLabel("", 14, new Color(0.88f, 0.92f, 0.95f));
         gameOverBody.HorizontalAlignment = HorizontalAlignment.Center;
         gameOverBody.VerticalAlignment = VerticalAlignment.Center;
-        gameOverBody.Position = new Vector2(98, 100);
-        gameOverBody.Size = new Vector2(524, 62);
+        gameOverBody.Position = new Vector2(60, 96);
+        gameOverBody.Size = new Vector2(600, 72);
         gameOverBody.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         gameOverPanel.AddChild(gameOverBody);
 
@@ -3485,7 +3485,7 @@ public partial class BattleHud : CanvasLayer
 
     void BuildGameOverReportSection()
     {
-        var reportPanel = Panel(new Vector2(58, 254), new Vector2(604, 194), new Color(0.018f, 0.027f, 0.030f, 0.90f));
+        var reportPanel = Panel(new Vector2(58, 254), new Vector2(604, 220), new Color(0.018f, 0.027f, 0.030f, 0.90f));
         gameOverPanel.AddChild(reportPanel);
 
         var title = HudLabel("战斗报告", 15, new Color(1f, 0.86f, 0.42f));
@@ -3511,7 +3511,7 @@ public partial class BattleHud : CanvasLayer
         var accent = new ColorRect
         {
             Position = new Vector2(0, 0),
-            Size = new Vector2(4, 194),
+            Size = new Vector2(4, 220),
             Color = new Color(0.42f, 0.94f, 0.76f, 0.55f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
@@ -3521,7 +3521,7 @@ public partial class BattleHud : CanvasLayer
         {
             Columns = 3,
             Position = new Vector2(16, 48),
-            Size = new Vector2(572, 136),
+            Size = new Vector2(572, 160),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         gameOverReportGrid.AddThemeConstantOverride("h_separation", 12);

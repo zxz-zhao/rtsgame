@@ -105,6 +105,8 @@ public partial class RtsBuilding : StaticBody3D
     Node3D? rallyMarker;
     Label3D? levelBadge;
     Label3D? mainBaseIdentityLabel;
+    Label3D? powerWarningLabel;
+    CpuParticles3D? constructionSmoke;
     readonly List<RuntimeTechBuff> techBuffs = new();
 
     public override void _Ready()
@@ -122,13 +124,19 @@ public partial class RtsBuilding : StaticBody3D
         ProcessConstruction(dt);
         ProcessRebuild(dt);
         if (UnderConstruction || IsRuined || IsRebuilding)
+        {
+            if (powerWarningLabel is not null)
+                powerWarningLabel.Visible = false;
             return;
+        }
 
         ProcessIncome(dt);
         ProcessMainBaseSupport(dt);
         UpdateTechBuffs(dt);
         ProcessDefense(dt);
         ProcessProduction(dt);
+
+        UpdatePowerWarningVisibility();
     }
 
     public void Configure(BattleBuildingDefinition def, bool playerOwned)
@@ -432,10 +440,12 @@ public partial class RtsBuilding : StaticBody3D
             SetSelected(false);
         }
         UpdateMainBaseIdentityLabel();
+        UpdatePowerWarningVisibility();
     }
 
     void ProcessConstruction(float delta)
     {
+        UpdateConstructionSmoke();
         if (!UnderConstruction)
             return;
 
@@ -447,10 +457,12 @@ public partial class RtsBuilding : StaticBody3D
         UnderConstruction = false;
         constructionTimeLeft = 0f;
         Health = MaxHealth;
+        UpdateConstructionSmoke();
     }
 
     void ProcessRebuild(float delta)
     {
+        UpdateConstructionSmoke();
         if (MainBaseState != MainBaseState.Rebuilding)
             return;
 
@@ -462,6 +474,7 @@ public partial class RtsBuilding : StaticBody3D
         rebuildTimeLeft = 0f;
         Health = Mathf.Max(1f, MaxHealth * RebuildHealthFraction);
         EmitMainBaseStateChanged();
+        UpdateConstructionSmoke();
     }
 
     void ProcessIncome(float delta)
@@ -898,6 +911,112 @@ public partial class RtsBuilding : StaticBody3D
         mainBaseIdentityLabel.Modulate = PlayerOwned
             ? new Color(0.68f, 0.96f, 1f, 0.96f)
             : new Color(1f, 0.58f, 0.38f, 0.96f);
+    }
+
+    void EnsurePowerWarningLabel()
+    {
+        powerWarningLabel = GetNodeOrNull<Label3D>("PowerWarningLabel");
+        if (powerWarningLabel is null)
+        {
+            powerWarningLabel = new Label3D
+            {
+                Name = "PowerWarningLabel",
+                Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+                PixelSize = 0.018f,
+                FontSize = 52,
+                OutlineSize = 8,
+                OutlineModulate = new Color(0f, 0f, 0f, 0.95f),
+                Modulate = new Color(1f, 0.15f, 0.15f), // Bright red
+                Text = "⚡电力不足",
+                Position = new Vector3(0f, IsMainBase ? 7.2f : 5.2f, 0f)
+            };
+            AddChild(powerWarningLabel);
+        }
+    }
+
+    void UpdatePowerWarningVisibility()
+    {
+        EnsurePowerWarningLabel();
+        if (powerWarningLabel is not null)
+        {
+            var showWarning = RequiresPower() && !Powered && !UnderConstruction && !IsRuined && !IsRebuilding && FogRevealed;
+            powerWarningLabel.Visible = showWarning;
+        }
+    }
+
+    void EnsureConstructionSmoke()
+    {
+        constructionSmoke = GetNodeOrNull<CpuParticles3D>("ConstructionSmoke");
+        if (constructionSmoke is null)
+        {
+            var sphere = new SphereMesh
+            {
+                Radius = 0.5f,
+                Height = 1.0f,
+                RadialSegments = 8,
+                Rings = 4
+            };
+
+            var smokeMat = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                AlbedoColor = new Color(0.35f, 0.35f, 0.35f, 0.55f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+            };
+
+            var scaleCurve = new Curve();
+            scaleCurve.AddPoint(new Vector2(0f, 0.4f));
+            scaleCurve.AddPoint(new Vector2(1f, 1.8f));
+
+            var smokeColorRamp = new Gradient();
+            smokeColorRamp.AddPoint(0f, new Color(0.42f, 0.40f, 0.38f, 0.58f)); // dusty brown-grey smoke
+            smokeColorRamp.AddPoint(0.7f, new Color(0.32f, 0.30f, 0.28f, 0.3f));
+            smokeColorRamp.AddPoint(1f, new Color(0.20f, 0.20f, 0.20f, 0f));
+
+            var width = IsMainBase ? 3.0f : 1.8f;
+            var depth = IsMainBase ? 3.0f : 1.8f;
+
+            constructionSmoke = new CpuParticles3D
+            {
+                Name = "ConstructionSmoke",
+                Amount = IsMainBase ? 32 : 16,
+                Lifetime = 1.8f,
+                OneShot = false,
+                Direction = Vector3.Up,
+                Spread = 30f,
+                Gravity = new Vector3(0f, 0.8f, 0f),
+                InitialVelocityMin = 0.5f,
+                InitialVelocityMax = 1.5f,
+                ScaleAmountMin = 0.5f,
+                ScaleAmountMax = 1.5f,
+                Mesh = sphere,
+                MaterialOverride = smokeMat,
+                ScaleAmountCurve = scaleCurve,
+                ColorRamp = smokeColorRamp,
+                EmissionShape = CpuParticles3D.EmissionShapeEnum.Box,
+                EmissionBoxExtents = new Vector3(width, 0.1f, depth),
+                Position = new Vector3(0f, 0.1f, 0f),
+                Emitting = false
+            };
+
+            AddChild(constructionSmoke);
+        }
+    }
+
+    void UpdateConstructionSmoke()
+    {
+        var shouldEmit = UnderConstruction || MainBaseState == MainBaseState.Rebuilding;
+        if (shouldEmit)
+        {
+            EnsureConstructionSmoke();
+            if (constructionSmoke is not null && !constructionSmoke.Emitting)
+                constructionSmoke.Emitting = true;
+        }
+        else
+        {
+            if (constructionSmoke is not null && constructionSmoke.Emitting)
+                constructionSmoke.Emitting = false;
+        }
     }
 
     string BuildMainBaseIdentityText()

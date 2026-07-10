@@ -136,13 +136,6 @@ public partial class BattleGameManager : Node
         unitsRoot = GetNodeOrNull<Node3D>(UnitsPath);
         buildingsRoot = GetNodeOrNull<Node3D>(BuildingsPath);
         ApplyGlobalConquestStarterIfNeeded();
-        _ = RegisterExistingCombatantsDeferred();
-    }
-
-    async System.Threading.Tasks.Task RegisterExistingCombatantsDeferred()
-    {
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         RegisterExistingCombatants();
     }
 
@@ -194,6 +187,20 @@ public partial class BattleGameManager : Node
         ForceRefreshFogOfWar();
         UpdateBaseSeenFlags();
         EmitSignal(SignalName.EconomyChanged);
+        FocusCameraOnMainBase();
+    }
+
+    void FocusCameraOnMainBase()
+    {
+        var playerMainBase = GetBuildings().FirstOrDefault(b => b.PlayerOwned && b.IsMainBase);
+        if (playerMainBase is not null)
+        {
+            var cameraRig = GetTree().CurrentScene?.GetNodeOrNull<RtsCamera>("CameraRig");
+            if (cameraRig is not null)
+            {
+                cameraRig.JumpTo(playerMainBase.GlobalPosition);
+            }
+        }
     }
 
     public void EnsureNextNetIdAbove(int netId)
