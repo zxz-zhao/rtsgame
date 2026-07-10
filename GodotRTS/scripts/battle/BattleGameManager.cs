@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -737,6 +737,23 @@ public partial class BattleGameManager : Node
 
         var tech = BattleTechCatalog.Get(techKey);
         var center = new Vector2(point.X, point.Z);
+
+        // 判断当前模式与科技等级：争霸模式使用玩家实际等级，快速匹配直接满级 5 级
+        var level = 5;
+        if (GameState.Instance is not null && GameState.Instance.LastBattleMode == "全球争霸")
+        {
+            level = GameState.Instance.GetTechLevel(tech.Key);
+        }
+
+        // 根据科研等级线性提升各项指标
+        var finalMove = tech.MoveMultiplier > 1f ? tech.MoveMultiplier + (level - 1) * 0.04f : tech.MoveMultiplier;
+        var finalDamage = tech.DamageMultiplier > 1f ? tech.DamageMultiplier + (level - 1) * 0.05f : tech.DamageMultiplier;
+        var finalRange = tech.AttackRangeBonus > 0f ? tech.AttackRangeBonus + (level - 1) * 0.5f : tech.AttackRangeBonus;
+        var finalCooldown = tech.AttackCooldownMultiplier < 1f ? tech.AttackCooldownMultiplier - (level - 1) * 0.04f : tech.AttackCooldownMultiplier;
+        var finalDefense = tech.DefenseReduction > 0f ? tech.DefenseReduction + (level - 1) * 0.05f : tech.DefenseReduction;
+        var finalVision = tech.VisionBonus > 0f ? tech.VisionBonus + (level - 1) * 3f : tech.VisionBonus;
+        var finalRegen = tech.RegenPerSecond > 0f ? tech.RegenPerSecond + (level - 1) * 4f : tech.RegenPerSecond;
+
         foreach (var unit in GetUnits(true))
         {
             if (!GodotObject.IsInstanceValid(unit) || unit.IsDead)
@@ -749,20 +766,20 @@ public partial class BattleGameManager : Node
             unit.ApplyTechBuff(
                 tech.Key,
                 tech.Duration,
-                tech.MoveMultiplier,
-                tech.DamageMultiplier,
-                tech.AttackRangeBonus,
-                tech.AttackCooldownMultiplier,
-                tech.DefenseReduction,
-                tech.VisionBonus,
-                tech.RegenPerSecond,
+                finalMove,
+                finalDamage,
+                finalRange,
+                finalCooldown,
+                finalDefense,
+                finalVision,
+                finalRegen,
                 tech.Tint);
             affected++;
         }
 
         playerBattleTechCooldownEnds[tech.Key] = GameTime + tech.Cooldown;
         ForceRefreshFogOfWar();
-        message = $"{tech.DisplayName} 已释放，影响 {affected} 个单位";
+        message = $"{tech.DisplayName} (Lv.{level}) 已释放，影响 {affected} 个单位";
         return true;
     }
 
@@ -815,6 +832,23 @@ public partial class BattleGameManager : Node
 
         var tech = BattleTechCatalog.Get(techKey);
         var center = new Vector2(point.X, point.Z);
+
+        // 判断当前模式与科技等级：争霸模式我方读实际等级、敌方使用 3 级，快速匹配均为 5 级
+        var level = 5;
+        if (GameState.Instance is not null && GameState.Instance.LastBattleMode == "全球争霸")
+        {
+            level = playerOwned ? GameState.Instance.GetTechLevel(tech.Key) : 3;
+        }
+
+        // 根据科研等级线性提升各项指标
+        var finalMove = tech.MoveMultiplier > 1f ? tech.MoveMultiplier + (level - 1) * 0.04f : tech.MoveMultiplier;
+        var finalDamage = tech.DamageMultiplier > 1f ? tech.DamageMultiplier + (level - 1) * 0.05f : tech.DamageMultiplier;
+        var finalRange = tech.AttackRangeBonus > 0f ? tech.AttackRangeBonus + (level - 1) * 0.5f : tech.AttackRangeBonus;
+        var finalCooldown = tech.AttackCooldownMultiplier < 1f ? tech.AttackCooldownMultiplier - (level - 1) * 0.04f : tech.AttackCooldownMultiplier;
+        var finalDefense = tech.DefenseReduction > 0f ? tech.DefenseReduction + (level - 1) * 0.05f : tech.DefenseReduction;
+        var finalVision = tech.VisionBonus > 0f ? tech.VisionBonus + (level - 1) * 3f : tech.VisionBonus;
+        var finalRegen = tech.RegenPerSecond > 0f ? tech.RegenPerSecond + (level - 1) * 4f : tech.RegenPerSecond;
+
         foreach (var unit in GetUnits(playerOwned))
         {
             if (!GodotObject.IsInstanceValid(unit) || unit.IsDead)
@@ -827,13 +861,13 @@ public partial class BattleGameManager : Node
             unit.ApplyTechBuff(
                 tech.Key,
                 tech.Duration,
-                tech.MoveMultiplier,
-                tech.DamageMultiplier,
-                tech.AttackRangeBonus,
-                tech.AttackCooldownMultiplier,
-                tech.DefenseReduction,
-                tech.VisionBonus,
-                tech.RegenPerSecond,
+                finalMove,
+                finalDamage,
+                finalRange,
+                finalCooldown,
+                finalDefense,
+                finalVision,
+                finalRegen,
                 tech.Tint);
             affected++;
         }
@@ -841,7 +875,7 @@ public partial class BattleGameManager : Node
         var cooldowns = playerOwned ? playerBattleTechCooldownEnds : enemyBattleTechCooldownEnds;
         cooldowns[tech.Key] = GameTime + tech.Cooldown;
         ForceRefreshFogOfWar();
-        message = $"{tech.DisplayName} 已释放，影响 {affected} 个单位";
+        message = $"{tech.DisplayName} (Lv.{level}) 已释放，影响 {affected} 个单位";
         return true;
     }
 
@@ -2760,7 +2794,16 @@ public partial class BattleGameManager : Node
         if (building.GetNodeOrNull<MeshInstance3D>("Mesh") is { } oldMesh)
             oldMesh.Visible = false;
  
-        var visual = new Node3D { Name = "BuildingVisual", Position = new Vector3(0f, 0.06f, 0f) };
+        var visualY = 0.06f;
+        // 针对不同 FBX 建筑模型的底部基础面高度进行微调，防止大本营等建筑的台阶和门陷入泥土中
+        if (def.Key == "main_base")
+            visualY = 0.58f;
+        else if (def.Key == "tank_factory" || def.Key == "armor_factory" || def.Key == "air_factory")
+            visualY = 0.32f;
+        else if (def.Key == "barracks" || def.Key == "power_plant" || def.Key == "gold_mine")
+            visualY = 0.22f;
+
+        var visual = new Node3D { Name = "BuildingVisual", Position = new Vector3(0f, visualY, 0f) };
         building.AddChild(visual);
         
         var key = def.Key;

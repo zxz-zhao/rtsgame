@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -57,6 +57,38 @@ public partial class GameState : Node
     public string LastBattleMode { get; private set; } = "";
     public string LastBattleMapName { get; private set; } = BattleMapCatalog.DefaultMapName;
     public List<Node> Selected { get; } = new();
+    public Dictionary<string, int> TechLevels { get; } = new()
+    {
+        { "speed", 1 },
+        { "armor", 2 },
+        { "firepower", 1 },
+        { "repair", 3 },
+        { "radar", 1 },
+        { "rapid", 1 },
+        { "hold", 1 },
+        { "assault", 1 }
+    };
+
+    public int GetTechLevel(string techKey)
+    {
+        if (TechLevels.TryGetValue(techKey, out var lv))
+            return Mathf.Clamp(lv, 1, 5);
+        return 1;
+    }
+
+    public void UpgradeTech(string techKey)
+    {
+        if (TechLevels.ContainsKey(techKey))
+        {
+            TechLevels[techKey] = Mathf.Clamp(TechLevels[techKey] + 1, 1, 5);
+        }
+        else
+        {
+            TechLevels[techKey] = 2;
+        }
+        SaveSession();
+    }
+
     readonly List<BattleParticipantProfile> battleParticipants = new();
     readonly Dictionary<string, BattleCommunicationPreference> battleCommunicationPreferences = new();
 
@@ -421,6 +453,12 @@ public partial class GameState : Node
         LastBattleMapName = cfg.GetValue("battle", "last_battle_map", LastBattleMapName).AsString();
         if (!BattleMapCatalog.IsKnownMap(LastBattleMapName))
             LastBattleMapName = BattleMapCatalog.DefaultMapName;
+
+        // 加载科技等级
+        foreach (var key in new[] { "speed", "armor", "firepower", "repair", "radar", "rapid", "hold", "assault" })
+        {
+            TechLevels[key] = cfg.GetValue("tech", key, TechLevels[key]).AsInt32();
+        }
     }
 
     void SaveSession()
@@ -448,6 +486,13 @@ public partial class GameState : Node
         cfg.SetValue("battle", "has_battle_entry", HasBattleEntry);
         cfg.SetValue("battle", "last_battle_mode", LastBattleMode);
         cfg.SetValue("battle", "last_battle_map", LastBattleMapName);
+
+        // 保存各科技等级
+        foreach (var kvp in TechLevels)
+        {
+            cfg.SetValue("tech", kvp.Key, kvp.Value);
+        }
+
         cfg.Save(SessionPath);
     }
 

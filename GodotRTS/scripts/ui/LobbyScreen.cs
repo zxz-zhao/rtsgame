@@ -62,13 +62,6 @@ public partial class LobbyScreen : Control
         }
     };
 
-    private Dictionary<string, int> techLevels = new()
-    {
-        { "speed", 1 },
-        { "armor", 2 },
-        { "firepower", 1 },
-        { "repair", 3 }
-    };
 
     private string activeRoomHostId = "";
     private List<string> activeRoomPlayers = new();
@@ -2936,9 +2929,9 @@ public partial class LobbyScreen : Control
         OpenFeatureModal("科技研究中心", "升级主基地战略科研，为战场部署获取更强的机动、火力、装甲或维修加成。");
         
         int maxLvl = 1;
-        if (techLevels.Values.Count > 0)
+        if (GameState.Instance is not null && GameState.Instance.TechLevels.Count > 0)
         {
-            foreach (var v in techLevels.Values)
+            foreach (var v in GameState.Instance.TechLevels.Values)
             {
                 if (v > maxLvl) maxLvl = v;
             }
@@ -2969,7 +2962,7 @@ public partial class LobbyScreen : Control
         currentResearchDetailPanel = new Panel
         {
             Name = "ResearchDetailPanel",
-            CustomMinimumSize = new Vector2(230, 240),
+            CustomMinimumSize = new Vector2(230, 260),
             SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
@@ -2988,7 +2981,7 @@ public partial class LobbyScreen : Control
 
     Control CreateResearchGridCell(BattleTechDefinition tech)
     {
-        var level = techLevels.TryGetValue(tech.Key, out var lv) ? lv : 1;
+        var level = GameState.Instance?.GetTechLevel(tech.Key) ?? 1;
         var isSelected = tech.Key == selectedResearchTechKey;
 
         // 外部面板包装 (76 x 98)
@@ -3108,7 +3101,7 @@ public partial class LobbyScreen : Control
         if (tech.Key is null)
             return;
 
-        var level = techLevels.TryGetValue(techKey, out var lv) ? lv : 1;
+        var level = GameState.Instance?.GetTechLevel(techKey) ?? 1;
         var box = AddVBox(currentResearchDetailPanel, "DetailBox", 6, new Vector2(12, 10), new Vector2(-12, -10));
 
         box.AddChild(AddLabel(tech.DisplayName, 16, PanelText, HorizontalAlignment.Center));
@@ -3122,7 +3115,7 @@ public partial class LobbyScreen : Control
         var scroll = new ScrollContainer
         {
             Name = "DetailDescScroll",
-            CustomMinimumSize = new Vector2(0, 100),
+            CustomMinimumSize = new Vector2(0, 60),
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
@@ -3141,7 +3134,7 @@ public partial class LobbyScreen : Control
         descLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         content.AddChild(descLabel);
 
-        var bonusLabel = AddLabel($"战略加成: {DescribeTechBonus(tech)}", 12, WarningText, HorizontalAlignment.Left);
+        var bonusLabel = AddLabel($"战略加成: {DescribeTechBonus(tech, level)}", 12, WarningText, HorizontalAlignment.Left);
         bonusLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         bonusLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         content.AddChild(bonusLabel);
@@ -3177,10 +3170,7 @@ public partial class LobbyScreen : Control
 
     void StartResearchProject(string techKey, string serverTechKey)
     {
-        if (techLevels.ContainsKey(techKey))
-        {
-            techLevels[techKey]++;
-        }
+        GameState.Instance?.UpgradeTech(techKey);
 
         _ = StartTechResearch();
         ShowResearchModal();
@@ -3416,11 +3406,12 @@ public partial class LobbyScreen : Control
 
     Control CreateWarehouseTechCard(BattleTechDefinition tech)
     {
+        var level = GameState.Instance?.GetTechLevel(tech.Key) ?? 1;
         return CreateWarehouseGridCell(
             tech.DisplayName,
             tech.BackgroundTexturePath,
             "",
-            $"{DescribeTechBonus(tech)}",
+            $"{DescribeTechBonus(tech, level)}",
             tech.Tint,
             "主基地",
             $"持续 {tech.Duration:0}s / 冷却 {tech.Cooldown:0}s",
@@ -3619,8 +3610,9 @@ public partial class LobbyScreen : Control
 
     void AddTechBonusRow(VBoxContainer list, BattleTechDefinition tech)
     {
+        var level = GameState.Instance?.GetTechLevel(tech.Key) ?? 1;
         list.AddChild(AddTableRow(
-            new[] { tech.DisplayName, "主基地", DescribeTechBonus(tech), $"持续 {tech.Duration:0}s / 冷却 {tech.Cooldown:0}s" },
+            new[] { tech.DisplayName, "主基地", DescribeTechBonus(tech, level), $"持续 {tech.Duration:0}s / 冷却 {tech.Cooldown:0}s" },
             new[] { 144f, 92f, 222f, 128f },
             "",
             null,
@@ -3638,23 +3630,31 @@ public partial class LobbyScreen : Control
             isCurrent));
     }
 
-    static string DescribeTechBonus(BattleTechDefinition tech)
+    static string DescribeTechBonus(BattleTechDefinition tech, int level)
     {
+        var finalMove = tech.MoveMultiplier > 1f ? tech.MoveMultiplier + (level - 1) * 0.04f : tech.MoveMultiplier;
+        var finalDamage = tech.DamageMultiplier > 1f ? tech.DamageMultiplier + (level - 1) * 0.05f : tech.DamageMultiplier;
+        var finalRange = tech.AttackRangeBonus > 0f ? tech.AttackRangeBonus + (level - 1) * 0.5f : tech.AttackRangeBonus;
+        var finalCooldown = tech.AttackCooldownMultiplier < 1f ? tech.AttackCooldownMultiplier - (level - 1) * 0.04f : tech.AttackCooldownMultiplier;
+        var finalDefense = tech.DefenseReduction > 0f ? tech.DefenseReduction + (level - 1) * 0.05f : tech.DefenseReduction;
+        var finalVision = tech.VisionBonus > 0f ? tech.VisionBonus + (level - 1) * 3f : tech.VisionBonus;
+        var finalRegen = tech.RegenPerSecond > 0f ? tech.RegenPerSecond + (level - 1) * 4f : tech.RegenPerSecond;
+
         var parts = new List<string>();
-        if (!Mathf.IsEqualApprox(tech.MoveMultiplier, 1f))
-            parts.Add($"移速 {(tech.MoveMultiplier - 1f) * 100f:+0;-0}%");
-        if (!Mathf.IsEqualApprox(tech.DamageMultiplier, 1f))
-            parts.Add($"火力 {(tech.DamageMultiplier - 1f) * 100f:+0;-0}%");
-        if (!Mathf.IsZeroApprox(tech.AttackRangeBonus))
-            parts.Add($"射程 +{tech.AttackRangeBonus:0.#}");
-        if (!Mathf.IsEqualApprox(tech.AttackCooldownMultiplier, 1f))
-            parts.Add($"攻速 {(1f - tech.AttackCooldownMultiplier) * 100f:+0;-0}%");
-        if (!Mathf.IsZeroApprox(tech.DefenseReduction))
-            parts.Add($"减伤 {tech.DefenseReduction * 100f:0}%");
-        if (!Mathf.IsZeroApprox(tech.VisionBonus))
-            parts.Add($"视野 +{tech.VisionBonus:0.#}");
-        if (!Mathf.IsZeroApprox(tech.RegenPerSecond))
-            parts.Add($"每秒维修 {tech.RegenPerSecond:0.#}");
+        if (!Mathf.IsEqualApprox(finalMove, 1f))
+            parts.Add($"移速 {(finalMove - 1f) * 100f:+0;-0}%");
+        if (!Mathf.IsEqualApprox(finalDamage, 1f))
+            parts.Add($"火力 {(finalDamage - 1f) * 100f:+0;-0}%");
+        if (!Mathf.IsZeroApprox(finalRange))
+            parts.Add($"射程 +{finalRange:0.#}");
+        if (!Mathf.IsEqualApprox(finalCooldown, 1f))
+            parts.Add($"攻速 {(1f - finalCooldown) * 100f:+0;-0}%");
+        if (!Mathf.IsZeroApprox(finalDefense))
+            parts.Add($"减伤 {finalDefense * 100f:0}%");
+        if (!Mathf.IsZeroApprox(finalVision))
+            parts.Add($"视野 +{finalVision:0.#}");
+        if (!Mathf.IsZeroApprox(finalRegen))
+            parts.Add($"每秒维修 {finalRegen:0.#}");
 
         return parts.Count == 0 ? "提供范围支援" : string.Join("，", parts);
     }
@@ -4389,11 +4389,10 @@ public partial class LobbyScreen : Control
 
     Control CreateTag(string text, Color bg, Color fg)
     {
-        var minWidth = Math.Max(56, 20 + text.Length * 12);
         var panel = new PanelContainer
         {
             Name = "Tag_" + text,
-            CustomMinimumSize = new Vector2(minWidth, 26),
+            CustomMinimumSize = new Vector2(56, 26),
             SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
             SizeFlagsVertical = SizeFlags.ShrinkCenter
         };
@@ -4688,6 +4687,70 @@ public partial class LobbyScreen : Control
         _ => "已收录，可在战斗内生产"
     };
 
+    async Task<bool> ShowMatchmakingQueueModal()
+    {
+        selectedMode = QuickMatchMode;
+
+        // 使用匹配等待小规格对话框
+        Place(modalPanel, new Rect2(0.320f, 0.350f, 0.360f, 0.300f));
+        modalPanel.CustomMinimumSize = new Vector2(440, 200);
+
+        ClearChildren(modalBody);
+        modalTitle.Text = "3v3 战术匹配";
+
+        var descLabel = AddLabel("正在联络战区服务器，匹配队友与对手中...", 13, MutedText, HorizontalAlignment.Center);
+        modalBody.AddChild(descLabel);
+
+        var timeLabel = AddLabel("已匹配时间: 00:00", 14, WarningText, HorizontalAlignment.Center);
+        modalBody.AddChild(timeLabel);
+
+        var progress = new ProgressBar
+        {
+            CustomMinimumSize = new Vector2(280, 8),
+            ShowPercentage = false,
+            Value = 0f
+        };
+        modalBody.AddChild(progress);
+
+        var btnRow = new HBoxContainer 
+        { 
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            Alignment = BoxContainer.AlignmentMode.Center 
+        };
+        
+        var cancelled = false;
+        var cancelBtn = AddButton("取消匹配", () => {
+            cancelled = true;
+        }, ButtonTone.Secondary, 13);
+        cancelBtn.CustomMinimumSize = new Vector2(120, 32);
+        btnRow.AddChild(cancelBtn);
+        modalBody.AddChild(btnRow);
+
+        ShowModal();
+
+        int elapsed = 0;
+        while (elapsed < 3 && !cancelled)
+        {
+            await Task.Delay(1000);
+            if (cancelled)
+                break;
+
+            elapsed++;
+            timeLabel.Text = $"已匹配时间: {elapsed:02} 秒";
+            progress.Value = (elapsed / 3f) * 100f;
+        }
+
+        if (cancelled)
+        {
+            CloseModal();
+            _ = NetClient.Instance?.CancelMatch() ?? Task.CompletedTask;
+            ShowToast("已取消本次匹配。");
+            return false;
+        }
+
+        return true;
+    }
+
     async Task StartQuickMatch()
     {
         if (quickMatchStarting || battleStarting)
@@ -4696,10 +4759,14 @@ public partial class LobbyScreen : Control
         quickMatchStarting = true;
         SelectModeInternal(QuickMatchMode, BattleMapCatalog.DefaultMapName, false);
         GameState.Instance?.ClearCurrentRoom();
-        ShowToast("快速匹配中...");
 
         try
         {
+            if (!await ShowMatchmakingQueueModal())
+            {
+                return;
+            }
+
             if (NetClient.Instance is not null && !string.IsNullOrEmpty(GameState.Instance?.Token) && GameState.Instance?.IsGuest != true)
             {
                 var matchTask = NetClient.Instance.JoinMatch(selectedMap);
@@ -4720,8 +4787,6 @@ public partial class LobbyScreen : Control
             }
 
             // Local simulation fallback
-            ShowToast("未匹配到在线对手，开启模拟战役...");
-            await Task.Delay(800);
             await ShowMatchConfirmationModal("local_practice_room", selectedMap);
         }
         finally
@@ -4935,14 +5000,70 @@ public partial class LobbyScreen : Control
             && !string.IsNullOrWhiteSpace(state.CurrentRoomId);
     }
 
+    async Task ShowResumeOrRematchModal()
+    {
+        bool resumeSelected = false;
+        bool rematchSelected = false;
+
+        // 使用选择规格模态框
+        Place(modalPanel, new Rect2(0.300f, 0.350f, 0.400f, 0.280f));
+        modalPanel.CustomMinimumSize = new Vector2(480, 180);
+
+        ClearChildren(modalBody);
+        modalTitle.Text = "检测到未完结战局";
+
+        var descLabel = AddLabel("您上一次有一场尚未结束的战斗，请选择操作：", 13, PanelText, HorizontalAlignment.Center);
+        modalBody.AddChild(descLabel);
+
+        var btnRow = new HBoxContainer 
+        { 
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            Alignment = BoxContainer.AlignmentMode.Center 
+        };
+        btnRow.AddThemeConstantOverride("separation", 16);
+
+        var resumeBtn = AddButton("继续战斗", () => {
+            resumeSelected = true;
+        }, ButtonTone.Primary, 13);
+        resumeBtn.CustomMinimumSize = new Vector2(130, 34);
+        btnRow.AddChild(resumeBtn);
+
+        var rematchBtn = AddButton("重新匹配", () => {
+            rematchSelected = true;
+        }, ButtonTone.Secondary, 13);
+        rematchBtn.CustomMinimumSize = new Vector2(130, 34);
+        btnRow.AddChild(rematchBtn);
+
+        modalBody.AddChild(btnRow);
+
+        ShowModal();
+
+        while (!resumeSelected && !rematchSelected)
+        {
+            await Task.Delay(100);
+        }
+
+        CloseModal();
+
+        if (resumeSelected)
+        {
+            var resumeMap = GameState.Instance?.LastBattleMapName ?? BattleMapCatalog.DefaultMapName;
+            SelectModeInternal(QuickMatchMode, resumeMap, false);
+            await StartBattle(true);
+        }
+        else if (rematchSelected)
+        {
+            GameState.Instance?.ClearBattleEntry();
+            RefreshModeCards(); // 刷新卡片上的“继续战斗”恢复回“立即匹配”
+            await StartQuickMatch();
+        }
+    }
+
     async Task TriggerQuickMatchCard()
     {
         if (ShouldShowQuickMatchBattleEntry())
         {
-            var resumeMap = GameState.Instance?.LastBattleMapName ?? BattleMapCatalog.DefaultMapName;
-            SelectModeInternal(QuickMatchMode, resumeMap, false);
-            ShowToast("进入战场");
-            await StartBattle(false);
+            await ShowResumeOrRematchModal();
             return;
         }
 
@@ -5734,18 +5855,8 @@ public partial class LobbyScreen : Control
             if (progressLabel is not null) progressLabel.Text = "100%";
             await Task.Delay(200);
 
-            // ── 淡出动画：overlay 在 350ms 内渐渐变透明 ──────────────────
-            // ChangeSceneToPacked 是主线程阻塞调用，会造成一帧卡顿。
-            // 将这帧阻塞隐藏在动画结束点，玩家看到的是平滑淡出而非黑屏卡顿。
-            var tween = overlay.CreateTween();
-            tween.TweenProperty(overlay, "modulate:a", 0f, 0.35f)
-                 .SetTrans(Tween.TransitionType.Quad)
-                 .SetEase(Tween.EaseType.In);
-            await ToSignal(tween, Tween.SignalName.Finished);
-
-            // 再额外等一帧，确保淡出最后一帧已经提交给 GPU
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-
+            // 避免在切换场景前将加载遮罩淡出，因为那会露出下方的游戏大厅，造成“闪烁/露出大厅”的缺陷。
+            // 我们直接在遮罩完全不透明的情况下切入新场景，过渡更干净、自然。
             var loadedScene = (PackedScene)ResourceLoader.LoadThreadedGet(BattleScenePath);
             GetTree().ChangeSceneToPacked(loadedScene);
         }
@@ -6844,16 +6955,29 @@ public partial class LobbyScreen : Control
 
     static Texture2D LoadTexture(string resourcePath)
     {
-        var image = Image.LoadFromFile(ProjectSettings.GlobalizePath(resourcePath));
-        if (image is null || image.IsEmpty())
+        if (ResourceLoader.Exists(resourcePath))
         {
-            GD.PushError($"Failed to load lobby image: {resourcePath}");
-            var fallback = Image.CreateEmpty(4, 4, false, Image.Format.Rgba8);
-            fallback.Fill(new Color(1f, 0f, 1f, 1f));
-            return ImageTexture.CreateFromImage(fallback);
+            return ResourceLoader.Load<Texture2D>(resourcePath);
         }
 
-        return ImageTexture.CreateFromImage(image);
+        try
+        {
+            var globalPath = ProjectSettings.GlobalizePath(resourcePath);
+            if (System.IO.File.Exists(globalPath))
+            {
+                var image = Image.LoadFromFile(globalPath);
+                if (image is not null && !image.IsEmpty())
+                {
+                    return ImageTexture.CreateFromImage(image);
+                }
+            }
+        }
+        catch {}
+
+        GD.PushError($"Failed to load lobby image: {resourcePath}");
+        var fallback = Image.CreateEmpty(4, 4, false, Image.Format.Rgba8);
+        fallback.Fill(new Color(1f, 0f, 1f, 1f));
+        return ImageTexture.CreateFromImage(fallback);
     }
 
     static Texture2D LoadTrimmedTexture(string resourcePath, int padding)
