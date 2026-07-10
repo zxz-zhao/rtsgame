@@ -4268,7 +4268,7 @@ public partial class BattleHud : CanvasLayer
 
             if (canControl)
             {
-                textBtn.Text = pref.TextBlocked ? "接收" : "禁文";
+                textBtn.Text = "";
                 textBtn.Icon = LoadHudTexture(pref.TextBlocked 
                     ? "res://assets/third_party/kenney/game-icons/PNG/White/2x/cross.png" 
                     : "res://assets/unity_migrated/Assets/Resources/UI/Icons/chat_icon.png");
@@ -4282,7 +4282,7 @@ public partial class BattleHud : CanvasLayer
                     RefreshSettingsParticipantDetails();
                 };
 
-                voiceBtn.Text = pref.VoiceBlocked ? "接收" : "禁语";
+                voiceBtn.Text = "";
                 voiceBtn.Icon = LoadHudTexture(pref.VoiceBlocked 
                     ? "res://assets/third_party/kenney/game-icons/PNG/White/2x/audioOff.png" 
                     : "res://assets/third_party/kenney/game-icons/PNG/White/2x/audioOn.png");
@@ -4298,18 +4298,18 @@ public partial class BattleHud : CanvasLayer
             }
             else
             {
-                textBtn.Text = participant.IsLocalPlayer ? "自己" : participant.ParticipantId == "local-ai" ? "离线" : "等待";
+                textBtn.Text = "";
                 textBtn.Icon = LoadHudTexture("res://assets/unity_migrated/Assets/Resources/UI/Icons/chat_icon.png");
                 ApplyButtonStyle(textBtn, new Color(0.20f, 0.22f, 0.24f, 0.92f), new Color(0.62f, 0.68f, 0.72f, 0.42f), 10);
                 textBtn.Disabled = true;
 
-                voiceBtn.Text = "不可操作";
+                voiceBtn.Text = "";
                 voiceBtn.Icon = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/audioOff.png");
                 ApplyButtonStyle(voiceBtn, new Color(0.20f, 0.22f, 0.24f, 0.92f), new Color(0.62f, 0.68f, 0.72f, 0.42f), 10);
                 voiceBtn.Disabled = true;
             }
 
-            reportBtn.Text = pref.Reported ? "已举报" : canReport ? "投诉" : "不可投诉";
+            reportBtn.Text = "";
             reportBtn.Icon = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/exclamation.png");
             ApplyButtonStyle(
                 reportBtn,
