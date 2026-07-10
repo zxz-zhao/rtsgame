@@ -3275,16 +3275,41 @@ public partial class BattleHud : CanvasLayer
     void ShowGameOver(bool playerWon, string reason)
     {
         var manager = BattleGameManager.Instance;
-        gameOverTitle.Text = playerWon ? "胜利" : "失败";
+
+        var dimRect = gameOverOverlay.FindChild("DimRect", true, false) as ColorRect;
+        if (dimRect is not null)
+        {
+            dimRect.Color = playerWon
+                ? new Color(0.04f, 0.05f, 0.06f, 0.76f)
+                : new Color(0.18f, 0.04f, 0.04f, 0.82f);
+        }
+
+        gameOverTitle.Text = playerWon ? "★ 凯 旋 归 来 ★" : "☠ 战 局 失 利 ☠";
         gameOverTitle.Modulate = playerWon
-            ? new Color(1f, 0.86f, 0.42f)
-            : new Color(0.96f, 0.42f, 0.34f);
-        gameOverBody.Text = $"{reason}\n\n本局用时：{FormatTime(manager?.GameTime ?? 0f)}";
+            ? new Color(1f, 0.84f, 0.24f)
+            : new Color(0.96f, 0.26f, 0.26f);
+
+        string encouragement = playerWon
+            ? "指挥官，您精湛的即时战略指挥艺术让敌军闻风丧胆！"
+            : "胜败乃兵家常事。建议多建造防空履带车以御敌，或优先升级科技中心。";
+
+        gameOverBody.Text = $"{reason}\n{encouragement}\n\n本局用时：{FormatTime(manager?.GameTime ?? 0f)}";
+
         RefreshGameOverSummary(playerWon, manager);
         SetGameplayHudVisible(false);
         StartGameOverCountdown(30f);
         gameOverOverlay.Visible = true;
         gameOverOverlay.MoveToFront();
+
+        gameOverPanel.PivotOffset = new Vector2(360, 296);
+        gameOverPanel.Scale = new Vector2(0.85f, 0.85f);
+        gameOverPanel.Modulate = new Color(1f, 1f, 1f, 0f);
+
+        var tween = CreateTween().SetParallel(true);
+        tween.TweenProperty(gameOverPanel, "scale", new Vector2(1f, 1f), 0.38)
+            .SetTrans(Tween.TransitionType.Back)
+            .SetEase(Tween.EaseType.Out);
+        tween.TweenProperty(gameOverPanel, "modulate:a", 1.0, 0.26);
     }
 
     public void DebugShowGameOver(bool playerWon, string reason)
@@ -3312,6 +3337,7 @@ public partial class BattleHud : CanvasLayer
 
         var dim = new ColorRect
         {
+            Name = "DimRect",
             LayoutMode = 3,
             AnchorRight = 1f,
             AnchorBottom = 1f,
@@ -3441,10 +3467,10 @@ public partial class BattleHud : CanvasLayer
 
         if (gameOverResultMark is not null)
         {
-            gameOverResultMark.Text = playerWon ? "V" : "X";
+            gameOverResultMark.Text = playerWon ? "★" : "✖";
             gameOverResultMark.Modulate = playerWon
-                ? new Color(1f, 0.86f, 0.42f)
-                : new Color(0.96f, 0.42f, 0.34f);
+                ? new Color(1f, 0.84f, 0.24f)
+                : new Color(0.96f, 0.26f, 0.26f);
         }
 
         if (manager is null || gameOverSummaryValueLabels.Length < 4)
@@ -3453,7 +3479,7 @@ public partial class BattleHud : CanvasLayer
         gameOverSummaryValueLabels[0].Text = manager.PlayerGold.ToString("N0");
         gameOverSummaryValueLabels[1].Text = $"{manager.PlayerPowerUsed}/{manager.PlayerPowerProvided}";
         gameOverSummaryValueLabels[2].Text = manager.GetPlayerBaseSummaryText();
-        gameOverSummaryValueLabels[3].Text = $"{manager.PlayerUnitKills + manager.PlayerBuildingKills}鏉€  {FormatTime(manager.GameTime)}";
+        gameOverSummaryValueLabels[3].Text = $"{manager.PlayerUnitKills + manager.PlayerBuildingKills} 击杀";
         RefreshGameOverReport(manager.BuildBattleReportData());
     }
 
@@ -6364,10 +6390,11 @@ public partial class BattleHud : CanvasLayer
         objectiveRestoreBtn = new Button
         {
             Name = "ObjectiveIconBtn",
-            Text = "📋",
             Position = new Vector2(12f, 64f),
             Size = new Vector2(36f, 36f),
             Visible = true,
+            Icon = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/menuList.png"),
+            ExpandIcon = true,
             FocusMode = Control.FocusModeEnum.None
         };
         MetalUiStyle.ApplyMetalButton(objectiveRestoreBtn, MetalUiStyle.Steel, 16, false);
@@ -6466,28 +6493,23 @@ public partial class BattleHud : CanvasLayer
     Control CreateObjectiveRowWidget(string key, string text, bool completed, string reward, int goldReward, bool isDialog)
     {
         var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 8);
+        row.AddThemeConstantOverride("separation", 10);
 
+        // 1. Status Indicator / Claim Button
         if (completed)
         {
             if (claimedObjectiveKeys.Contains(key))
             {
-                var statusLabel = HudLabel("✅", isDialog ? 13 : 11, new Color(1f, 1f, 1f));
-                statusLabel.SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin;
-                row.AddChild(statusLabel);
-
-                var descLabel = HudLabel(text, isDialog ? 14 : 12, new Color(0.6f, 0.6f, 0.6f));
-                descLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-                descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-                descLabel.ClipText = false;
-                row.AddChild(descLabel);
-
-                if (!string.IsNullOrEmpty(reward))
+                var statusIcon = new TextureRect
                 {
-                    var rewardLabel = HudLabel($"[已领 {reward}]", isDialog ? 12 : 10, new Color(0.6f, 0.6f, 0.6f));
-                    rewardLabel.SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd;
-                    row.AddChild(rewardLabel);
-                }
+                    Texture = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/checkmark.png"),
+                    CustomMinimumSize = new Vector2(isDialog ? 18f : 14f, isDialog ? 18f : 14f),
+                    ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                    StretchMode = TextureRect.StretchModeEnum.KeepCentered,
+                    SelfModulate = new Color(0.2f, 0.85f, 0.3f), // Bright green
+                    SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin
+                };
+                row.AddChild(statusIcon);
             }
             else
             {
@@ -6513,39 +6535,73 @@ public partial class BattleHud : CanvasLayer
                     RefreshObjectives();
                 };
                 row.AddChild(claimBtn);
-
-                var descLabel = HudLabel(text, isDialog ? 14 : 12, new Color(0.92f, 0.94f, 0.96f));
-                descLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-                descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-                descLabel.ClipText = false;
-                row.AddChild(descLabel);
-
-                if (!string.IsNullOrEmpty(reward))
-                {
-                    var rewardLabel = HudLabel($"[{reward}]", isDialog ? 12 : 10, new Color(0.95f, 0.76f, 0.24f));
-                    rewardLabel.SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd;
-                    row.AddChild(rewardLabel);
-                }
             }
         }
         else
         {
-            var statusLabel = HudLabel("🔲", isDialog ? 13 : 11, new Color(1f, 1f, 1f));
-            statusLabel.SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin;
-            row.AddChild(statusLabel);
-
-            var descLabel = HudLabel(text, isDialog ? 14 : 12, new Color(0.92f, 0.94f, 0.96f));
-            descLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-            descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-            descLabel.ClipText = false;
-            row.AddChild(descLabel);
-
-            if (!string.IsNullOrEmpty(reward))
+            var statusIcon = new Panel
             {
-                var rewardLabel = HudLabel($"[{reward}]", isDialog ? 12 : 10, new Color(0.95f, 0.76f, 0.24f));
-                rewardLabel.SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd;
-                row.AddChild(rewardLabel);
+                CustomMinimumSize = new Vector2(isDialog ? 18f : 14f, isDialog ? 18f : 14f),
+                SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin
+            };
+            var outline = new StyleBoxFlat
+            {
+                BgColor = Colors.Transparent,
+                BorderColor = new Color(0.6f, 0.7f, 0.8f, 0.6f),
+                BorderWidthLeft = 2,
+                BorderWidthTop = 2,
+                BorderWidthRight = 2,
+                BorderWidthBottom = 2,
+                CornerRadiusTopLeft = 3,
+                CornerRadiusTopRight = 3,
+                CornerRadiusBottomLeft = 3,
+                CornerRadiusBottomRight = 3
+            };
+            statusIcon.AddThemeStyleboxOverride("panel", outline);
+            row.AddChild(statusIcon);
+        }
+
+        // 2. Text description
+        var isClaimed = completed && claimedObjectiveKeys.Contains(key);
+        var textColor = isClaimed ? new Color(0.6f, 0.6f, 0.6f) : new Color(0.92f, 0.94f, 0.96f);
+        var descLabel = HudLabel(text, isDialog ? 14 : 12, textColor);
+        descLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        descLabel.ClipText = false;
+        row.AddChild(descLabel);
+
+        // 3. Reward Display with gold coin icon
+        if (!string.IsNullOrEmpty(reward))
+        {
+            var rewardContainer = new HBoxContainer
+            {
+                SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd,
+                Alignment = BoxContainer.AlignmentMode.End
+            };
+            rewardContainer.AddThemeConstantOverride("separation", 4);
+
+            var coinIcon = new TextureRect
+            {
+                Texture = LoadHudTexture("res://assets/unity_migrated/Assets/Resources/UI/CurrencyIcons/currency_gold_coin.png"),
+                CustomMinimumSize = new Vector2(isDialog ? 18f : 14f, isDialog ? 18f : 14f),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepCentered
+            };
+            if (isClaimed)
+            {
+                coinIcon.SelfModulate = new Color(0.5f, 0.5f, 0.5f, 0.6f);
             }
+            rewardContainer.AddChild(coinIcon);
+
+            string cleanReward = reward.Replace("金币", "").Trim();
+            var rewardLabel = HudLabel(
+                isClaimed ? $"{cleanReward} (已领)" : cleanReward,
+                isDialog ? 13 : 11,
+                isClaimed ? new Color(0.6f, 0.6f, 0.6f) : new Color(0.95f, 0.76f, 0.24f)
+            );
+            rewardContainer.AddChild(rewardLabel);
+
+            row.AddChild(rewardContainer);
         }
 
         return row;
@@ -6578,11 +6634,29 @@ public partial class BattleHud : CanvasLayer
         objectiveDialogRoot.AddChild(objectiveDialogPanel);
         AddTextureFrame(objectiveDialogPanel, UnityFrameRoot + "panel_task_frame.png", new Color(1f, 1f, 1f, 0.16f));
 
-        var title = HudLabel("📋 战场任务列表", 22, new Color(1f, 0.90f, 0.62f));
-        title.HorizontalAlignment = HorizontalAlignment.Center;
-        title.Position = new Vector2(20, 20);
-        title.Size = new Vector2(600, 32);
-        objectiveDialogPanel.AddChild(title);
+        var titleContainer = new HBoxContainer
+        {
+            Position = new Vector2(20, 18),
+            Size = new Vector2(600, 36),
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        titleContainer.AddThemeConstantOverride("separation", 8);
+        objectiveDialogPanel.AddChild(titleContainer);
+
+        var titleIcon = new TextureRect
+        {
+            Texture = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/target.png"),
+            CustomMinimumSize = new Vector2(24, 24),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepCentered,
+            SelfModulate = new Color(1f, 0.90f, 0.62f),
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter
+        };
+        titleContainer.AddChild(titleIcon);
+
+        var title = HudLabel("战场任务列表", 22, new Color(1f, 0.90f, 0.62f));
+        title.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+        titleContainer.AddChild(title);
 
         var subtitle = HudLabel("完成以下作战任务可获得丰厚的奖励", 13, new Color(0.74f, 0.88f, 0.92f));
         subtitle.HorizontalAlignment = HorizontalAlignment.Center;
@@ -6592,9 +6666,12 @@ public partial class BattleHud : CanvasLayer
 
         var closeButton = new Button
         {
-            Text = "×",
+            Name = "CloseButton",
             Position = new Vector2(590, 16),
-            Size = new Vector2(34, 32)
+            Size = new Vector2(34, 32),
+            Icon = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/cross.png"),
+            ExpandIcon = true,
+            FocusMode = Control.FocusModeEnum.None
         };
         ApplyButtonStyle(closeButton, new Color(0.12f, 0.14f, 0.16f, 0.96f), new Color(0.85f, 0.62f, 0.18f, 0.82f), 18);
         closeButton.Pressed += () => objectiveDialogRoot.Visible = false;
