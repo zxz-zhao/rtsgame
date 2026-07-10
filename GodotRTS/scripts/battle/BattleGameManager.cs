@@ -1860,18 +1860,13 @@ public partial class BattleGameManager : Node
             return true;
 
         var hasOperationalMainBase = allMainBases.Any(b => !b.IsRuined && !b.IsRebuilding && b.Health > 0f);
-        if (hasOperationalMainBase)
-            return false;
+        if (!hasOperationalMainBase)
+        {
+            // 主基地一旦被摧毁/损坏，该方势力即被淘汰，直接触发战败或胜利结算画面
+            return true;
+        }
 
-        var hasRebuildingBase = allMainBases.Any(b => b.IsRebuilding);
-        if (hasRebuildingBase)
-            return false;
-
-        var hasRebuildableBase = allMainBases.Any(b => b.CanStartRebuild());
-        if (hasRebuildableBase)
-            return false;
-
-        return GetUnits(playerOwned).Count == 0;
+        return false;
     }
 
     void CacheBaseSnapshot(RtsBuilding? building)
