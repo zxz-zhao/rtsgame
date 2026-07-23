@@ -131,7 +131,7 @@ void fragment() {
 
     ALBEDO    = final_color;
     ALPHA     = mix(water_color.a, 1.0, edge * 0.5);
-    ROUGHNESS = roughness + (1.0 - foam) * 0.14 - crest * 0.06;
+    ROUGHNESS = clamp(roughness + (1.0 - foam) * 0.03 - crest * 0.02, 0.01, 0.10);
     METALLIC  = metallic;
-    SPECULAR  = 0.55 + foam * 0.25 + crest * shine_strength * 0.4;
+    SPECULAR  = 0.75 + foam * 0.20 + crest * shine_strength * 0.4;
 }

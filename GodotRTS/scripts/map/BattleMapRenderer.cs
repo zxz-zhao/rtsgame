@@ -192,14 +192,38 @@ public partial class BattleMapRenderer : Node3D
         var world = new WorldEnvironment { Name = "WorldEnvironment" };
         var env = new Godot.Environment
         {
-            BackgroundMode = Godot.Environment.BGMode.Color,
-            BackgroundColor = map.SkyColor,
-            AmbientLightSource = Godot.Environment.AmbientSource.Color,
+            BackgroundMode = Godot.Environment.BGMode.Sky,
+            Sky = new Sky
+            {
+                SkyMaterial = new ProceduralSkyMaterial
+                {
+                    SkyTopColor = new Color(0.16f, 0.38f, 0.68f),
+                    SkyHorizonColor = new Color(0.60f, 0.75f, 0.88f),
+                    GroundBottomColor = new Color(0.06f, 0.14f, 0.25f),
+                    GroundHorizonColor = new Color(0.50f, 0.64f, 0.78f),
+                    SunAngleMax = 30.0f
+                }
+            },
+            AmbientLightSource = Godot.Environment.AmbientSource.Sky,
             AmbientLightColor = map.AmbientSkyColor,
-            AmbientLightEnergy = 0.75f,
+            AmbientLightEnergy = 0.85f,
+            ReflectedLightSource = Godot.Environment.ReflectionSource.Sky,
+
+            // 🌟 开启高清屏幕空间 3D 舰艇水面倒影 (Screen-Space Reflections - SSR) 🌟
+            SsrEnabled = true,
+            SsrMaxSteps = 128,
+            SsrFadeIn = 0.15f,
+            SsrFadeOut = 2.0f,
+            SsrDepthTolerance = 0.45f,
+
+            // 屏幕空间环境光遮蔽 (SSAO)
+            SsaoEnabled = true,
+            SsaoRadius = 1.2f,
+            SsaoIntensity = 1.8f,
+
             FogEnabled = true,
             FogLightColor = map.FogColor,
-            FogDensity = 0.0035f
+            FogDensity = 0.0028f
         };
         world.Environment = env;
         generatedRoot!.AddChild(world);
