@@ -162,7 +162,8 @@ Json UserToSafeJson(const UserRecord& user)
         { "win3Claimed", user.lobbyState.win3Claimed },
         { "destroyClaimed", user.lobbyState.destroyClaimed },
         { "winsToday", user.lobbyState.winsToday },
-        { "killsToday", user.lobbyState.killsToday }
+        { "killsToday", user.lobbyState.killsToday },
+        { "claimedMailIds", user.lobbyState.claimedMailIds }
     };
 
     if (user.hasStats)
@@ -261,6 +262,10 @@ UserRecord UserFromJson(const Json& value)
         user.lobbyState.destroyClaimed = lobby.value("destroyClaimed", false);
         user.lobbyState.winsToday = lobby.value("winsToday", 0);
         user.lobbyState.killsToday = lobby.value("killsToday", 0);
+        if (lobby.contains("claimedMailIds") && lobby["claimedMailIds"].is_array())
+        {
+            user.lobbyState.claimedMailIds = lobby["claimedMailIds"].get<std::vector<std::string>>();
+        }
     }
 
     if (value.contains("stats") && value["stats"].is_object())

@@ -10,3 +10,8 @@ PreviewOutput/
 tools/ClaudeCodeProcessWrapper/dist/
 *.tmp
 *.log
+*.fbx
+assets/third_party/polyhaven/
+scratch/
+my_*.png
+my_*.png.import

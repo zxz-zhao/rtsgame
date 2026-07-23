@@ -334,6 +334,8 @@ json ServerService::HandleRequest(
         return HandlePresence(request, statusCode);
     if (request.path == "/api/tasks/claim" && request.method == "POST")
         return HandleTaskClaim(request, statusCode);
+    if (request.path == "/api/mail/claim" && request.method == "POST")
+        return HandleMailClaim(request, statusCode);
     if (request.path == "/api/tech/start" && request.method == "POST")
         return HandleTechStart(request, statusCode);
     if (request.path == "/api/tech/speedup" && request.method == "POST")
@@ -1020,7 +1022,8 @@ json ServerService::HandleLobby(const ParsedRequest& request, int& statusCode)
         { "techName", user.hasActiveTech ? user.activeTech.name : "" },
         { "techDesc", user.hasActiveTech ? user.activeTech.desc : "" },
         { "techEndAt", user.hasActiveTech ? user.activeTech.endAt : 0 },
-        { "techTotalSec", user.hasActiveTech ? user.activeTech.totalSec : 0 }
+        { "techTotalSec", user.hasActiveTech ? user.activeTech.totalSec : 0 },
+        { "claimedMailIds", user.lobbyState.claimedMailIds }
     };
     statusCode = 200;
     return response;
@@ -1085,6 +1088,46 @@ json ServerService::HandleTaskClaim(const ParsedRequest& request, int& statusCod
         { "success", true },
         { "gold", user.gold },
         { "gems", user.gems }
+    };
+}
+
+json ServerService::HandleMailClaim(const ParsedRequest& request, int& statusCode)
+{
+    UserRecord user;
+    json errorJson;
+    if (!TryAuthenticate(request, user, errorJson, statusCode))
+        return errorJson;
+
+    statusCode = 200;
+    ServerJson::EnsureUserDefaults(user);
+    ServerJson::EnsureLobbyDay(user);
+    const std::string mailId = SafeStringFromJson(request.body, "mailId");
+    int gold = SafeIntFromJson(request.body, "gold", 0);
+    int gems = SafeIntFromJson(request.body, "gems", 0);
+
+    if (mailId.empty())
+    {
+        return { { "success", false }, { "error", "mailId is required." } };
+    }
+
+    for (const auto& id : user.lobbyState.claimedMailIds)
+    {
+        if (id == mailId)
+        {
+            return { { "success", false }, { "error", "Mail reward already claimed." } };
+        }
+    }
+
+    user.gold += std::max(0, gold);
+    user.gems += std::max(0, gems);
+    user.lobbyState.claimedMailIds.push_back(mailId);
+
+    storage_.UpsertUser(user);
+    return {
+        { "success", true },
+        { "gold", user.gold },
+        { "gems", user.gems },
+        { "claimedMailIds", user.lobbyState.claimedMailIds }
     };
 }
 
@@ -1342,6 +1385,9 @@ json ServerService::HandleFriendInvite(const ParsedRequest& request, int& status
     if (!storage_.FindUserByUsername(friendName, target))
         return { { "success", false }, { "error", "Target user was not found." } };
 
+    if (FriendStatusFor(target.id) == "Offline")
+        return { { "success", false }, { "error", "User is offline and cannot accept invitations." } };
+
     RoomRecord room;
     bool roomFound = false;
     if (!roomId.empty())
@@ -1382,9 +1428,36 @@ json ServerService::HandleInvites(const ParsedRequest& request, int& statusCode)
     const std::int64_t now = ServerJson::CurrentTimeMs();
     for (std::size_t i = 0; i < invites.size(); ++i)
     {
-        if (now - invites[i].createdAt >= 5LL * 60LL * 1000LL)
+        // 过了10分钟邀请链接失效
+        if (now - invites[i].createdAt >= 10LL * 60LL * 1000LL)
             continue;
-        list.push_back(ServerJson::InviteToJson(invites[i]));
+
+        // 房主退出了，房间自动失效
+        if (!invites[i].roomId.empty())
+        {
+            RoomRecord room;
+            if (!storage_.FindRoomById(invites[i].roomId, room) || room.status != "waiting")
+                continue;
+            if (room.hostId != invites[i].fromId)
+                continue;
+            if (std::find(room.players.begin(), room.players.end(), invites[i].fromId) == room.players.end())
+                continue;
+        }
+
+        // 获取发送者等级与军衔
+        UserRecord sender;
+        int level = 1;
+        std::string rank = "Recruit";
+        if (storage_.FindUserById(invites[i].fromId, sender))
+        {
+            level = sender.level;
+            rank = ServerJson::RankTitleFrom(sender);
+        }
+
+        json inviteJson = ServerJson::InviteToJson(invites[i]);
+        inviteJson["level"] = level;
+        inviteJson["rank"] = rank;
+        list.push_back(inviteJson);
     }
 
     statusCode = 200;
@@ -1411,25 +1484,27 @@ json ServerService::HandleInviteRespond(const ParsedRequest& request, int& statu
 
     if (accept && !invite.roomId.empty())
     {
+        const std::int64_t now = ServerJson::CurrentTimeMs();
+        // 过了10分钟邀请链接失效
+        if (now - invite.createdAt > 10LL * 60LL * 1000LL)
+            return { { "success", false }, { "error", "Invite has expired." } };
+
         RoomRecord room;
-        if (storage_.FindRoomById(invite.roomId, room))
+        // 房主退出了，房间自动失效
+        if (!storage_.FindRoomById(invite.roomId, room) || room.status != "waiting" ||
+            room.hostId != invite.fromId ||
+            std::find(room.players.begin(), room.players.end(), invite.fromId) == room.players.end())
         {
-            return {
-                { "success", true },
-                { "roomId", invite.roomId },
-                { "mapName", room.mapName },
-                { "maxPlayers", room.maxPlayers },
-                { "playerCount", static_cast<int>(room.players.size()) },
-                { "players", room.players }
-            };
+            return { { "success", false }, { "error", "Room is invalid or host has left." } };
         }
 
         return {
             { "success", true },
             { "roomId", invite.roomId },
-            { "mapName", invite.mapName },
-            { "maxPlayers", invite.maxPlayers },
-            { "playerCount", invite.playerCount }
+            { "mapName", room.mapName },
+            { "maxPlayers", room.maxPlayers },
+            { "playerCount", static_cast<int>(room.players.size()) },
+            { "players", room.players }
         };
     }
 
@@ -1538,10 +1613,19 @@ json ServerService::HandleRoomLeave(const ParsedRequest& request, int& statusCod
     RoomRecord room;
     if (storage_.FindRoomById(roomId, room))
     {
-        room.players.erase(std::remove(room.players.begin(), room.players.end(), user.id), room.players.end());
-        if (room.players.empty())
-            room.status = "closed";
-        storage_.UpsertRoom(room);
+        if (room.hostId == user.id)
+        {
+            // 房主退出了，房间自动失效
+            storage_.RemoveRoom(roomId);
+        }
+        else
+        {
+            room.players.erase(std::remove(room.players.begin(), room.players.end(), user.id), room.players.end());
+            if (room.players.empty())
+                storage_.RemoveRoom(roomId);
+            else
+                storage_.UpsertRoom(room);
+        }
     }
 
     statusCode = 200;

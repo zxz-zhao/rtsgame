@@ -54,7 +54,18 @@ public partial class RtsUnit : CharacterBody3D
 
     [Export] public string UnitKey { get; set; } = "tank";
     [Export] public string DisplayName { get; set; } = "Unit";
-    [Export] public bool PlayerOwned { get; set; } = true;
+    bool playerOwned = true;
+    [Export]
+    public bool PlayerOwned
+    {
+        get => playerOwned;
+        set
+        {
+            playerOwned = value;
+            FogRevealed = value;
+            FogExplored = value;
+        }
+    }
     [Export] public float MaxHealth { get; set; } = 100f;
     [Export] public float MoveSpeed { get; set; } = 6f;
     [Export] public float TurnSpeed { get; set; } = 9f;
@@ -78,9 +89,9 @@ public partial class RtsUnit : CharacterBody3D
     public bool Patrolling { get; private set; }
     public bool Guarding { get; private set; }
     public bool CanAttackGroundPoint => !BattleUnitCatalog.IsAirUnit(UnitKey) && SplashRadius > 0.05f && AttackRange > 0.5f && AttackDamage > 0f;
-    public bool FogRevealed { get; private set; } = true;
+    public bool FogRevealed { get; private set; }
     /// <summary>曾经被玩家视野探索过（战争迷雾记忆）。</summary>
-    public bool FogExplored { get; private set; } = true;
+    public bool FogExplored { get; private set; }
     public float VisionBonus { get; private set; }
     public bool SupportsBombingRun => UnitKey == "bomber" && !IsDead;
     public bool SupportsAirfieldParking => BattleUnitCatalog.RequiresAirfieldSlot(UnitKey) && !IsDead;
@@ -170,6 +181,8 @@ public partial class RtsUnit : CharacterBody3D
 
     public override void _Ready()
     {
+        FogRevealed = PlayerOwned;
+        FogExplored = PlayerOwned;
         CaptureBaseStats();
         Health = MaxHealth;
         TargetPosition = GlobalPosition;
@@ -772,8 +785,8 @@ public partial class RtsUnit : CharacterBody3D
                 weaponPitchNode = root.FindChild("weapon", true, false) as Node3D
                     ?? root.FindChild("mount2", true, false) as Node3D
                     ?? root.FindChild("misc_b", true, false) as Node3D;
-                weaponYawLookOffset = new Vector3(0f, Mathf.Pi, 0f);
-                weaponPitchLookOffset = new Vector3(0f, Mathf.Pi, 0f);
+                weaponYawLookOffset = Vector3.Zero;
+                weaponPitchLookOffset = Vector3.Zero;
                 break;
             case "light_tank":
                 weaponYawNode = root.FindChild("base", true, false) as Node3D ?? root;
@@ -794,8 +807,8 @@ public partial class RtsUnit : CharacterBody3D
                 weaponPitchNode = root.FindChild("GunPivot", true, false) as Node3D ?? weaponPitchNode;
                 if (weaponPitchNode == root || weaponPitchNode == weaponYawNode)
                     weaponPitchNode = null;
-                weaponYawLookOffset = new Vector3(0f, Mathf.Pi, 0f);
-                weaponPitchLookOffset = new Vector3(0f, Mathf.Pi, 0f);
+                weaponYawLookOffset = Vector3.Zero;
+                weaponPitchLookOffset = Vector3.Zero;
                 break;
             case "artillery":
                 weaponYawNode = root;
@@ -811,8 +824,8 @@ public partial class RtsUnit : CharacterBody3D
                 weaponPitchNode = root.FindChild("barrel", true, false) as Node3D
                     ?? root.FindChild("gun", true, false) as Node3D
                     ?? weaponYawNode;
-                weaponYawLookOffset = new Vector3(0f, Mathf.Pi, 0f);
-                weaponPitchLookOffset = new Vector3(0f, Mathf.Pi, 0f);
+                weaponYawLookOffset = Vector3.Zero;
+                weaponPitchLookOffset = Vector3.Zero;
                 break;
         }
 
@@ -995,7 +1008,70 @@ public partial class RtsUnit : CharacterBody3D
         }
         else if (BattleUnitCatalog.IsNavalUnit(UnitKey))
         {
-            GlobalPosition = new Vector3(GlobalPosition.X, BattleUnitCatalog.SpawnHeight(UnitKey), GlobalPosition.Z);
+            UpdateNavalWaveBuoyancy();
+        }
+        else
+        {
+            GlobalPosition = new Vector3(GlobalPosition.X, 0f, GlobalPosition.Z);
+        }
+    }
+
+    void UpdateNavalWaveBuoyancy()
+    {
+        float t = (float)(Time.GetTicksMsec() / 1000.0);
+        float seed = (float)(GetInstanceId() % 1000) * 0.173f;
+        bool isSubmarine = UnitKey == "submarine";
+        bool isMoving = Velocity.LengthSquared() > 0.05f;
+        float speedMult = isMoving ? 1.45f : 1.0f;
+
+        // 1. 上下沉浮 (Heave)
+        float heaveFreq = isSubmarine ? 1.1f : 1.75f;
+        float heaveAmp = isSubmarine ? 0.14f : (UnitKey == "battleship" || UnitKey == "aircraft_carrier") ? 0.12f : 0.16f;
+        float heave = Mathf.Sin(t * heaveFreq * speedMult + seed) * heaveAmp +
+                      Mathf.Cos(t * heaveFreq * 1.8f * speedMult + seed * 1.3f) * (heaveAmp * 0.4f);
+
+        // 2. 前后迎浪起伏 (Pitch)
+        float pitchAmp = isSubmarine ? 0.025f : isMoving ? 0.065f : 0.045f;
+        float pitch = Mathf.Sin(t * 1.35f * speedMult + seed * 1.1f) * pitchAmp;
+        if (isMoving && !isSubmarine)
+            pitch -= 0.028f; // 航行时船头受水流冲击自然微微上仰
+
+        // 3. 左右破浪横摇侧倾 (Roll)
+        float rollAmp = isSubmarine ? 0.035f : isMoving ? 0.085f : 0.055f;
+        float roll = Mathf.Cos(t * 0.95f * speedMult + seed * 0.8f) * rollAmp;
+
+        // 设置潜艇水下深度或表面舰艇海平面基准
+        float baseY = isSubmarine ? -0.55f : BattleUnitCatalog.SpawnHeight(UnitKey);
+        GlobalPosition = new Vector3(GlobalPosition.X, baseY + heave, GlobalPosition.Z);
+
+        // 寻找舰艇视觉子节点并施加动态浮力倾斜角度
+        if (GetNodeOrNull("SubmarineVisual") is Node3D subVisual)
+        {
+            subVisual.Rotation = new Vector3(pitch, 0f, roll);
+        }
+        else if (GetNodeOrNull("BattleshipVisual") is Node3D bsVisual)
+        {
+            bsVisual.Rotation = new Vector3(pitch, 0f, roll);
+        }
+        else if (GetNodeOrNull("NimitzCarrier") is Node3D carrierVisual)
+        {
+            carrierVisual.Rotation = new Vector3(pitch, (PlayerOwned ? Mathf.Pi : 0f), roll);
+        }
+        else if (GetNodeOrNull("DestroyerVisual") is Node3D desVisual)
+        {
+            desVisual.Rotation = new Vector3(pitch, 0f, roll);
+        }
+        else if (GetNodeOrNull("PatrolBoatVisual") is Node3D pbVisual)
+        {
+            pbVisual.Rotation = new Vector3(pitch, 0f, roll);
+        }
+        else if (GetNodeOrNull("TransportVisual") is Node3D transVisual)
+        {
+            transVisual.Rotation = new Vector3(pitch, 0f, roll);
+        }
+        else if (GetNodeOrNull("ImportedShip") is Node3D importedVisual)
+        {
+            importedVisual.Rotation = new Vector3(pitch, (PlayerOwned ? Mathf.Pi : 0f), roll);
         }
     }
 
@@ -1121,6 +1197,8 @@ public partial class RtsUnit : CharacterBody3D
         {
             if (!GodotObject.IsInstanceValid(unit) || unit.IsDead)
                 continue;
+            if (!BattleUnitCatalog.CanAttackTargetType(UnitKey, unit.UnitKey))
+                continue;
             var distanceSquared = unit.GlobalPosition.DistanceSquaredTo(GlobalPosition);
             if (distanceSquared > maxDistanceSquared)
                 continue;
@@ -1204,6 +1282,14 @@ public partial class RtsUnit : CharacterBody3D
             return;
 
         Rotation = new Vector3(Rotation.X, ResolveFacingYaw(direction), Rotation.Z);
+    }
+
+    public void DebugForceRotateTurret(float degrees)
+    {
+        if (weaponYawNode is not null && GodotObject.IsInstanceValid(weaponYawNode))
+        {
+            weaponYawNode.Rotation = new Vector3(weaponYawNode.Rotation.X, Mathf.DegToRad(degrees), weaponYawNode.Rotation.Z);
+        }
     }
 
     float ResolveFacingYaw(Vector3 direction)
@@ -1339,6 +1425,10 @@ public partial class RtsUnit : CharacterBody3D
     void CaptureInfantryVisualParts(Node3D root)
     {
         if (!BattleUnitCatalog.IsInfantryLike(visualKey))
+            return;
+
+        // 如果模型拥有标准的骨骼动画播放器，就不应捕获骨骼进行手脚摆动的纯逻辑二次覆盖，避免冲突导致频繁抖动/闪烁
+        if (visualAnimationPlayers.Count > 0)
             return;
 
         var allNodes = root.FindChildren("*", "Node3D", true, false)
@@ -1602,13 +1692,23 @@ public partial class RtsUnit : CharacterBody3D
         var next = moving && !string.IsNullOrEmpty(walkAnimationName)
             ? walkAnimationName
             : idleAnimationName;
+
+        // Dynamically scale animation speed based on actual movement speed with smooth interpolation to prevent feet sliding or abrupt jumps
+        foreach (var player in visualAnimationPlayers)
+        {
+            float targetSpeed = moving && next == walkAnimationName
+                ? Mathf.Max(0.2f, MoveSpeed / 4.0f)
+                : 1.0f;
+            player.SpeedScale = Mathf.Lerp((float)player.SpeedScale, targetSpeed, (float)delta * 12.0f);
+        }
+
         if (string.IsNullOrEmpty(next) || next == currentVisualAnimationName)
             return;
 
         foreach (var player in visualAnimationPlayers)
         {
             if (player.HasAnimation(next))
-                player.Play(next);
+                player.Play(next, customBlend: 0.25f);
         }
         currentVisualAnimationName = next;
     }
@@ -1785,17 +1885,19 @@ public partial class RtsUnit : CharacterBody3D
         if (gunPivotAnchor is null || gunAnchor is null)
             return;
 
+        var turretAnchorPos = turretAnchor.Position;
+
         var turretPivot = new Node3D
         {
             Name = "TurretPivot",
-            Position = turretAnchor.Position
+            Position = turretAnchorPos
         };
         rigRoot.AddChild(turretPivot);
 
         var gunPivot = new Node3D
         {
             Name = "GunPivot",
-            Position = gunPivotAnchor.Position - turretAnchor.Position
+            Position = gunPivotAnchor.Position - turretAnchorPos
         };
         turretPivot.AddChild(gunPivot);
 
@@ -1812,12 +1914,12 @@ public partial class RtsUnit : CharacterBody3D
             if (BelongsToPanzerGun(child.Name))
             {
                 gunPivot.AddChild(child);
-                child.Position = originalPosition - turretAnchor.Position - gunPivot.Position;
+                child.Position = originalPosition - turretAnchorPos - gunPivot.Position;
             }
             else
             {
                 turretPivot.AddChild(child);
-                child.Position = originalPosition - turretAnchor.Position;
+                child.Position = originalPosition - turretAnchorPos;
             }
         }
     }
@@ -1834,6 +1936,13 @@ public partial class RtsUnit : CharacterBody3D
     static bool IsPanzerExteriorTurretDetail(string lower)
     {
         return lower is "turret_exterior"
+            || lower.Contains("turret_door")
+            || lower.Contains("turret_sideslit")
+            || (lower.Contains("hatch") && !lower.Contains("driver") && !lower.Contains("radioman"))
+            || lower.Contains("cmdr_hatch")
+            || lower.Contains("cupola")
+            || lower.Contains("lever_gunner_door")
+            || lower.Contains("lever_loader_door")
             || lower.StartsWith("mantlet")
             || lower.StartsWith("barrel");
     }
@@ -1985,10 +2094,10 @@ public partial class RtsUnit : CharacterBody3D
         if (BattleUnitCatalog.IsAirUnit(UnitKey))
             return 2.95f;
         if (UnitKey.StartsWith("infantry"))
-            return 1.15f; // 步兵血条降低至1.15m高度，紧贴头顶
+            return 2.05f; // 步兵血条位于 2.05m 高度，精准悬浮于步兵头顶上方
         if (UnitKey.Contains("light_tank"))
             return 1.65f;
-        return 2.05f; // 战车血条降为2.05m高度
+        return 2.05f; // 战车血条 2.05m 高度
     }
 
     float GetUnitHealthBarWidth()

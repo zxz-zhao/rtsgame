@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Collections.Generic;
 
 public partial class PreviewCapture : Node
@@ -44,6 +44,7 @@ public partial class PreviewCapture : Node
     bool dumpPanzerNodes;
     string previewBuildKey = "";
     Vector3? previewBuildPosition;
+    bool demoTurretRotations;
 
     public override void _Ready()
     {
@@ -119,6 +120,8 @@ public partial class PreviewCapture : Node
                 focusSpawnedUnits = true;
             else if (args[i] == "--disable-ai")
                 disableAi = true;
+            else if (args[i] == "--disable-fog")
+                BattleGameManager.DisableFogOfWar = true;
             else if (args[i] == "--focus-unit" && i + 1 < args.Length)
                 focusUnitKey = args[i + 1];
             else if (args[i] == "--hide-hud")
@@ -193,6 +196,8 @@ public partial class PreviewCapture : Node
                 float.TryParse(args[i + 2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var z);
                 previewBuildPosition = new Vector3(x, 0f, z);
             }
+            else if (args[i] == "--demo-turret-rotations")
+                demoTurretRotations = true;
         }
 
         if (!string.IsNullOrWhiteSpace(selectedMap))
@@ -201,7 +206,7 @@ public partial class PreviewCapture : Node
         if (disableAi)
             CallDeferred(MethodName.DisableAiDeferred);
 
-        if (showGameOver || selectPlayerBase || selectEnemyBase || !string.IsNullOrWhiteSpace(queueUnit) || !string.IsNullOrWhiteSpace(damageTarget) || buildOrders.Count > 0 || spawnOrders.Count > 0 || researchOrders.Count > 0 || techOrders.Count > 0 || repairSelectedUnit || upgradeSelectedBuilding || damageSpawnedPlayer > 0f || openBuildMenu || parkSpawned || dumpPanzerNodes || !string.IsNullOrWhiteSpace(previewBuildKey))
+        if (showGameOver || selectPlayerBase || selectEnemyBase || !string.IsNullOrWhiteSpace(queueUnit) || !string.IsNullOrWhiteSpace(damageTarget) || buildOrders.Count > 0 || spawnOrders.Count > 0 || researchOrders.Count > 0 || techOrders.Count > 0 || repairSelectedUnit || upgradeSelectedBuilding || damageSpawnedPlayer > 0f || openBuildMenu || parkSpawned || dumpPanzerNodes || !string.IsNullOrWhiteSpace(previewBuildKey) || demoTurretRotations)
             _ = ApplyDebugActions();
         if (hideHud)
             CallDeferred(MethodName.HideHudDeferred);
@@ -235,6 +240,10 @@ public partial class PreviewCapture : Node
         if (manager is null)
             return;
 
+
+
+
+
         if (openBuildMenu)
         {
             var hud = GetTree().CurrentScene?.GetNodeOrNull<BattleHud>("HUD");
@@ -260,11 +269,15 @@ public partial class PreviewCapture : Node
         RtsBuilding? lastBuilt = null;
         foreach (var (key, position) in buildOrders)
         {
-            if (manager.TryConstructBuilding(key, position, true, out _, out var constructed))
+            if (manager.TryConstructBuilding(key, position, true, out var msg, out var constructed))
             {
                 lastBuilt = constructed;
                 if (finishBuilt && lastBuilt is not null)
                     lastBuilt.CompleteConstruction();
+            }
+            else
+            {
+                GD.PrintErr($"[PreviewCapture] Failed to construct building {key} at {position}: {msg}");
             }
         }
 
@@ -296,7 +309,11 @@ public partial class PreviewCapture : Node
         {
             var unit = manager.SpawnUnit(key, position, playerOwned);
             if (unit is not null)
+            {
                 spawned.Add(unit);
+                GD.Print($"[DEBUG_DUMP] === DUMP UNIT {unit.Name} ===");
+                DumpNodeTree(unit);
+            }
         }
 
         foreach (var (key, position) in techOrders)
@@ -315,11 +332,12 @@ public partial class PreviewCapture : Node
         {
             var target = spawned.Find(u => u.Name.ToString().Contains(focusUnitKey, System.StringComparison.OrdinalIgnoreCase));
             if (target is not null)
-                FocusCamera(new[] { target }, 1.0f);
+                FocusCamera(new[] { target }, focusZoom);
         }
         else if (focusSpawnedUnits && spawned.Count > 0)
         {
-            FocusCamera(spawned, 1.0f);
+            FocusCamera(spawned, focusZoom);
+            GameState.Instance?.SetSelection(spawned.ToArray());
         }
         else if (focusPoint is { } point)
         {
@@ -358,6 +376,25 @@ public partial class PreviewCapture : Node
                 unit.AttackGround(groundTarget);
             if (attackGroundUnits.Count > 0)
                 GameState.Instance?.SetSelection(attackGroundUnits);
+        }
+
+        if (demoTurretRotations && spawned.Count > 0)
+        {
+            var angles = new[] { 0f, 90f, 180f, 270f };
+            var targets = new[]
+            {
+                new Vector3(0f, 0f, -30f), // 0 deg North
+                new Vector3(30f, 0f, 0f),  // 90 deg East
+                new Vector3(0f, 0f, 30f),  // 180 deg South
+                new Vector3(-30f, 0f, 0f)  // 270 deg West
+            };
+            for (var idx = 0; idx < spawned.Count; idx++)
+            {
+                var targetOffset = targets[idx % targets.Length];
+                spawned[idx].AttackGround(spawned[idx].GlobalPosition + targetOffset);
+                spawned[idx].DebugForceRotateTurret(angles[idx % angles.Length]);
+            }
+            GameState.Instance?.SetSelection(spawned);
         }
 
         if (moveTarget is { } destination && spawned.Count > 0)
@@ -448,11 +485,14 @@ public partial class PreviewCapture : Node
             foreach (var unit in GetTree().GetNodesInGroup("rts_units").OfType<RtsUnit>())
                 unit.DebugDumpPanzerVisibleNodes();
         }
+
+
     }
 
     void FocusCamera(System.Collections.Generic.IReadOnlyList<RtsUnit> units, float zoom)
     {
-        var camera = GetTree().CurrentScene?.GetNodeOrNull<Camera3D>("CameraRig/Camera3D");
+        var cameraRig = GetTree().CurrentScene?.GetNodeOrNull<Node3D>("CameraRig");
+        var camera = cameraRig?.GetNodeOrNull<Camera3D>("Camera3D") ?? GetTree().CurrentScene?.GetNodeOrNull<Camera3D>("CameraRig/Camera3D");
         if (camera is null)
             return;
 
@@ -460,22 +500,27 @@ public partial class PreviewCapture : Node
         foreach (var unit in units)
             center += unit.GlobalPosition;
         center /= units.Count;
-        center.Y = Mathf.Max(1f, center.Y);
-        camera.GlobalPosition = center + new Vector3(0f, 14f, -19f) * zoom;
+        if (cameraRig is not null)
+            cameraRig.GlobalPosition = center;
+
+        camera.GlobalPosition = center + new Vector3(0f, 16f * zoom, 20f * zoom);
         camera.LookAt(center, Vector3.Up);
-        camera.Fov = 30f;
+        camera.Fov = 38f;
     }
 
     void FocusCamera(Vector3 center, float zoom)
     {
-        var camera = GetTree().CurrentScene?.GetNodeOrNull<Camera3D>("CameraRig/Camera3D");
+        var cameraRig = GetTree().CurrentScene?.GetNodeOrNull<Node3D>("CameraRig");
+        var camera = cameraRig?.GetNodeOrNull<Camera3D>("Camera3D") ?? GetTree().CurrentScene?.GetNodeOrNull<Camera3D>("CameraRig/Camera3D");
         if (camera is null)
             return;
 
-        center.Y = Mathf.Max(1f, center.Y);
-        camera.GlobalPosition = center + new Vector3(0f, 14f, -19f) * Mathf.Max(0.25f, zoom);
+        if (cameraRig is not null)
+            cameraRig.GlobalPosition = center;
+
+        camera.GlobalPosition = center + new Vector3(0f, 16f * Mathf.Max(0.01f, zoom), 20f * Mathf.Max(0.01f, zoom));
         camera.LookAt(center, Vector3.Up);
-        camera.Fov = 30f;
+        camera.Fov = 38f;
     }
 
     void ShowBuildPlacementPreview(BattleGameManager manager, string buildKey, Vector3 position)
@@ -501,8 +546,35 @@ public partial class PreviewCapture : Node
             return;
 
         framesLeft--;
+        if (framesLeft == 1)
+        {
+            if (demoTurretRotations)
+            {
+                var spawned = new List<RtsUnit>(GetTree().GetNodesInGroup("rts_units").OfType<RtsUnit>());
+                var angles = new[] { 0f, 90f, 180f, 270f };
+                for (var idx = 0; idx < spawned.Count; idx++)
+                {
+                    spawned[idx].DebugForceRotateTurret(angles[idx % angles.Length]);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(focusUnitKey))
+            {
+                var spawned = new List<RtsUnit>(GetTree().GetNodesInGroup("rts_units").OfType<RtsUnit>());
+                var target = spawned.Find(u => u.Name.ToString().Contains(focusUnitKey, System.StringComparison.OrdinalIgnoreCase));
+                if (target is not null)
+                    FocusCamera(new[] { target }, focusZoom);
+            }
+            else if (focusPoint is { } point)
+            {
+                FocusCamera(point, focusZoom);
+            }
+            return;
+        }
         if (framesLeft > 0)
             return;
+
+        var activeCam = GetViewport()?.GetCamera3D();
+        GD.Print($"[ACTIVE_CAMERA] Path: {activeCam?.GetPath()}, GlobalPos: {activeCam?.GlobalPosition}, Rot: {activeCam?.GlobalRotation}, CullMask: {activeCam?.CullMask}");
 
         var texture = GetViewport().GetTexture();
         var image = texture?.GetImage();
@@ -516,6 +588,19 @@ public partial class PreviewCapture : Node
         var err = image.SavePng(outputPath);
         if (err != Error.Ok)
             GD.PushError($"Failed to save preview screenshot: {outputPath} ({err})");
+        
         GetTree().Quit();
+    }
+
+    static void DumpNodeTree(Node node, int indent = 0)
+    {
+        var indentStr = new string(' ', indent * 2);
+        var vis = node is CanvasItem ci ? ci.Visible.ToString() : node is Node3D n3d ? n3d.Visible.ToString() : "N/A";
+        var globalPos = node is Node3D n3d2 ? n3d2.GlobalPosition.ToString() : "N/A";
+        var localPos = node is Node3D n3d3 ? n3d3.Position.ToString() : "N/A";
+        var scale = node is Node3D n3d4 ? n3d4.Scale.ToString() : "N/A";
+        GD.Print($"{indentStr}- {node.Name} ({node.GetType().Name}) Vis: {vis} Pos: {localPos} GlobalPos: {globalPos} Scale: {scale}");
+        foreach (var child in node.GetChildren())
+            DumpNodeTree(child, indent + 1);
     }
 }

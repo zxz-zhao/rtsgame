@@ -1,7 +1,44 @@
-﻿using Godot;
+using Godot;
 
 public partial class CombatProjectile : Node3D
 {
+    static Texture2D? radialGradientTex;
+    static readonly QuadMesh particleQuad = new QuadMesh { Size = Vector2.One };
+
+    static Texture2D GetRadialGradientTexture()
+    {
+        if (radialGradientTex is not null)
+            return radialGradientTex;
+        var grad = new Gradient();
+        grad.SetColor(0, Colors.White);
+        grad.SetColor(1, new Color(1f, 1f, 1f, 0f));
+        radialGradientTex = new GradientTexture2D
+        {
+            Gradient = grad,
+            Fill = GradientTexture2D.FillEnum.Radial,
+            FillFrom = new Vector2(0.5f, 0.5f),
+            FillTo = new Vector2(0.5f, 1.0f),
+            Width = 64,
+            Height = 64
+        };
+        return radialGradientTex;
+    }
+
+    static StandardMaterial3D CreateParticleMaterial(Color baseColor, bool unshaded)
+    {
+        return new StandardMaterial3D
+        {
+            ShadingMode = unshaded ? BaseMaterial3D.ShadingModeEnum.Unshaded : BaseMaterial3D.ShadingModeEnum.PerPixel,
+            AlbedoColor = baseColor,
+            AlbedoTexture = GetRadialGradientTexture(),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled,
+            VertexColorUseAsAlbedo = true,
+            Roughness = 0.9f
+        };
+    }
+
+
     Node3D? target;
     Node3D? attacker;
     Vector3 start;
@@ -30,13 +67,39 @@ public partial class CombatProjectile : Node3D
         var color = playerOwned
             ? new Color(1f, 0.82f, 0.26f, 1f)
             : new Color(1f, 0.32f, 0.18f, 1f);
-        if (attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower"))
+        bool isFlame = attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower");
+        if (isFlame)
         {
-            color = new Color(1f, 0.45f, 0.05f, 1f);
+            color = new Color(1.2f, 0.32f, 0.05f, 1f); // 强烈的发光暖红色温
+            
+            // 发射 3 股扇形散射的火焰流（中间、偏左 12 度、偏右 12 度）
+            // 左右两侧辅助火流造成 0 伤害，避免产生伤害重叠 Bug
+            projectile.Configure(source, attacker, targetNode, destination, damageAmount, color, range, areaRadius, falloff, false, playerOwned);
+            root.AddChild(projectile);
+            projectile.GlobalPosition = source;
+
+            var dir = (destination - source).Normalized();
+            
+            var leftDir = dir.Rotated(Vector3.Up, Mathf.DegToRad(-12f));
+            var leftDest = source + leftDir * source.DistanceTo(destination);
+            var leftProj = new CombatProjectile();
+            leftProj.Configure(source, attacker, null, leftDest, 0f, color, range, 0f, 0f, true, playerOwned);
+            root.AddChild(leftProj);
+            leftProj.GlobalPosition = source;
+
+            var rightDir = dir.Rotated(Vector3.Up, Mathf.DegToRad(12f));
+            var rightDest = source + rightDir * source.DistanceTo(destination);
+            var rightProj = new CombatProjectile();
+            rightProj.Configure(source, attacker, null, rightDest, 0f, color, range, 0f, 0f, true, playerOwned);
+            root.AddChild(rightProj);
+            rightProj.GlobalPosition = source;
         }
-        projectile.Configure(source, attacker, targetNode, destination, damageAmount, color, range, areaRadius, falloff, false, playerOwned);
-        root.AddChild(projectile);
-        projectile.GlobalPosition = source;
+        else
+        {
+            projectile.Configure(source, attacker, targetNode, destination, damageAmount, color, range, areaRadius, falloff, false, playerOwned);
+            root.AddChild(projectile);
+            projectile.GlobalPosition = source;
+        }
     }
 
     public static void SpawnGround(Node owner, Node3D attacker, Vector3 groundPoint, float damageAmount, bool playerOwned, float range, float areaRadius, float falloff)
@@ -48,13 +111,39 @@ public partial class CombatProjectile : Node3D
         var color = playerOwned
             ? new Color(1f, 0.68f, 0.22f, 1f)
             : new Color(1f, 0.26f, 0.16f, 1f);
-        if (attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower"))
+        bool isFlame = attacker is RtsUnit unit && (unit.UnitKey is "infantry_flamethrower" or "flamethrower");
+        if (isFlame)
         {
-            color = new Color(1f, 0.45f, 0.05f, 1f);
+            color = new Color(1.2f, 0.32f, 0.05f, 1f); // 强烈的发光暖红色温
+            
+            // 发射 3 股扇形散射的火焰流（中间、偏左 12 度、偏右 12 度）
+            // 左右两侧辅助火流造成 0 伤害，避免产生伤害重叠 Bug
+            projectile.Configure(source, attacker, null, destination, damageAmount, color, range, areaRadius, falloff, true, playerOwned);
+            root.AddChild(projectile);
+            projectile.GlobalPosition = source;
+
+            var dir = (destination - source).Normalized();
+            
+            var leftDir = dir.Rotated(Vector3.Up, Mathf.DegToRad(-12f));
+            var leftDest = source + leftDir * source.DistanceTo(destination);
+            var leftProj = new CombatProjectile();
+            leftProj.Configure(source, attacker, null, leftDest, 0f, color, range, 0f, 0f, true, playerOwned);
+            root.AddChild(leftProj);
+            leftProj.GlobalPosition = source;
+
+            var rightDir = dir.Rotated(Vector3.Up, Mathf.DegToRad(12f));
+            var rightDest = source + rightDir * source.DistanceTo(destination);
+            var rightProj = new CombatProjectile();
+            rightProj.Configure(source, attacker, null, rightDest, 0f, color, range, 0f, 0f, true, playerOwned);
+            root.AddChild(rightProj);
+            rightProj.GlobalPosition = source;
         }
-        projectile.Configure(source, attacker, null, destination, damageAmount, color, range, areaRadius, falloff, true, playerOwned);
-        root.AddChild(projectile);
-        projectile.GlobalPosition = source;
+        else
+        {
+            projectile.Configure(source, attacker, null, destination, damageAmount, color, range, areaRadius, falloff, true, playerOwned);
+            root.AddChild(projectile);
+            projectile.GlobalPosition = source;
+        }
     }
 
     public static void SpawnImpactEffect(Node owner, Vector3 position, Color color, float radius = 0.8f)
@@ -153,49 +242,35 @@ public partial class CombatProjectile : Node3D
             var trail = new CpuParticles3D
             {
                 Name = "FlameTrail",
-                Amount = 45, // 提高密度，使火柱更连贯
-                Lifetime = 0.38f, // 稍微延长生命期，形成完整的火焰喷射轨迹
-                Spread = 12f, // 较窄的散布，形成凝聚的火流
-                Gravity = new Vector3(0f, 1.4f, 0f), // 真实热空气上升效果
-                InitialVelocityMin = 0.5f,
-                InitialVelocityMax = 1.8f,
-                ScaleAmountMin = 0.15f,
-                ScaleAmountMax = 0.55f,
-                LocalCoords = false // 关键：使用世界坐标，使喷射出的火焰留在原地并逐渐消散
+                Amount = 80, // 增加粒子数量以形成连续的喷火柱
+                Lifetime = 0.45f, // 延长生存时间使火舌延伸更长
+                Spread = 12f, // 适当散布，使火焰形状自然
+                Direction = new Vector3(0f, 0f, -1f), // 沿枪口朝向正前方喷射
+                Gravity = new Vector3(0f, 0.4f, 0f), // 略微的热空气上升
+                InitialVelocityMin = 5.0f, // 提高初始射速以体现强烈的喷射动力
+                InitialVelocityMax = 10.0f,
+                ScaleAmountMin = 0.25f,
+                ScaleAmountMax = 0.75f,
+                LocalCoords = false // 使用世界坐标，使喷射出的火焰在行进轨迹上自然散布
             };
             
-            var flameSphere = new SphereMesh
-            {
-                Radius = 0.22f,
-                Height = 0.44f,
-                RadialSegments = 6,
-                Rings = 4
-            };
-            trail.Mesh = flameSphere;
+            trail.Mesh = particleQuad;
+            trail.MaterialOverride = CreateParticleMaterial(new Color(1.0f, 1.0f, 1.0f, 1.0f), true);
 
-            var trailMat = new StandardMaterial3D
-            {
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                VertexColorUseAsAlbedo = true, // 启用顶点色以应用渐变色
-                AlbedoColor = new Color(1.0f, 1.0f, 1.0f, 1.0f),
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            };
-            trail.MaterialOverride = trailMat;
-
-            // 火焰膨胀消散曲线：从喷嘴出来较小，在空中迅速膨胀为火球，最后冷却消散
+            // 火焰膨胀消散曲线：喷射出时较窄，在空中迅速受热膨胀，随后快速燃尽消散
             var scaleCurve = new Curve();
-            scaleCurve.AddPoint(new Vector2(0f, 0.4f));
-            scaleCurve.AddPoint(new Vector2(0.3f, 1.6f));
-            scaleCurve.AddPoint(new Vector2(1f, 0.1f));
+            scaleCurve.AddPoint(new Vector2(0f, 0.3f));
+            scaleCurve.AddPoint(new Vector2(0.4f, 1.8f));
+            scaleCurve.AddPoint(new Vector2(1f, 0.2f));
             trail.ScaleAmountCurve = scaleCurve;
 
-            // 真实的火焰色温变化：中心黄白热核 -> 橘黄 -> 深红 -> 冷却为灰黑烟雾
+            // 强烈的高温喷火色温渐变：明亮金黄-橙 -> 炽热红 -> 迅速燃尽微弱红灰烟雾
             var colorRamp = new Gradient();
-            colorRamp.AddPoint(0f, new Color(1.5f, 1.5f, 0.8f, 1f)); // HDR 强度提供发光感
-            colorRamp.AddPoint(0.2f, new Color(1.0f, 0.55f, 0.05f, 0.95f));
-            colorRamp.AddPoint(0.55f, new Color(0.85f, 0.12f, 0.02f, 0.7f));
-            colorRamp.AddPoint(0.85f, new Color(0.18f, 0.18f, 0.18f, 0.35f)); // 灰黑色烟雾
-            colorRamp.AddPoint(1.0f, new Color(0.1f, 0.1f, 0.1f, 0f));
+            colorRamp.AddPoint(0f, new Color(1.8f, 0.6f, 0.1f, 1f)); // 炽热亮黄/橙 (发光)
+            colorRamp.AddPoint(0.2f, new Color(1.5f, 0.32f, 0.05f, 0.95f)); // 橙红火光
+            colorRamp.AddPoint(0.5f, new Color(1.1f, 0.15f, 0.02f, 0.8f)); // 深红燃烧
+            colorRamp.AddPoint(0.8f, new Color(0.6f, 0.05f, 0.01f, 0.4f)); // 逐渐熄灭的暗红
+            colorRamp.AddPoint(1.0f, new Color(0.1f, 0.1f, 0.1f, 0f)); // 燃尽淡化
             trail.ColorRamp = colorRamp;
 
             AddChild(trail);
@@ -207,32 +282,19 @@ public partial class CombatProjectile : Node3D
             var trail = new CpuParticles3D
             {
                 Name = "SmokeTrail",
-                Amount = 20,
-                Lifetime = 0.35f,
-                Spread = 10f,
-                Gravity = new Vector3(0f, 0.15f, 0f),
+                Amount = 60,
+                Lifetime = 0.45f,
+                Spread = 15f,
+                Gravity = new Vector3(0f, 0.2f, 0f),
                 InitialVelocityMin = 0.1f,
-                InitialVelocityMax = 0.5f,
-                ScaleAmountMin = 0.08f,
-                ScaleAmountMax = 0.32f
+                InitialVelocityMax = 0.6f,
+                ScaleAmountMin = 0.1f,
+                ScaleAmountMax = 0.45f,
+                LocalCoords = false
             };
 
-            var smokeSphere = new SphereMesh
-            {
-                Radius = 0.25f,
-                Height = 0.5f,
-                RadialSegments = 6,
-                Rings = 4
-            };
-            trail.Mesh = smokeSphere;
-
-            var trailMat = new StandardMaterial3D
-            {
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                AlbedoColor = new Color(0.85f, 0.85f, 0.85f, 0.45f),
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            };
-            trail.MaterialOverride = trailMat;
+            trail.Mesh = particleQuad;
+            trail.MaterialOverride = CreateParticleMaterial(new Color(0.85f, 0.85f, 0.85f, 0.55f), false);
 
             var scaleCurve = new Curve();
             scaleCurve.AddPoint(new Vector2(0f, 0.4f));
@@ -273,6 +335,18 @@ public partial class CombatProjectile : Node3D
     void Impact()
     {
         applied = true;
+
+        // 解除火焰拖尾粒子节点的父子绑定，以防随着子弹销毁 (QueueFree) 导致空中的粒子瞬间凭空消失
+        if (GetNodeOrNull<CpuParticles3D>("FlameTrail") is { } trail)
+        {
+            RemoveChild(trail);
+            GetTree().CurrentScene.AddChild(trail);
+            trail.Emitting = false;
+            var t = trail.CreateTween();
+            t.TweenInterval(trail.Lifetime);
+            t.TweenCallback(Callable.From(trail.QueueFree));
+        }
+
         Node3D? directTarget = null;
         var damageAmount = Mathf.RoundToInt(damage);
         if (!groundAttack && GodotObject.IsInstanceValid(target) && target!.HasMethod("ApplyDamage"))
@@ -280,8 +354,13 @@ public partial class CombatProjectile : Node3D
             if (target is RtsUnit targetUnit)
             {
                 var wasDeadBefore = targetUnit.IsDead || targetUnit.Health <= 0f;
+                string attackerKey = attacker is RtsUnit attUnit ? attUnit.UnitKey : "";
+                float multiplier = string.IsNullOrEmpty(attackerKey) ? 1.0f : BattleUnitCatalog.GetDamageMultiplier(attackerKey, targetUnit.UnitKey);
+                float finalDamage = damage * multiplier;
+                damageAmount = Mathf.RoundToInt(finalDamage);
+
                 BattleGameManager.Instance?.RecordDamage(projectilePlayerOwned, targetUnit.PlayerOwned, damageAmount);
-                targetUnit.ApplyDamage(damage);
+                targetUnit.ApplyDamage(finalDamage);
                 var isDeadNow = targetUnit.IsDead || targetUnit.Health <= 0f;
                 if (!wasDeadBefore && isDeadNow)
                 {
@@ -291,14 +370,45 @@ public partial class CombatProjectile : Node3D
             else
             {
                 if (target is RtsBuilding targetBuilding)
+                {
+                    string attackerKey = attacker is RtsUnit attUnit ? attUnit.UnitKey : "";
+                    float multiplier = string.IsNullOrEmpty(attackerKey) ? 1.0f : BattleUnitCatalog.GetDamageMultiplierToBuilding(attackerKey);
+                    float finalDamage = damage * multiplier;
+                    damageAmount = Mathf.RoundToInt(finalDamage);
+
                     BattleGameManager.Instance?.RecordDamage(projectilePlayerOwned, targetBuilding.PlayerOwned, damageAmount);
-                target.Call("ApplyDamage", damage);
+                    target.Call("ApplyDamage", finalDamage);
+                }
+                else
+                {
+                    target.Call("ApplyDamage", damage);
+                }
             }
             directTarget = target;
         }
 
         if (splashRadius > 0.05f)
             ApplyAreaDamage(lastTarget, directTarget);
+
+        bool isNuke = false;
+        if (GodotObject.IsInstanceValid(attacker))
+        {
+            if (attacker is RtsUnit attUnit)
+            {
+                isNuke = attUnit.UnitKey == "nuke" || attUnit.UnitKey == "nuclear_missile";
+            }
+            else if (attacker is RtsBuilding attBuilding)
+            {
+                isNuke = attBuilding.BuildKey == "nuke_silo" || attBuilding.BuildKey == "nuclear_silo" || attBuilding.BuildKey == "nuke" || attBuilding.BuildKey == "nuclear_silo_building";
+            }
+        }
+
+        if (isNuke)
+        {
+            float shakePower = Mathf.Clamp(splashRadius * 0.18f, 0.22f, 0.95f);
+            float shakeDuration = Mathf.Clamp(splashRadius * 0.12f, 0.25f, 0.65f);
+            BattleGameManager.Instance?.TriggerCameraShake(shakePower, shakeDuration);
+        }
 
         SpawnExplosion(this, lastTarget, tint, splashRadius > 0.05f || arcHeight > 2.5f);
         SpawnImpactEffect(this, lastTarget, tint, impactRadius);
@@ -323,6 +433,10 @@ public partial class CombatProjectile : Node3D
                 continue;
 
             var dealt = DamageAtDistance(distance);
+            string attackerKey = attacker is RtsUnit attUnit ? attUnit.UnitKey : "";
+            float multiplier = string.IsNullOrEmpty(attackerKey) ? 1.0f : BattleUnitCatalog.GetDamageMultiplier(attackerKey, unit.UnitKey);
+            dealt *= multiplier;
+
             var wasDeadBefore = unit.IsDead || unit.Health <= 0f;
             BattleGameManager.Instance?.RecordDamage(projectilePlayerOwned, unit.PlayerOwned, Mathf.RoundToInt(dealt));
             unit.ApplyDamage(dealt);
@@ -343,6 +457,10 @@ public partial class CombatProjectile : Node3D
                 continue;
 
             var dealt = DamageAtDistance(distance);
+            string attackerKey = attacker is RtsUnit attUnit ? attUnit.UnitKey : "";
+            float multiplier = string.IsNullOrEmpty(attackerKey) ? 1.0f : BattleUnitCatalog.GetDamageMultiplierToBuilding(attackerKey);
+            dealt *= multiplier;
+
             BattleGameManager.Instance?.RecordDamage(projectilePlayerOwned, building.PlayerOwned, Mathf.RoundToInt(dealt));
             building.ApplyDamage(dealt);
         }
@@ -446,20 +564,18 @@ public partial class CombatProjectile : Node3D
     static void SpawnMuzzleFlash(Node owner, Vector3 position, Vector3 direction, Color color, bool isFlame)
     {
         var root = owner.GetTree().CurrentScene ?? owner;
-        
         var container = new Node3D { Name = "MuzzleFlashEffect" };
         root.AddChild(container);
         container.GlobalPosition = position;
-
         var normalizedDir = direction.Normalized();
+        var particleQuad = new QuadMesh { Size = Vector2.One };
 
         if (isFlame)
         {
-            // 喷火兵开火：只产生喷射火焰粒子，无枪口灰色烟雾
             var fireParticles = new CpuParticles3D
             {
                 Name = "MuzzleFire",
-                Amount = 15,
+                Amount = 25,
                 Lifetime = 0.25f,
                 OneShot = true,
                 Explosiveness = 0.88f,
@@ -469,26 +585,11 @@ public partial class CombatProjectile : Node3D
                 InitialVelocityMin = 3.5f,
                 InitialVelocityMax = 5.5f,
                 ScaleAmountMin = 0.18f,
-                ScaleAmountMax = 0.52f
+                ScaleAmountMax = 0.6f
             };
 
-            var sphere = new SphereMesh
-            {
-                Radius = 0.2f,
-                Height = 0.4f,
-                RadialSegments = 6,
-                Rings = 4
-            };
-            fireParticles.Mesh = sphere;
-
-            var fireMat = new StandardMaterial3D
-            {
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                VertexColorUseAsAlbedo = true,
-                AlbedoColor = new Color(1f, 1f, 1f, 1f),
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            };
-            fireParticles.MaterialOverride = fireMat;
+            fireParticles.Mesh = particleQuad;
+            fireParticles.MaterialOverride = CreateParticleMaterial(Colors.White, true);
 
             var scaleCurve = new Curve();
             scaleCurve.AddPoint(new Vector2(0f, 0.5f));
@@ -497,9 +598,9 @@ public partial class CombatProjectile : Node3D
             fireParticles.ScaleAmountCurve = scaleCurve;
 
             var fireRamp = new Gradient();
-            fireRamp.AddPoint(0f, new Color(1.0f, 0.88f, 0.35f, 1f));
-            fireRamp.AddPoint(0.5f, new Color(0.98f, 0.42f, 0.05f, 0.8f));
-            fireRamp.AddPoint(1.0f, new Color(0.85f, 0.08f, 0.02f, 0f));
+            fireRamp.AddPoint(0f, new Color(1.2f, 0.35f, 0.05f, 1f)); // Muzzle flash matches warm red-orange
+            fireRamp.AddPoint(0.5f, new Color(0.98f, 0.18f, 0.02f, 0.8f));
+            fireRamp.AddPoint(1.0f, new Color(0.75f, 0.05f, 0.01f, 0f));
             fireParticles.ColorRamp = fireRamp;
 
             container.AddChild(fireParticles);
@@ -510,7 +611,7 @@ public partial class CombatProjectile : Node3D
             var fireParticles = new CpuParticles3D
             {
                 Name = "MuzzleFire",
-                Amount = 10,
+                Amount = 15,
                 Lifetime = 0.16f,
                 OneShot = true,
                 Explosiveness = 0.95f,
@@ -520,25 +621,11 @@ public partial class CombatProjectile : Node3D
                 InitialVelocityMin = 4f,
                 InitialVelocityMax = 7f,
                 ScaleAmountMin = 0.15f,
-                ScaleAmountMax = 0.4f
+                ScaleAmountMax = 0.45f
             };
 
-            var sphere = new SphereMesh
-            {
-                Radius = 0.2f,
-                Height = 0.4f,
-                RadialSegments = 6,
-                Rings = 4
-            };
-            fireParticles.Mesh = sphere;
-
-            var fireMat = new StandardMaterial3D
-            {
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                AlbedoColor = color,
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            };
-            fireParticles.MaterialOverride = fireMat;
+            fireParticles.Mesh = particleQuad;
+            fireParticles.MaterialOverride = CreateParticleMaterial(Colors.White, true);
 
             var scaleCurve = new Curve();
             scaleCurve.AddPoint(new Vector2(0f, 1f));
@@ -556,7 +643,7 @@ public partial class CombatProjectile : Node3D
             var smokeParticles = new CpuParticles3D
             {
                 Name = "MuzzleSmoke",
-                Amount = 16,
+                Amount = 25,
                 Lifetime = 0.95f,
                 OneShot = true,
                 Explosiveness = 0.92f,
@@ -566,17 +653,10 @@ public partial class CombatProjectile : Node3D
                 InitialVelocityMin = 1.5f,
                 InitialVelocityMax = 3.5f,
                 ScaleAmountMin = 0.38f,
-                ScaleAmountMax = 1.35f
+                ScaleAmountMax = 1.5f
             };
-            smokeParticles.Mesh = sphere;
-
-            var smokeMat = new StandardMaterial3D
-            {
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                AlbedoColor = new Color(0.85f, 0.85f, 0.85f, 0.68f),
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            };
-            smokeParticles.MaterialOverride = smokeMat;
+            smokeParticles.Mesh = particleQuad;
+            smokeParticles.MaterialOverride = CreateParticleMaterial(new Color(0.85f, 0.85f, 0.85f, 0.68f), false);
 
             var smokeScaleCurve = new Curve();
             smokeScaleCurve.AddPoint(new Vector2(0f, 0.5f));
@@ -597,7 +677,6 @@ public partial class CombatProjectile : Node3D
         timer.TweenInterval(1.2);
         timer.TweenCallback(Callable.From(container.QueueFree));
     }
-
     static void SpawnExplosion(Node owner, Vector3 position, Color color, bool heavy)
     {
         var root = owner.GetTree().CurrentScene ?? owner;
@@ -605,11 +684,12 @@ public partial class CombatProjectile : Node3D
         var container = new Node3D { Name = "ExplosionEffect" };
         root.AddChild(container);
         container.GlobalPosition = position;
+        var particleQuad = new QuadMesh { Size = Vector2.One };
 
         var fireParticles = new CpuParticles3D
         {
             Name = "FireParticles",
-            Amount = heavy ? 24 : 12,
+            Amount = heavy ? 35 : 20,
             Lifetime = 0.45f,
             OneShot = true,
             Explosiveness = 0.85f,
@@ -618,27 +698,12 @@ public partial class CombatProjectile : Node3D
             Gravity = new Vector3(0f, 1.8f, 0f),
             InitialVelocityMin = 2.5f,
             InitialVelocityMax = 5.5f,
-            ScaleAmountMin = 0.18f,
-            ScaleAmountMax = 0.55f
+            ScaleAmountMin = 0.2f,
+            ScaleAmountMax = 0.7f
         };
 
-        var sphere = new SphereMesh
-        {
-            Radius = 0.25f,
-            Height = 0.5f,
-            RadialSegments = 6,
-            Rings = 4
-        };
-        fireParticles.Mesh = sphere;
-
-        var fireMat = new StandardMaterial3D
-        {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            VertexColorUseAsAlbedo = true,
-            AlbedoColor = new Color(1f, 1f, 1f, 1f),
-            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-        };
-        fireParticles.MaterialOverride = fireMat;
+        fireParticles.Mesh = particleQuad;
+        fireParticles.MaterialOverride = CreateParticleMaterial(Colors.White, true);
 
         var scaleCurve = new Curve();
         scaleCurve.AddPoint(new Vector2(0f, 1f));
@@ -657,28 +722,20 @@ public partial class CombatProjectile : Node3D
         var smokeParticles = new CpuParticles3D
         {
             Name = "SmokeParticles",
-            Amount = heavy ? 20 : 10,
-            Lifetime = 0.75f,
+            Amount = heavy ? 30 : 15,
+            Lifetime = 0.85f,
             OneShot = true,
             Explosiveness = 0.9f,
             Direction = Vector3.Up,
             Spread = 45f,
-            Gravity = new Vector3(0f, 1.2f, 0f),
-            InitialVelocityMin = 1.2f,
-            InitialVelocityMax = 3.0f,
-            ScaleAmountMin = 0.25f,
-            ScaleAmountMax = 0.72f
+            Gravity = new Vector3(0f, 1.5f, 0f),
+            InitialVelocityMin = 1.5f,
+            InitialVelocityMax = 3.5f,
+            ScaleAmountMin = 0.3f,
+            ScaleAmountMax = 1.1f
         };
-        smokeParticles.Mesh = sphere;
-
-        var smokeMat = new StandardMaterial3D
-        {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            VertexColorUseAsAlbedo = true,
-            AlbedoColor = new Color(1f, 1f, 1f, 1f),
-            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-        };
-        smokeParticles.MaterialOverride = smokeMat;
+        smokeParticles.Mesh = particleQuad;
+        smokeParticles.MaterialOverride = CreateParticleMaterial(Colors.White, false);
         smokeParticles.ScaleAmountCurve = scaleCurve;
 
         var smokeColorRamp = new Gradient();
@@ -688,6 +745,14 @@ public partial class CombatProjectile : Node3D
 
         container.AddChild(smokeParticles);
         smokeParticles.Emitting = true;
+
+        var sphere = new SphereMesh
+        {
+            Radius = 0.25f,
+            Height = 0.5f,
+            RadialSegments = 6,
+            Rings = 4
+        };
 
         var sparkParticles = new CpuParticles3D
         {

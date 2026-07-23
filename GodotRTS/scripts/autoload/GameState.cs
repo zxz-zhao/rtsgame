@@ -57,6 +57,62 @@ public partial class GameState : Node
     public string LastBattleMode { get; private set; } = "";
     public string LastBattleMapName { get; private set; } = BattleMapCatalog.DefaultMapName;
     public List<Node> Selected { get; } = new();
+    public HashSet<string> ClaimedLocalTaskIds { get; } = new();
+
+    public bool IsLocalTaskClaimed(string taskId) => ClaimedLocalTaskIds.Contains(taskId);
+
+    public void MarkLocalTaskClaimed(string taskId)
+    {
+        if (ClaimedLocalTaskIds.Add(taskId))
+        {
+            SaveSession();
+        }
+    }
+
+    public HashSet<int> ClaimedRecruitDays { get; } = new();
+
+    public bool IsRecruitDayClaimed(int day) => ClaimedRecruitDays.Contains(day);
+
+    public void MarkRecruitDayClaimed(int day)
+    {
+        if (ClaimedRecruitDays.Add(day))
+        {
+            SaveSession();
+        }
+    }
+
+    public string LocalResearchTechKey { get; private set; } = "";
+    public long LocalResearchEndAtMs { get; private set; } = 0;
+    public int LocalResearchTotalSec { get; private set; } = 0;
+
+    public void StartLocalResearch(string techKey, int durationSec)
+    {
+        LocalResearchTechKey = techKey;
+        LocalResearchTotalSec = durationSec;
+        LocalResearchEndAtMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + durationSec * 1000;
+        SaveSession();
+    }
+
+    public void CancelLocalResearch()
+    {
+        LocalResearchTechKey = "";
+        LocalResearchEndAtMs = 0;
+        LocalResearchTotalSec = 0;
+        SaveSession();
+    }
+
+    public void CompleteLocalResearch()
+    {
+        if (!string.IsNullOrEmpty(LocalResearchTechKey))
+        {
+            UpgradeTech(LocalResearchTechKey);
+            LocalResearchTechKey = "";
+            LocalResearchEndAtMs = 0;
+            LocalResearchTotalSec = 0;
+            SaveSession();
+        }
+    }
+
     public Dictionary<string, int> TechLevels { get; } = new()
     {
         { "speed", 1 },
@@ -459,6 +515,38 @@ public partial class GameState : Node
         {
             TechLevels[key] = cfg.GetValue("tech", key, TechLevels[key]).AsInt32();
         }
+
+        // 加载已领取的本地任务
+        ClaimedLocalTaskIds.Clear();
+        if (cfg.HasSection("claimed_tasks"))
+        {
+            foreach (var key in cfg.GetSectionKeys("claimed_tasks"))
+            {
+                if (cfg.GetValue("claimed_tasks", key, false).AsBool())
+                {
+                    ClaimedLocalTaskIds.Add(key);
+                }
+            }
+        }
+
+        // 加载已签到的天数
+        ClaimedRecruitDays.Clear();
+        if (cfg.HasSection("claimed_recruit_days"))
+        {
+            foreach (var key in cfg.GetSectionKeys("claimed_recruit_days"))
+            {
+                if (cfg.GetValue("claimed_recruit_days", key, false).AsBool())
+                {
+                    if (int.TryParse(key, out var day))
+                        ClaimedRecruitDays.Add(day);
+                }
+            }
+        }
+
+        // 加载本地科研状态
+        LocalResearchTechKey = cfg.GetValue("local_research", "tech_key", "").AsString();
+        LocalResearchEndAtMs = cfg.GetValue("local_research", "end_at_ms", 0L).AsInt64();
+        LocalResearchTotalSec = cfg.GetValue("local_research", "total_sec", 0).AsInt32();
     }
 
     void SaveSession()
@@ -493,7 +581,31 @@ public partial class GameState : Node
             cfg.SetValue("tech", kvp.Key, kvp.Value);
         }
 
+        // 保存已领取的本地任务
+        foreach (var taskId in ClaimedLocalTaskIds)
+        {
+            cfg.SetValue("claimed_tasks", taskId, true);
+        }
+
+        // 保存已签到的天数
+        foreach (var day in ClaimedRecruitDays)
+        {
+            cfg.SetValue("claimed_recruit_days", day.ToString(), true);
+        }
+
+        // 保存本地科研状态
+        cfg.SetValue("local_research", "tech_key", LocalResearchTechKey);
+        cfg.SetValue("local_research", "end_at_ms", LocalResearchEndAtMs);
+        cfg.SetValue("local_research", "total_sec", LocalResearchTotalSec);
+
         cfg.Save(SessionPath);
+    }
+
+    public void UpdateGuild(string name, int level)
+    {
+        GuildName = NormalizeGuildName(name);
+        GuildLevel = Mathf.Max(1, level);
+        SaveSession();
     }
 
     static string NormalizeGuildName(string value)

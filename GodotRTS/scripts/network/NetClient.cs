@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Threading.Tasks;
 
 
@@ -65,6 +65,14 @@ public partial class NetClient : Node
     public Task<Godot.Collections.Dictionary> ClaimTask(string taskId)
         => PostJson("/api/tasks/claim", new Godot.Collections.Dictionary { ["taskId"] = taskId });
 
+    public Task<Godot.Collections.Dictionary> ClaimMailReward(string mailId, int gold, int gems)
+        => PostJson("/api/mail/claim", new Godot.Collections.Dictionary
+        {
+            ["mailId"] = mailId,
+            ["gold"] = gold,
+            ["gems"] = gems
+        });
+
     public Task<Godot.Collections.Dictionary> StartTechResearch(string techKey = "", string mode = "match")
         => PostJson("/api/tech/start", new Godot.Collections.Dictionary { ["techKey"] = techKey, ["mode"] = mode });
 
@@ -73,6 +81,9 @@ public partial class NetClient : Node
 
     public Task<Godot.Collections.Dictionary> GetFriends(double? timeoutSec = null)
         => GetJson("/api/friends", timeoutSec);
+
+    public Task<Godot.Collections.Dictionary> GetGuildMembers(double? timeoutSec = null)
+        => GetJson("/api/guild/members", timeoutSec);
 
     public Task<Godot.Collections.Dictionary> AddFriend(string friendName)
         => PostJson("/api/friends/add", new Godot.Collections.Dictionary { ["friendName"] = friendName });
@@ -92,6 +103,28 @@ public partial class NetClient : Node
         {
             ["inviteId"] = inviteId,
             ["accept"] = accept
+        });
+
+    public Task<Godot.Collections.Dictionary> GetPaymentCatalog()
+        => GetJson("/api/payments/catalog");
+
+    public Task<Godot.Collections.Dictionary> CreatePaymentOrder(string productId, string provider)
+        => PostJson("/api/payments/create", new Godot.Collections.Dictionary
+        {
+            ["productId"] = productId,
+            ["provider"] = provider
+        });
+
+    public Task<Godot.Collections.Dictionary> ConfirmPaymentOrder(string orderId)
+        => PostJson("/api/payments/confirm", new Godot.Collections.Dictionary
+        {
+            ["orderId"] = orderId
+        });
+
+    public Task<Godot.Collections.Dictionary> ExchangeGold(int gems)
+        => PostJson("/api/gold/buy", new Godot.Collections.Dictionary
+        {
+            ["gems"] = gems
         });
 
     public Task<Godot.Collections.Dictionary> GetLeaderboard(double? timeoutSec = null)

@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 
 public static class MetalUiStyle
 {
@@ -136,13 +136,17 @@ public static class MetalUiStyle
         var top = new ColorRect
         {
             Name = "MetalEdgeTop",
-            Position = new Vector2(4f, 3f),
-            Size = new Vector2(Mathf.Max(0f, panel.Size.X - 8f), 2f),
             Color = palette.Highlight,
             CustomMinimumSize = new Vector2(0, 2),
-            SizeFlagsVertical = Control.SizeFlags.ShrinkBegin,
-            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-            MouseFilter = Control.MouseFilterEnum.Ignore
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            LayoutMode = 1,
+            AnchorLeft = 0f,
+            AnchorRight = 1f,
+            OffsetLeft = 4f,
+            OffsetRight = -4f,
+            OffsetTop = 3f,
+            OffsetBottom = 5f,
+            GrowHorizontal = Control.GrowDirection.Both
         };
         panel.AddChild(top);
         panel.MoveChild(top, 0);
@@ -150,13 +154,19 @@ public static class MetalUiStyle
         var bottom = new ColorRect
         {
             Name = "MetalEdgeBottom",
-            Position = new Vector2(4f, Mathf.Max(0f, panel.Size.Y - 4f)),
-            Size = new Vector2(Mathf.Max(0f, panel.Size.X - 8f), 1f),
             Color = new Color(palette.Shadow.R, palette.Shadow.G, palette.Shadow.B, 0.88f),
             CustomMinimumSize = new Vector2(0, 1),
-            SizeFlagsVertical = Control.SizeFlags.ShrinkEnd,
-            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-            MouseFilter = Control.MouseFilterEnum.Ignore
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            LayoutMode = 1,
+            AnchorLeft = 0f,
+            AnchorRight = 1f,
+            AnchorTop = 1f,
+            AnchorBottom = 1f,
+            OffsetLeft = 4f,
+            OffsetRight = -4f,
+            OffsetTop = -4f,
+            OffsetBottom = -3f,
+            GrowHorizontal = Control.GrowDirection.Both
         };
         panel.AddChild(bottom);
         panel.MoveChild(bottom, 0);
@@ -164,9 +174,18 @@ public static class MetalUiStyle
         var inner = new Panel
         {
             Name = "MetalEdgeInner",
-            Position = new Vector2(3f, 3f),
-            Size = new Vector2(Mathf.Max(0f, panel.Size.X - 6f), Mathf.Max(0f, panel.Size.Y - 6f)),
-            MouseFilter = Control.MouseFilterEnum.Ignore
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            LayoutMode = 1,
+            AnchorLeft = 0f,
+            AnchorRight = 1f,
+            AnchorTop = 0f,
+            AnchorBottom = 1f,
+            OffsetLeft = 3f,
+            OffsetRight = -3f,
+            OffsetTop = 3f,
+            OffsetBottom = -3f,
+            GrowHorizontal = Control.GrowDirection.Both,
+            GrowVertical = Control.GrowDirection.Both
         };
         inner.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {

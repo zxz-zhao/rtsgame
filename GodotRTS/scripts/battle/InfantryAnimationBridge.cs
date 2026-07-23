@@ -1,9 +1,10 @@
-﻿using Godot;
+using Godot;
 using System.Collections.Generic;
 
 /// <summary>
-/// 运行时把分离的 Mixamo FBX 动画注入到 X Bot AnimationPlayer，
+/// 运行时把分离的 Mixamo FBX 动画注入到步兵模型的 AnimationPlayer，
 /// 使步兵模型支持 idle / walk / fire 骨骼动画。
+/// 当前模型为 character_medium.glb（官方自带骨骼，动画通过骨骼名映射兼容 Mixamo 动画源）。
 /// </summary>
 public static class InfantryAnimationBridge
 {
@@ -28,12 +29,19 @@ public static class InfantryAnimationBridge
 
     /// <summary>
     /// 将 Mixamo 动画注入到给定步兵模型节点下的 AnimationPlayer。
-    /// X Bot.fbx 本身没有内置 AnimationPlayer，会自动创建一个并绑定到 Skeleton3D。
+    /// character_medium.glb 若没有内置 AnimationPlayer，会自动创建一个并绑定到 Skeleton3D。
     /// 在 AddInfantryVisual 实例化 model 后调用一次即可。
     /// </summary>
     public static void InjectAnimations(Node3D model)
     {
         EnsureCache();
+
+        var skeleton = FindSkeleton(model);
+        if (skeleton is null)
+        {
+            GD.PushWarning($"[InfantryAnimationBridge] No Skeleton3D found in model: {model.Name}");
+            return;
+        }
 
         // 先找现有的 AnimationPlayer（如果导入时带了）
         var player = FindAnimationPlayerDeep(model);
@@ -42,10 +50,11 @@ public static class InfantryAnimationBridge
         if (player is null)
         {
             player = new AnimationPlayer { Name = "InfantryAnimPlayer" };
-            // root_node 设为模型自身（即 "."），骨骼轨道路径使用从模型根开始的相对路径
             model.AddChild(player);
-            player.RootNode = new NodePath(".");
         }
+
+        // 强行将 RootNode 设为模型根节点（".."），在加入场景树之前该路径也始终有效
+        player.RootNode = new NodePath("..");
 
         // 确保有默认动画库
         AnimationLibrary? lib = null;
@@ -59,10 +68,19 @@ public static class InfantryAnimationBridge
 
         foreach (var (_, targetName) in AnimSources)
         {
-            if (!animCache.TryGetValue(targetName, out var anim) || anim is null)
+            if (!animCache.TryGetValue(targetName, out var sourceAnim) || sourceAnim is null)
                 continue;
-            if (!lib.HasAnimation(targetName))
-                lib.AddAnimation(targetName, anim);
+
+            // 动态将 Mixamo 的骨骼动画轨道映射到当前实际模型的 Skeleton3D 路径及骨骼名
+            var anim = RemapAnimation(sourceAnim, model, skeleton);
+            if (targetName == IdleAnimName || targetName == WalkAnimName)
+            {
+                anim.LoopMode = Animation.LoopModeEnum.Linear;
+            }
+
+            if (lib.HasAnimation(targetName))
+                lib.RemoveAnimation(targetName);
+            lib.AddAnimation(targetName, anim);
         }
 
         // 启动 idle 动画
@@ -70,6 +88,93 @@ public static class InfantryAnimationBridge
             player.Play(IdleAnimName);
         else
             GD.PushWarning("[InfantryAnimationBridge] idle animation not found after injection.");
+    }
+
+    private static string GetRelativePath(Node from, Node to)
+    {
+        var pathList = new List<string>();
+        var curr = to;
+        while (curr is not null && curr != from)
+        {
+            pathList.Insert(0, curr.Name.ToString());
+            curr = curr.GetParent();
+        }
+        return string.Join("/", pathList);
+    }
+
+    private static Animation RemapAnimation(Animation sourceAnim, Node3D model, Skeleton3D skeleton)
+    {
+        var targetAnim = (Animation)sourceAnim.Duplicate(true);
+        var skeletonPath = GetRelativePath(model, skeleton); // 例如 "Root/Skeleton3D"
+
+        // 倒序循环遍历轨道，方便安全删除轨道而不会打乱索引
+        for (int i = targetAnim.GetTrackCount() - 1; i >= 0; i--)
+        {
+            var trackType = targetAnim.TrackGetType(i);
+
+            // 1. 丢弃所有缩放轨道（极度关键！防止 Mixamo 厘米级缩放导致 Kenney 模型缩为 1/100 大小变成隐形点）
+            if (trackType == Animation.TrackType.Scale3D)
+            {
+                targetAnim.RemoveTrack(i);
+                continue;
+            }
+
+            var path = targetAnim.TrackGetPath(i);
+            var pathStr = path.ToString();
+            
+            // Mixamo 原始轨道格式通常为 "Skeleton3D:mixamorig_Hips" 或 "Skeleton3D:mixamorig_Hips:rotation"
+            var parts = pathStr.Split(':');
+            if (parts.Length >= 2)
+            {
+                var boneName = parts[1];
+                if (boneName.StartsWith("mixamorig_"))
+                {
+                    boneName = boneName.Substring("mixamorig_".Length);
+                }
+
+                // 针对 Kenney 模型的常用骨骼命名差异进行别名映射
+                if (boneName == "LeftToeBase" || boneName == "LeftToe") boneName = "LeftToes";
+                else if (boneName == "RightToeBase" || boneName == "RightToe") boneName = "RightToes";
+                else if (boneName == "Spine1") boneName = "Chest";
+                else if (boneName == "Spine2") boneName = "UpperChest";
+
+                // 2. 丢弃除 Hips（盆骨根节点）之外的所有位移轨道（防止骨骼因为两套模型骨长不同发生错位拉伸）
+                if (trackType == Animation.TrackType.Position3D && boneName != "Hips")
+                {
+                    targetAnim.RemoveTrack(i);
+                    continue;
+                }
+
+                var targetBoneName = boneName;
+                if (skeleton.FindBone(targetBoneName) == -1 && skeleton.FindBone("mixamorig_" + targetBoneName) != -1)
+                {
+                    targetBoneName = "mixamorig_" + targetBoneName;
+                }
+
+                if (skeleton.FindBone(targetBoneName) != -1)
+                {
+                    var newPathStr = skeletonPath + ":" + targetBoneName;
+                    if (parts.Length > 2)
+                    {
+                        for (int j = 2; j < parts.Length; j++)
+                        {
+                            newPathStr += ":" + parts[j];
+                        }
+                    }
+                    targetAnim.TrackSetPath(i, new NodePath(newPathStr));
+                }
+                else
+                {
+                    // 3. 模型中不存在的骨骼轨道（比如手指细分骨骼）直接删掉，彻底静默控制台警告
+                    targetAnim.RemoveTrack(i);
+                }
+            }
+            else
+            {
+                targetAnim.RemoveTrack(i);
+            }
+        }
+        return targetAnim;
     }
 
     static void EnsureCache()

@@ -35,7 +35,7 @@ const MYSQL_CONFIG = {
   connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
   charset: 'utf8mb4'
 };
-const COLLECTIONS = ['users', 'friends', 'rooms', 'match_queue', 'pending_matches', 'invites'];
+const COLLECTIONS = ['users', 'friends', 'rooms', 'match_queue', 'pending_matches', 'invites', 'orders'];
 const memDB = {};
 let mysqlPool = null;
 
@@ -213,6 +213,10 @@ function ensureUserDefaults(u) {
   if (!u) return u;
   if (u.gold == null || u.gold === undefined) u.gold = 1000;
   if (u.gems == null || u.gems === undefined) u.gems = 100;
+  if (!u.guildName) {
+    u.guildName = "第一游骑兵团";
+    u.guildLevel = 3;
+  }
   if (!u.lobbyState || typeof u.lobbyState !== 'object') {
     u.lobbyState = {
       day: todayStr(),
@@ -373,7 +377,7 @@ app.post('/api/login', (req, res) => {
   saveDB('users', users);
   res.json({ success: true, token: makeToken(user.id), userId: user.id,
              username: user.username, level: user.level, wins: user.wins, losses: user.losses,
-             gold: user.gold, gems: user.gems, rankTitle: rankTitleFrom(user), isGuest: false });
+             gold: user.gold, gems: user.gems, guildName: user.guildName, guildLevel: user.guildLevel, rankTitle: rankTitleFrom(user), isGuest: false });
 });
 
 app.post('/api/guest', (req, res) => {
@@ -391,11 +395,12 @@ app.post('/api/guest', (req, res) => {
   const id  = uuidv4();
   const users = loadDB('users');
   users[id] = { id, username: guestName, isGuest: true, level: 1, wins: 0, losses: 0, gold: 500, gems: 50,
+    guildName: "第一游骑兵团", guildLevel: 3,
     lobbyState: { day: todayStr(), dailyLoginClaimed: false, win3Claimed: false, destroyClaimed: false, winsToday: 0, killsToday: 0 },
     createdAt: Date.now() };
   saveDB('users', users);
   res.json({ success: true, token: makeToken(id), userId: id, username: guestName, level: 1, isGuest: true,
-             gold: 500, gems: 50, rankTitle: '列兵' });
+             gold: 500, gems: 50, guildName: "第一游骑兵团", guildLevel: 3, rankTitle: '列兵' });
 });
 
 app.get('/api/profile', authMiddleware, (req, res) => {
@@ -535,6 +540,33 @@ app.get('/api/friends', authMiddleware, (req, res) => {
   res.json({ success: true, friends: myList });
 });
 
+app.get('/api/guild/members', authMiddleware, (req, res) => {
+  const users = loadDB('users');
+  const currentUser = users[req.user.userId];
+  if (!currentUser) return res.json({ success: false, error: '用户不存在' });
+
+  ensureUserDefaults(currentUser);
+  const guildName = currentUser.guildName || '无工会';
+  if (guildName === '无工会') {
+    return res.json({ success: true, members: [] });
+  }
+
+  const members = Object.values(users)
+    .filter(u => u && u.id !== currentUser.id && u.guildName === guildName)
+    .map(u => {
+      ensureUserDefaults(u);
+      return {
+        id: u.id,
+        username: u.username,
+        level: u.level || 1,
+        rank: rankTitleFrom(u),
+        status: friendStatus(u.id)
+      };
+    });
+
+  res.json({ success: true, members });
+});
+
 app.get('/api/leaderboard', authMiddleware, (req, res) => {
   const users = loadDB('users');
   const currentUserId = req.user.userId;
@@ -612,6 +644,12 @@ app.post('/api/friends/invite', authMiddleware, (req, res) => {
   const target = Object.values(users).find(u => u.username === friendName);
   if (!target) return res.json({ success: false, error: `找不到用户: ${friendName}` });
 
+  // 验证目标好友在线状态
+  const targetStatus = friendStatus(target.id);
+  if (targetStatus === '离线') {
+    return res.json({ success: false, error: '用户已下线，无法接受邀请' });
+  }
+
   // 验证房间是否有效
   const room = rooms[roomId];
   if (roomId && !room)
@@ -647,8 +685,38 @@ app.post('/api/friends/invite', authMiddleware, (req, res) => {
 // 查询当前用户的待处理邀请
 app.get('/api/invites', authMiddleware, (req, res) => {
   const invites = loadDB('invites');
+  const users = loadDB('users');
+  const rooms = loadDB('rooms');
   const myInvites = (invites[req.user.userId] || [])
-    .filter(i => Date.now() - i.createdAt < 5 * 60 * 1000); // 只返回5分钟内的邀请
+    .filter(i => {
+      // 过了10分钟邀请链接失效
+      const timeValid = Date.now() - i.createdAt < 10 * 60 * 1000;
+      if (!timeValid) return false;
+
+      // 房主退出了，房间自动失效
+      if (i.roomId) {
+        const room = rooms[i.roomId];
+        if (!room || room.status !== 'waiting') return false;
+        if (room.hostId !== i.fromId) return false;
+        if (!room.players || !room.players.includes(i.fromId)) return false;
+      }
+      return true;
+    })
+    .map(i => {
+      const sender = users[i.fromId];
+      let level = 1;
+      let rank = '列兵';
+      if (sender) {
+        ensureUserDefaults(sender);
+        level = sender.level || 1;
+        rank = rankTitleFrom(sender);
+      }
+      return {
+        ...i,
+        level,
+        rank
+      };
+    });
   res.json({ success: true, invites: myInvites });
 });
 
@@ -660,12 +728,25 @@ app.post('/api/invites/respond', authMiddleware, (req, res) => {
   const idx     = myList.findIndex(i => i.id === inviteId);
   if (idx < 0) return res.json({ success: false, error: '邀请不存在' });
   const invite  = myList[idx];
-  myList.splice(idx, 1);
-  invites[req.user.userId] = myList;
-  saveDB('invites', invites);
+
   if (accept && invite.roomId) {
+    // 验证超时 (10分钟)
+    if (Date.now() - invite.createdAt > 10 * 60 * 1000) {
+      return res.json({ success: false, error: '邀请已过期失效' });
+    }
+
     const rooms = loadDB('rooms');
     const room = rooms[invite.roomId];
+
+    // 房主退出了，房间自动失效
+    if (!room || room.status !== 'waiting' || room.hostId !== invite.fromId || !room.players.includes(invite.fromId)) {
+      return res.json({ success: false, error: '该房间已失效或无法加入' });
+    }
+
+    myList.splice(idx, 1);
+    invites[req.user.userId] = myList;
+    saveDB('invites', invites);
+
     return res.json({
       success: true,
       roomId: invite.roomId,
@@ -674,6 +755,10 @@ app.post('/api/invites/respond', authMiddleware, (req, res) => {
       playerCount: room?.players?.length || invite.playerCount || 0
     });
   }
+
+  myList.splice(idx, 1);
+  invites[req.user.userId] = myList;
+  saveDB('invites', invites);
   res.json({ success: true });
 });
 
@@ -731,11 +816,14 @@ app.post('/api/rooms/leave', authMiddleware, (req, res) => {
   const rooms = loadDB('rooms');
   const room  = rooms[roomId];
   if (room) {
-    room.players = room.players.filter(p => p !== req.user.userId);
-    if (room.players.length === 0) {
+    if (room.hostId === req.user.userId) {
+      // 房主退出了，房间自动失效
       delete rooms[roomId];
-    } else if (room.hostId === req.user.userId) {
-      room.hostId = room.players[0];
+    } else {
+      room.players = room.players.filter(p => p !== req.user.userId);
+      if (room.players.length === 0) {
+        delete rooms[roomId];
+      }
     }
     saveDB('rooms', rooms);
   }
@@ -809,6 +897,107 @@ app.post('/api/result', authMiddleware, (req, res) => {
   u.gold = (u.gold || 0) + (parseInt(win) ? 80 : 25);
   saveDB('users', users);
   res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════
+//  支付与兑换路由
+// ════════════════════════════════════════════════════════════
+
+const GEM_PRODUCTS = [
+  { id: 'gem_60', name: '60 钻石', amountFen: 600, gems: 60, bonusGems: 0 },
+  { id: 'gem_300', name: '330 钻石', amountFen: 3000, gems: 300, bonusGems: 30 },
+  { id: 'gem_680', name: '760 钻石', amountFen: 6800, gems: 680, bonusGems: 80 },
+  { id: 'gem_1280', name: '1480 钻石', amountFen: 12800, gems: 1280, bonusGems: 200 }
+];
+
+app.get('/api/payments/catalog', authMiddleware, (req, res) => {
+  res.json({ success: true, products: GEM_PRODUCTS });
+});
+
+app.post('/api/payments/create', authMiddleware, (req, res) => {
+  const { productId, provider } = req.body;
+  const product = GEM_PRODUCTS.find(p => p.id === productId);
+  if (!product) return res.json({ success: false, error: '商品不存在' });
+
+  const users = loadDB('users');
+  const user = users[req.user.userId];
+  if (!user) return res.json({ success: false, error: '用户不存在' });
+
+  const orderId = uuidv4();
+  const orders = loadDB('orders');
+
+  const qrCodeUrl = provider === 'alipay'
+    ? `alipay://platformapi/startapp?saId=10000007&qrcode=http://127.0.0.1:8080/mock/pay/${orderId}`
+    : `weixin://wxpay/bizpayurl?pr=mock_${orderId}`;
+
+  const order = {
+    id: orderId,
+    userId: req.user.userId,
+    productId: product.id,
+    productName: product.name,
+    currency: 'CNY',
+    status: 'pending',
+    provider: provider || 'alipay',
+    amountFen: product.amountFen,
+    gems: product.gems,
+    bonusGems: product.bonusGems,
+    qrCodeUrl: qrCodeUrl,
+    createdAt: Date.now()
+  };
+
+  orders[orderId] = order;
+  saveDB('orders', orders);
+
+  res.json({ success: true, order });
+});
+
+app.post('/api/payments/confirm', authMiddleware, (req, res) => {
+  const { orderId } = req.body;
+  const orders = loadDB('orders');
+  const order = orders[orderId];
+  if (!order) return res.json({ success: false, error: '订单不存在' });
+  if (order.userId !== req.user.userId) return res.json({ success: false, error: '无权操作此订单' });
+
+  const users = loadDB('users');
+  const user = users[req.user.userId];
+  if (!user) return res.json({ success: false, error: '用户不存在' });
+
+  ensureUserDefaults(user);
+  if (order.status !== 'paid') {
+    const addGems = (order.gems || 0) + (order.bonusGems || 0);
+    user.gems = (user.gems || 0) + addGems;
+    order.status = 'paid';
+    order.paidAt = Date.now();
+    saveDB('orders', orders);
+    saveDB('users', users);
+  }
+
+  res.json({ success: true, gems: user.gems, gold: user.gold });
+});
+
+app.post('/api/gold/buy', authMiddleware, (req, res) => {
+  const { gems } = req.body;
+  const gemsToConvert = parseInt(gems, 10);
+  if (isNaN(gemsToConvert) || gemsToConvert <= 0) {
+    return res.json({ success: false, error: '无效的兑换数额' });
+  }
+
+  const users = loadDB('users');
+  const user = users[req.user.userId];
+  if (!user) return res.json({ success: false, error: '用户不存在' });
+
+  ensureUserDefaults(user);
+  if ((user.gems || 0) < gemsToConvert) {
+    return res.json({ success: false, error: '钻石不足，无法兑换金币' });
+  }
+
+  const goldGained = gemsToConvert * 100;
+  user.gems -= gemsToConvert;
+  user.gold = (user.gold || 0) + goldGained;
+
+  saveDB('users', users);
+
+  res.json({ success: true, gems: user.gems, gold: user.gold, goldGained });
 });
 
 let httpServer = null;

@@ -15,6 +15,7 @@ public partial class LobbyScreen : Control
     const string MailModalKind = "mail";
     const string AnnouncementStorePath = "user://lobby_announcements.json";
     const string FriendsCacheStorePath = "user://lobby_friends_cache.json";
+    const string AudioSettingsStorePath = "user://lobby_audio_settings.json";
     const string LoginScenePath = "res://scenes/login/LoginScene.tscn";
 
     public struct SystemMail
@@ -153,6 +154,7 @@ public partial class LobbyScreen : Control
     Label friendStatusLabel = null!;
     VBoxContainer friendRows = null!;
     LineEdit addFriendInput = null!;
+    TextureRect guildTopBarIcon = null!;
     Label roomStatusLabel = null!;
     VBoxContainer roomRows = null!;
     OptionButton roomMapPicker = null!;
@@ -247,6 +249,10 @@ public partial class LobbyScreen : Control
     readonly List<AnnouncementEntry> announcementArchive = new();
     readonly HashSet<string> clearedAnnouncementIds = new();
 
+    AudioStreamPlayer? lobbyBgmPlayer;
+    float lobbyBgmVolume = 0.20f;
+    bool lobbyBgmMuted = false;
+
     public override void _Ready()
     {
         if (GetNodeOrNull("Services/GameState") is null)
@@ -257,6 +263,8 @@ public partial class LobbyScreen : Control
         LoadFriendsCache();
         LoadAnnouncementState();
         SyncAnnouncementFeed();
+
+        StartLobbyBgm();
 
         BuildUi();
         PrepareFriendsPanelWarmState();
@@ -270,6 +278,264 @@ public partial class LobbyScreen : Control
             _ = NetClient.Instance?.PostPresence() ?? Task.CompletedTask;
         }
         _ = WarmSecondaryModalCaches();
+
+        var cmdArgs = CommandLineArgs.Get();
+        if (System.Array.IndexOf(cmdArgs, "--open-research-modal") != -1)
+        {
+            ShowResearchModal();
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--open-matchmaking-modal") != -1)
+        {
+            _ = ShowMatchmakingQueueModal();
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--open-settings-modal") != -1)
+        {
+            ShowSettingsModal();
+            var captureIndex = System.Array.IndexOf(cmdArgs, "--capture-path");
+            if (captureIndex != -1 && captureIndex + 1 < cmdArgs.Length)
+            {
+                var outputPath = cmdArgs[captureIndex + 1];
+                CaptureLobbyScreenDeferred(outputPath);
+            }
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--open-warehouse-modal") != -1)
+        {
+            ShowWarehouseModal();
+            var captureIndex = System.Array.IndexOf(cmdArgs, "--capture-path");
+            if (captureIndex != -1 && captureIndex + 1 < cmdArgs.Length)
+            {
+                var outputPath = cmdArgs[captureIndex + 1];
+                CaptureLobbyScreenDeferred(outputPath);
+            }
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--open-global-conquest-modal") != -1)
+        {
+            _ = OpenGlobalConquestTeamPanel();
+            var captureIndex = System.Array.IndexOf(cmdArgs, "--capture-path");
+            if (captureIndex != -1 && captureIndex + 1 < cmdArgs.Length)
+            {
+                var outputPath = cmdArgs[captureIndex + 1];
+                CaptureLobbyScreenDeferred(outputPath);
+            }
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--open-add-friend-modal") != -1)
+        {
+            ShowAddFriendModal();
+            var captureIndex = System.Array.IndexOf(cmdArgs, "--capture-path");
+            if (captureIndex != -1 && captureIndex + 1 < cmdArgs.Length)
+            {
+                var outputPath = cmdArgs[captureIndex + 1];
+                CaptureLobbyScreenDeferred(outputPath);
+            }
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--open-guild-modal") != -1)
+        {
+            ShowGuildModal();
+            var captureIndex = System.Array.IndexOf(cmdArgs, "--capture-path");
+            if (captureIndex != -1 && captureIndex + 1 < cmdArgs.Length)
+            {
+                var outputPath = cmdArgs[captureIndex + 1];
+                CaptureLobbyScreenDeferred(outputPath);
+            }
+        }
+    }
+
+    public override void _ExitTree()
+    {
+        base._ExitTree();
+        if (lobbyBgmPlayer is not null && GodotObject.IsInstanceValid(lobbyBgmPlayer))
+        {
+            lobbyBgmPlayer.Stop();
+            lobbyBgmPlayer.QueueFree();
+            lobbyBgmPlayer = null;
+        }
+    }
+
+    private void LoadAudioSettings()
+    {
+        try
+        {
+            if (!Godot.FileAccess.FileExists(AudioSettingsStorePath))
+                return;
+            using var file = Godot.FileAccess.Open(AudioSettingsStorePath, Godot.FileAccess.ModeFlags.Read);
+            if (file is null) return;
+            var text = file.GetAsText();
+            if (string.IsNullOrWhiteSpace(text)) return;
+            var json = Json.ParseString(text);
+            if (json.VariantType == Variant.Type.Dictionary)
+            {
+                var dict = json.AsGodotDictionary();
+                if (dict.ContainsKey("volume"))
+                    lobbyBgmVolume = Mathf.Clamp((float)dict["volume"], 0f, 1f);
+                if (dict.ContainsKey("muted"))
+                    lobbyBgmMuted = (bool)dict["muted"];
+            }
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"[AudioSettings] 加载音频设置失败: {ex.Message}");
+        }
+    }
+
+    private void SaveAudioSettings()
+    {
+        try
+        {
+            using var file = Godot.FileAccess.Open(AudioSettingsStorePath, Godot.FileAccess.ModeFlags.Write);
+            if (file is null) return;
+            var dict = new Godot.Collections.Dictionary
+            {
+                { "volume", lobbyBgmVolume },
+                { "muted", lobbyBgmMuted }
+            };
+            file.StoreString(Json.Stringify(dict));
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"[AudioSettings] 保存音频设置失败: {ex.Message}");
+        }
+    }
+
+    private void ApplyLobbyBgmVolume()
+    {
+        if (lobbyBgmPlayer is null || !GodotObject.IsInstanceValid(lobbyBgmPlayer))
+            return;
+
+        if (lobbyBgmMuted || lobbyBgmVolume <= 0.001f)
+        {
+            lobbyBgmPlayer.VolumeDb = -80f;
+        }
+        else
+        {
+            float db = Mathf.LinearToDb(lobbyBgmVolume);
+            lobbyBgmPlayer.VolumeDb = db;
+        }
+    }
+
+    private void StartLobbyBgm()
+    {
+        try
+        {
+            LoadAudioSettings();
+
+            AudioStream? stream = null;
+            string[] lobbyPaths = new[]
+            {
+                "res://assets/audio/lobby_bgm.mp3",
+                "res://assets/audio/lobby_bgm.ogg",
+                "res://assets/audio/lobby_bgm.wav"
+            };
+
+            foreach (var path in lobbyPaths)
+            {
+                if (ResourceLoader.Exists(path))
+                {
+                    stream = GD.Load<AudioStream>(path);
+                    if (stream is not null)
+                    {
+                        GD.Print($"[LobbyBGM] 成功加载大厅背景音乐: {path}");
+                        break;
+                    }
+                }
+            }
+
+            if (stream is null)
+            {
+                stream = CreateLobbyAmbientBgmStream();
+                GD.Print("[LobbyBGM] 生成军事大厅环境声学 BGM 成功！");
+            }
+
+            if (stream is not null)
+            {
+                lobbyBgmPlayer = new AudioStreamPlayer
+                {
+                    Name = "LobbyBgmPlayer",
+                    Stream = stream,
+                    Bus = "Master"
+                };
+                AddChild(lobbyBgmPlayer);
+                ApplyLobbyBgmVolume();
+                lobbyBgmPlayer.Play();
+            }
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"[LobbyBGM] 加载大厅背景音乐失败: {ex.Message}");
+        }
+    }
+
+    static AudioStreamWav CreateLobbyAmbientBgmStream()
+    {
+        const int sampleRate = 44100;
+        const float totalDuration = 12.0f; // 12 秒无缝循环
+        int numFrames = (int)(totalDuration * sampleRate);
+        var data = new byte[numFrames * 4];
+
+        float lpfL = 0f, lpfR = 0f;
+        // 300Hz 截止频率柔和低通滤波，彻底过滤高频刺耳噪音与低频电机轰鸣
+        float alpha = (2f * Mathf.Pi * 300f / sampleRate) / (1f + 2f * Mathf.Pi * 300f / sampleRate);
+
+        for (int i = 0; i < numFrames; i++)
+        {
+            float t = (float)i / sampleRate;
+
+            // 使用 12 秒完整周期的精准和声音阶 (A3: 220Hz, C#4: 275Hz, E4: 330Hz, A4: 440Hz)
+            // 所有频率均为 1/12 Hz 的整数倍，相位首尾无缝对接，彻底消除噪音与相位突变
+            float chord = 0.08f * Mathf.Sin(2f * Mathf.Pi * 220.0f * t) +
+                          0.06f * Mathf.Sin(2f * Mathf.Pi * 275.0f * t) +
+                          0.05f * Mathf.Sin(2f * Mathf.Pi * 330.0f * t) +
+                          0.03f * Mathf.Sin(2f * Mathf.Pi * 440.0f * t);
+
+            // 柔和的缓动呼吸感 (LFO 0.166Hz / 6秒周期)
+            float breatheLfo = 0.75f + 0.25f * Mathf.Sin(2f * Mathf.Pi * (1f / 6f) * t);
+            float padVal = chord * breatheLfo * 0.08f;
+
+            lpfL += alpha * (padVal - lpfL);
+            lpfR += alpha * (padVal - lpfR);
+
+            short sampleL = (short)(Mathf.Clamp(lpfL, -1f, 1f) * 32767f);
+            short sampleR = (short)(Mathf.Clamp(lpfR, -1f, 1f) * 32767f);
+
+            int byteIdx = i * 4;
+            data[byteIdx]     = (byte)(sampleL & 0xFF);
+            data[byteIdx + 1] = (byte)((sampleL >> 8) & 0xFF);
+            data[byteIdx + 2] = (byte)(sampleR & 0xFF);
+            data[byteIdx + 3] = (byte)((sampleR >> 8) & 0xFF);
+        }
+
+        return new AudioStreamWav
+        {
+            Data = data,
+            Format = AudioStreamWav.FormatEnum.Format16Bits,
+            MixRate = sampleRate,
+            Stereo = true,
+            LoopMode = AudioStreamWav.LoopModeEnum.Forward,
+            LoopBegin = 0,
+            LoopEnd = numFrames
+        };
+    }
+
+    async void CaptureLobbyScreenDeferred(string outputPath)
+    {
+        for (int i = 0; i < 15; i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        var texture = GetViewport().GetTexture();
+        var image = texture?.GetImage();
+        if (image is not null && !image.IsEmpty())
+        {
+            var globalPath = ProjectSettings.GlobalizePath(outputPath);
+            var dir = System.IO.Path.GetDirectoryName(globalPath);
+            if (!string.IsNullOrEmpty(dir) && !System.IO.Directory.Exists(dir))
+                System.IO.Directory.CreateDirectory(dir);
+            image.SavePng(globalPath);
+            GD.Print($"[LOBBY_CAPTURE] Saved screen to {globalPath}");
+        }
+        else
+        {
+            GD.PrintErr("[LOBBY_CAPTURE] Viewport texture is empty!");
+        }
+        GetTree().Quit();
     }
 
     public override void _Process(double delta)
@@ -537,6 +803,7 @@ public partial class LobbyScreen : Control
             new Color(0.64f, 0.90f, 1f),
             out gemsLabel));
 
+        row.AddChild(CreateGuildTopBarIconDock(ShowGuildModal));
         row.AddChild(CreateTopBarIconDock(IconRoot + "icon_bell_transparent.svg", "公告", ShowAnnouncementModal));
         row.AddChild(CreateTopBarIconDock(IconRoot + "icon_gear_transparent.svg", "设置", ShowSettingsModal));
     }
@@ -682,6 +949,64 @@ public partial class LobbyScreen : Control
         button.OffsetTop = 1;
         button.OffsetRight = -1;
         button.OffsetBottom = -1;
+        shell.AddChild(button);
+        return shell;
+    }
+
+    Control CreateGuildTopBarIconDock(Action onPressed)
+    {
+        var shell = new Panel
+        {
+            Name = "TopBarIconDock_Guild",
+            CustomMinimumSize = new Vector2(40, 40),
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.Fill
+        };
+        ApplyTopBarSurface(
+            shell,
+            new Color(0.045f, 0.055f, 0.062f, 0.78f),
+            new Color(0.92f, 0.74f, 0.28f, 0.28f),
+            14,
+            new Color(0.96f, 0.76f, 0.24f, 0.06f));
+
+        var button = new Button
+        {
+            Text = "",
+            TooltipText = "公会",
+            MouseDefaultCursorShape = CursorShape.PointingHand,
+            CustomMinimumSize = new Vector2(38, 38),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter
+        };
+        button.Pressed += onPressed;
+        ApplyTransparentIconStyle(button, 9);
+        button.SetAnchorsPreset(LayoutPreset.FullRect);
+        button.OffsetLeft = 1;
+        button.OffsetTop = 1;
+        button.OffsetRight = -1;
+        button.OffsetBottom = -1;
+
+        var iconCenter = new CenterContainer
+        {
+            Name = "IconCenter",
+            LayoutMode = 1,
+            AnchorRight = 1f,
+            AnchorBottom = 1f,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        button.AddChild(iconCenter);
+
+        guildTopBarIcon = new TextureRect
+        {
+            Name = "Icon",
+            CustomMinimumSize = new Vector2(20, 20),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        iconCenter.AddChild(guildTopBarIcon);
         shell.AddChild(button);
         return shell;
     }
@@ -1146,7 +1471,50 @@ public partial class LobbyScreen : Control
         {
             taskStatusLabel.Text = "离线模式：显示本地任务样例";
             BuildLocalTasks();
-            UpdateTechPanel(new Godot.Collections.Dictionary());
+            
+            // 检查本地科研是否已经完成
+            if (GameState.Instance is not null && !string.IsNullOrEmpty(GameState.Instance.LocalResearchTechKey))
+            {
+                if (GameState.Instance.LocalResearchEndAtMs > 0 && NowMs() >= GameState.Instance.LocalResearchEndAtMs)
+                {
+                    var completedTechKey = GameState.Instance.LocalResearchTechKey;
+                    GameState.Instance.CompleteLocalResearch();
+                    
+                    var name = "科技";
+                    foreach (var t in BattleTechCatalog.GetForBuilding("main_base"))
+                    {
+                        if (t.Key == completedTechKey)
+                        {
+                            name = t.DisplayName;
+                            break;
+                        }
+                    }
+                    ShowToast($"科研项目【{name}】已升级完成！");
+                }
+            }
+
+            var localTechData = new Godot.Collections.Dictionary();
+            if (GameState.Instance is not null && !string.IsNullOrEmpty(GameState.Instance.LocalResearchTechKey))
+            {
+                var techKey = GameState.Instance.LocalResearchTechKey;
+                var displayName = "科技";
+                var desc = "";
+                foreach (var t in BattleTechCatalog.GetForBuilding("main_base"))
+                {
+                    if (t.Key == techKey)
+                    {
+                        displayName = t.DisplayName;
+                        desc = t.Description;
+                        break;
+                    }
+                }
+                localTechData["techName"] = displayName;
+                localTechData["techDesc"] = desc;
+                localTechData["techEndAt"] = GameState.Instance.LocalResearchEndAtMs;
+                localTechData["techTotalSec"] = GameState.Instance.LocalResearchTotalSec;
+            }
+
+            UpdateTechPanel(localTechData);
             return;
         }
 
@@ -1160,6 +1528,10 @@ public partial class LobbyScreen : Control
         }
 
         GameState.Instance?.ApplyLobbyData(data);
+        if (data.ContainsKey("claimedMailIds"))
+        {
+            ApplyClaimedMails(data.GetArray("claimedMailIds"));
+        }
         RefreshTopBar();
         BuildTaskRows(data.GetArray("tasks"));
         UpdateTechPanel(data);
@@ -1226,23 +1598,20 @@ public partial class LobbyScreen : Control
             _ => "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_generic_plate.png"
         };
 
-        if (ResourceLoader.Exists(bgPath))
+        var tex = LoadTexture(bgPath);
+        if (tex is not null)
         {
-            var tex = ResourceLoader.Load<Texture2D>(bgPath);
-            if (tex is not null)
+            var bgTex = new TextureRect
             {
-                var bgTex = new TextureRect
-                {
-                    Name = "TaskRowBg",
-                    Texture = tex,
-                    ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                    StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
-                    SelfModulate = new Color(1f, 1f, 1f, 0.22f), // 半透明，融入背景
-                    MouseFilter = Control.MouseFilterEnum.Ignore
-                };
-                bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
-                panel.AddChild(bgTex);
-            }
+                Name = "TaskRowBg",
+                Texture = tex,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+                SelfModulate = new Color(1f, 1f, 1f, 0.22f), // 半透明，融入背景
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+            panel.AddChild(bgTex);
         }
 
         var row = AddHBox(panel, "TaskRowBox", 8);
@@ -1272,14 +1641,15 @@ public partial class LobbyScreen : Control
             "power_plant" => "奖励: 120金币",
             _ => "奖励: 100金币"
         };
-        metaRow.AddChild(AddLabel(rewardText, 11, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left));
+        metaRow.AddChild(CreateRewardControl(rewardText, 11, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left));
 
         info.AddChild(metaRow);
         row.AddChild(info);
 
         var button = AddButton(claimed ? "已领" : canClaim ? "领取" : "未达成", () => _ = ClaimTask(taskId), canClaim ? ButtonTone.Gold : ButtonTone.Secondary, 12);
         button.Disabled = claimed || !canClaim;
-        button.CustomMinimumSize = new Vector2(66, 30);
+        button.SizeFlagsHorizontal = SizeFlags.ShrinkEnd; // 覆盖默认的 ExpandFill，防止宽度受内容长度拉伸影响
+        button.CustomMinimumSize = new Vector2(80, 32);
         row.AddChild(button);
         return panel;
     }
@@ -1499,6 +1869,26 @@ public partial class LobbyScreen : Control
 
     async Task SpeedUpTech()
     {
+        var isLocal = NetClient.Instance is null || GameState.Instance?.IsGuest == true;
+        if (isLocal)
+        {
+            if (GameState.Instance is not null && !string.IsNullOrEmpty(GameState.Instance.LocalResearchTechKey))
+            {
+                var cost = 50;
+                if (!GameState.Instance.TrySpendCurrency(0, cost))
+                {
+                    ShowToast("加速失败：钻石不足！");
+                    return;
+                }
+                
+                GameState.Instance.CompleteLocalResearch();
+                RefreshTopBar();
+                ShowToast("已成功使用钻石加速完成该科研项目！");
+                await RefreshLobbyData(false);
+            }
+            return;
+        }
+
         if (NetClient.Instance is null)
             return;
         var data = await NetClient.Instance.SpeedUpTech();
@@ -1768,69 +2158,553 @@ public partial class LobbyScreen : Control
 
 
 
-    void ShowAddFriendModal()
+    void ShowGuildModal()
     {
-        modalTitle.Text = "添加好友";
+        // Resize the modal panel for a clean layout
+        Place(modalPanel, new Rect2(0.280f, 0.200f, 0.440f, 0.600f));
+        modalPanel.CustomMinimumSize = new Vector2(520, 420);
+
+        modalTitle.Text = "公会 / 战队";
+        ClearChildren(modalBody);
+
+        var gs = GameState.Instance;
+        var inGuild = gs is not null && !string.IsNullOrWhiteSpace(gs.GuildName) && gs.GuildName != "无工会";
+
+        if (!inGuild)
+        {
+            RenderNoGuildPanel();
+        }
+        else
+        {
+            RenderInGuildPanel();
+        }
+
+        ShowModal();
+    }
+
+    void RenderNoGuildPanel()
+    {
+        var wrap = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        wrap.AddThemeConstantOverride("separation", 16);
+
+        // Top info card
+        var infoPanel = new Panel { CustomMinimumSize = new Vector2(0, 100) };
+        MetalUiStyle.ApplyMetalPanel(infoPanel, MetalUiStyle.Steel, 1, 8, 4);
+        var infoBox = AddVBox(infoPanel, "InfoBox", 6, new Vector2(14, 12), new Vector2(-14, -12));
+        
+        var titleText = AddLabel("🛡️ 加入公会，与战友协同作战！", 15, WarningText, HorizontalAlignment.Left);
+        infoBox.AddChild(titleText);
+        
+        var descText = AddLabel("加入公会可解锁专属福利：\n• 战斗结算获得 +10% 金币与经验加成\n• 解锁公会专属任务，赢取丰厚奖励\n• 随时随地与公会成员一键组队开黑", 12, MutedText, HorizontalAlignment.Left);
+        infoBox.AddChild(descText);
+        wrap.AddChild(infoPanel);
+
+        // Guild suggestion title
+        var listTitle = AddLabel("📋 推荐公会列表", 14, PanelText, HorizontalAlignment.Left);
+        wrap.AddChild(listTitle);
+
+        // suggested guilds (Mocked list of suggested guilds)
+        var listScroll = new ScrollContainer 
+        { 
+            CustomMinimumSize = new Vector2(0, 160),
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
+        };
+        var listRows = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        listRows.AddThemeConstantOverride("separation", 8);
+        listScroll.AddChild(listRows);
+
+        var mockGuilds = new List<(string Name, int Lv, int Members, int Max, string Slogan)>
+        {
+            ("雷神近卫军", 5, 28, 30, "近卫军团，无坚不摧！"),
+            ("钢铁洪流", 4, 15, 25, "装甲部队，平推一切！"),
+            ("星火燎原", 3, 8, 20, "星星之火，可以燎原。"),
+        };
+
+        foreach (var guild in mockGuilds)
+        {
+            var rowPanel = new Panel { CustomMinimumSize = new Vector2(0, 48) };
+            MetalUiStyle.ApplyMetalPanel(rowPanel, MetalUiStyle.Steel, 1, 4, 3);
+            var rowBox = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+            rowBox.SetAnchorsPreset(LayoutPreset.FullRect);
+            rowBox.AddThemeConstantOverride("separation", 10);
+            
+            // Add padding margins
+            var rowMargin = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+            rowMargin.SetAnchorsPreset(LayoutPreset.FullRect);
+            rowMargin.AddThemeConstantOverride("margin_left", 12);
+            rowMargin.AddThemeConstantOverride("margin_right", 12);
+            rowPanel.AddChild(rowMargin);
+            rowMargin.AddChild(rowBox);
+
+            // Badge icon
+            var badgeIcon = new TextureRect
+            {
+                Texture = LoadTexture(FinalIconRoot + "badge.png"),
+                CustomMinimumSize = new Vector2(24, 24),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                SizeFlagsVertical = SizeFlags.ShrinkCenter
+            };
+            rowBox.AddChild(badgeIcon);
+
+            // Guild Details
+            var detailsBox = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ShrinkCenter };
+            detailsBox.AddThemeConstantOverride("separation", 2);
+            
+            var nameRow = new HBoxContainer();
+            nameRow.AddThemeConstantOverride("separation", 8);
+            var nameLabel = AddLabel(guild.Name, 13, PanelText, HorizontalAlignment.Left);
+            nameLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+            nameRow.AddChild(nameLabel);
+            var lvLabel = AddLabel($"Lv.{guild.Lv}", 11, WarningText, HorizontalAlignment.Left);
+            lvLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+            nameRow.AddChild(lvLabel);
+            detailsBox.AddChild(nameRow);
+
+            var sloganLabel = AddLabel(guild.Slogan, 11, MutedText, HorizontalAlignment.Left);
+            detailsBox.AddChild(sloganLabel);
+            rowBox.AddChild(detailsBox);
+
+            // Member Count
+            var membersLabel = AddLabel($"{guild.Members}/{guild.Max} 👥", 12, MutedText, HorizontalAlignment.Right);
+            membersLabel.CustomMinimumSize = new Vector2(70, 0);
+            rowBox.AddChild(membersLabel);
+
+            // Join Button
+            var joinBtn = AddButton("申请加入", () => JoinGuildAction(guild.Name, guild.Lv), ButtonTone.Primary, 11);
+            joinBtn.CustomMinimumSize = new Vector2(72, 26);
+            joinBtn.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+            rowBox.AddChild(joinBtn);
+
+            listRows.AddChild(rowPanel);
+        }
+
+        wrap.AddChild(listScroll);
+
+        // Bottom buttons
+        var bottomRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        bottomRow.AddThemeConstantOverride("separation", 12);
+        
+        var closeBtn = AddButton("❌ 关闭", CloseModal, ButtonTone.Secondary, 13);
+        closeBtn.CustomMinimumSize = new Vector2(100, 32);
+        closeBtn.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        bottomRow.AddChild(closeBtn);
+
+        var createBtn = AddButton("⚒️ 创建新公会", ShowCreateGuildDialog, ButtonTone.Gold, 13);
+        createBtn.CustomMinimumSize = new Vector2(140, 32);
+        createBtn.SizeFlagsHorizontal = SizeFlags.Expand | SizeFlags.ShrinkEnd;
+        bottomRow.AddChild(createBtn);
+
+        wrap.AddChild(bottomRow);
+        modalBody.AddChild(wrap);
+    }
+
+    void RenderInGuildPanel()
+    {
+        var wrap = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        wrap.AddThemeConstantOverride("separation", 14);
+
+        var gs = GameState.Instance;
+        var guildName = gs?.GuildName ?? "我的公会";
+        var guildLevel = gs?.GuildLevel ?? 1;
+
+        // Guild Info Header Row
+        var headerPanel = new Panel { CustomMinimumSize = new Vector2(0, 72) };
+        MetalUiStyle.ApplyMetalPanel(headerPanel, MetalUiStyle.Gold, 1, 8, 4);
+        var headerBox = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        headerBox.SetAnchorsPreset(LayoutPreset.FullRect);
+        headerBox.AddThemeConstantOverride("separation", 12);
+        
+        var headerMargin = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        headerMargin.SetAnchorsPreset(LayoutPreset.FullRect);
+        headerMargin.AddThemeConstantOverride("margin_left", 14);
+        headerMargin.AddThemeConstantOverride("margin_right", 14);
+        headerPanel.AddChild(headerMargin);
+        headerMargin.AddChild(headerBox);
+
+        // Guild Badge
+        var badgeIcon = new TextureRect
+        {
+            Texture = LoadTexture(FinalIconRoot + "badge.png"),
+            CustomMinimumSize = new Vector2(40, 40),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter
+        };
+        headerBox.AddChild(badgeIcon);
+
+        // Guild Name and Info
+        var guildDetailBox = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ShrinkCenter };
+        guildDetailBox.AddThemeConstantOverride("separation", 2);
+        
+        var nameRow = new HBoxContainer();
+        nameRow.AddThemeConstantOverride("separation", 8);
+        var nameLabel = AddLabel(guildName, 16, PanelText, HorizontalAlignment.Left);
+        nameLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        nameRow.AddChild(nameLabel);
+        
+        var lvLabel = AddLabel($"等级 {guildLevel}", 12, WarningText, HorizontalAlignment.Left);
+        lvLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        nameRow.AddChild(lvLabel);
+        guildDetailBox.AddChild(nameRow);
+
+        var sloganLabel = AddLabel("战友集结，向胜利进军！", 12, MutedText, HorizontalAlignment.Left);
+        guildDetailBox.AddChild(sloganLabel);
+        headerBox.AddChild(guildDetailBox);
+
+        // Check-in Button
+        var checkinBtn = AddButton("✍️ 每日签到", () => {
+            ShowToast("签到成功！金币 +50");
+            GameState.Instance?.AddCurrency(50, 0);
+            RefreshTopBar();
+        }, ButtonTone.Primary, 12);
+        checkinBtn.CustomMinimumSize = new Vector2(88, 30);
+        checkinBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        headerBox.AddChild(checkinBtn);
+
+        wrap.AddChild(headerPanel);
+
+        // Member list title
+        wrap.AddChild(AddLabel("👥 公会成员列表", 14, PanelText, HorizontalAlignment.Left));
+
+        // Members Scroll List
+        var memberScroll = new ScrollContainer 
+        { 
+            CustomMinimumSize = new Vector2(0, 180),
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
+        };
+        var memberRows = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        memberRows.AddThemeConstantOverride("separation", 6);
+        memberScroll.AddChild(memberRows);
+
+        // We can add mock members or fetch if available
+        var members = new List<(string Name, string Rank, string Status, bool IsMe)>
+        {
+            (GameState.Instance?.Username ?? "我", "会长", "在线", true),
+            ("雷神指挥官", "副会长", "在线", false),
+            ("战车大亨", "精英成员", "匹配中", false),
+            ("特种突击手", "普通成员", "游戏中", false),
+            ("后勤军需官", "普通成员", "离线", false),
+        };
+
+        foreach (var m in members)
+        {
+            var rowPanel = new Panel { CustomMinimumSize = new Vector2(0, 36) };
+            MetalUiStyle.ApplyMetalPanel(rowPanel, m.IsMe ? MetalUiStyle.Green : MetalUiStyle.Steel, 1, 4, 2);
+            
+            var rowBox = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+            rowBox.SetAnchorsPreset(LayoutPreset.FullRect);
+            rowBox.AddThemeConstantOverride("separation", 10);
+            
+            var rowMargin = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+            rowMargin.SetAnchorsPreset(LayoutPreset.FullRect);
+            rowMargin.AddThemeConstantOverride("margin_left", 12);
+            rowMargin.AddThemeConstantOverride("margin_right", 12);
+            rowPanel.AddChild(rowMargin);
+            rowMargin.AddChild(rowBox);
+
+            var nameText = AddLabel(m.Name + (m.IsMe ? " (我)" : ""), 13, m.IsMe ? GoodText : PanelText, HorizontalAlignment.Left);
+            nameText.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            rowBox.AddChild(nameText);
+
+            var rankText = AddLabel(m.Rank, 12, m.Rank == "会长" ? WarningText : MutedText, HorizontalAlignment.Center);
+            rankText.CustomMinimumSize = new Vector2(80, 0);
+            rowBox.AddChild(rankText);
+
+            var statusText = AddLabel(m.Status, 12, m.Status == "离线" ? MutedText : GoodText, HorizontalAlignment.Right);
+            statusText.CustomMinimumSize = new Vector2(80, 0);
+            rowBox.AddChild(statusText);
+
+            memberRows.AddChild(rowPanel);
+        }
+
+        wrap.AddChild(memberScroll);
+
+        // Bottom actions
+        var bottomRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        bottomRow.AddThemeConstantOverride("separation", 12);
+        
+        var closeBtn = AddButton("❌ 关闭", CloseModal, ButtonTone.Secondary, 13);
+        closeBtn.CustomMinimumSize = new Vector2(100, 32);
+        closeBtn.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        bottomRow.AddChild(closeBtn);
+
+        var leaveBtn = AddButton("🚪 退出公会", () => {
+            GameState.Instance?.UpdateGuild("无工会", 1);
+            ShowToast("你已退出了当前公会。");
+            RefreshTopBar();
+            ShowGuildModal(); // refresh
+        }, ButtonTone.Secondary, 13);
+        leaveBtn.CustomMinimumSize = new Vector2(110, 32);
+        leaveBtn.SizeFlagsHorizontal = SizeFlags.Expand | SizeFlags.ShrinkEnd;
+        bottomRow.AddChild(leaveBtn);
+
+        wrap.AddChild(bottomRow);
+        modalBody.AddChild(wrap);
+    }
+
+    void JoinGuildAction(string guildName, int level)
+    {
+        GameState.Instance?.UpdateGuild(guildName, level);
+        ShowToast($"已成功加入公会【{guildName}】！");
+        RefreshTopBar();
+        ShowGuildModal(); // refresh
+    }
+
+    void ShowCreateGuildDialog()
+    {
+        modalTitle.Text = "创建公会";
         ClearChildren(modalBody);
 
         var wrap = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         wrap.AddThemeConstantOverride("separation", 16);
 
-        wrap.AddChild(AddLabel("请输入你要添加的好友玩家名称：", 14, MutedText, HorizontalAlignment.Left));
+        wrap.AddChild(AddLabel("请输入新公会的名称：", 14, MutedText, HorizontalAlignment.Left));
+
+        var guildNameInput = new LineEdit
+        {
+            PlaceholderText = "输入公会名称 (最多8个字)",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        var editStyle = new StyleBoxFlat
+        {
+            BgColor = new Color(0.04f, 0.05f, 0.07f, 0.90f),
+            BorderColor = new Color(0.42f, 0.50f, 0.58f, 0.28f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4,
+            ContentMarginLeft = 10,
+            ContentMarginRight = 10
+        };
+        guildNameInput.AddThemeStyleboxOverride("normal", editStyle);
+        guildNameInput.AddThemeStyleboxOverride("focus", new StyleBoxFlat
+        {
+            BgColor = new Color(0.04f, 0.05f, 0.07f, 0.90f),
+            BorderColor = new Color(0.96f, 0.79f, 0.30f, 0.75f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4,
+            ContentMarginLeft = 10,
+            ContentMarginRight = 10
+        });
+        wrap.AddChild(guildNameInput);
+
+        wrap.AddChild(AddLabel("公会宗旨 / 宣言：", 14, MutedText, HorizontalAlignment.Left));
+
+        var guildSloganInput = new LineEdit
+        {
+            PlaceholderText = "例如：近卫军团，无坚不摧！",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        guildSloganInput.AddThemeStyleboxOverride("normal", editStyle);
+        guildSloganInput.AddThemeStyleboxOverride("focus", editStyle);
+        wrap.AddChild(guildSloganInput);
+
+        var costLabel = AddLabel("创建费用：🪙 500 金币", 13, WarningText, HorizontalAlignment.Left);
+        wrap.AddChild(costLabel);
+
+        var btnRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ShrinkEnd };
+        btnRow.AddThemeConstantOverride("separation", 10);
+
+        var cancelBtn = AddButton("❌ 取消", ShowGuildModal, ButtonTone.Secondary, 13);
+        cancelBtn.CustomMinimumSize = new Vector2(88, 30);
+        btnRow.AddChild(cancelBtn);
+
+        var confirmBtn = AddButton("⚒️ 创建并加入", () => {
+            var name = guildNameInput.Text.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                ShowToast("请输入公会名称");
+                return;
+            }
+            if (name.Length > 8)
+            {
+                ShowToast("公会名称不能超过8个字");
+                return;
+            }
+            if (GameState.Instance is not null)
+            {
+                if (!GameState.Instance.TrySpendCurrency(500, 0))
+                {
+                    ShowToast("金币不足，无法创建公会");
+                    return;
+                }
+            }
+            JoinGuildAction(name, 1);
+        }, ButtonTone.Primary, 13);
+        confirmBtn.CustomMinimumSize = new Vector2(120, 30);
+        btnRow.AddChild(confirmBtn);
+
+        wrap.AddChild(btnRow);
+        modalBody.AddChild(wrap);
+        guildNameInput.GrabFocus();
+    }
+
+    void ShowAddFriendModal()
+    {
+        // Resize the modal panel for a compact, centered layout specifically for adding friends
+        Place(modalPanel, new Rect2(0.330f, 0.350f, 0.340f, 0.300f));
+        modalPanel.CustomMinimumSize = new Vector2(460, 210);
+
+        modalTitle.Text = "添加好友";
+        ClearChildren(modalBody);
+
+        var wrap = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        wrap.AddThemeConstantOverride("separation", 18);
+
+        // Header prompt with a gold modulated Robot User icon
+        var promptRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        promptRow.AddThemeConstantOverride("separation", 8);
+
+        var userIcon = new TextureRect
+        {
+            Name = "PromptUserIcon",
+            Texture = LoadTexture("res://assets/third_party/kenney/game-icons-expansion/PNG/White/2x/userRobot.png"),
+            CustomMinimumSize = new Vector2(20, 20),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            SelfModulate = new Color(0.96f, 0.79f, 0.30f)
+        };
+        promptRow.AddChild(userIcon);
+
+        var label = AddLabel("请输入你要添加的好友玩家名称：", 13, MutedText, HorizontalAlignment.Left);
+        promptRow.AddChild(label);
+        wrap.AddChild(promptRow);
+
+        // Styled glass-morphic input wrapper
+        var inputWrapper = new Panel
+        {
+            Name = "InputWrapperPanel",
+            CustomMinimumSize = new Vector2(0, 36),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        
+        var wrapperStyle = new StyleBoxFlat
+        {
+            BgColor = new Color(0.04f, 0.05f, 0.07f, 0.90f),
+            BorderColor = new Color(0.42f, 0.50f, 0.58f, 0.28f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 5,
+            CornerRadiusTopRight = 5,
+            CornerRadiusBottomLeft = 5,
+            CornerRadiusBottomRight = 5
+        };
+        
+        var wrapperFocusStyle = new StyleBoxFlat
+        {
+            BgColor = new Color(0.04f, 0.05f, 0.07f, 0.90f),
+            BorderColor = new Color(0.96f, 0.79f, 0.30f, 0.75f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 5,
+            CornerRadiusTopRight = 5,
+            CornerRadiusBottomLeft = 5,
+            CornerRadiusBottomRight = 5,
+            ShadowColor = new Color(0.96f, 0.79f, 0.30f, 0.15f),
+            ShadowSize = 5
+        };
+        
+        inputWrapper.AddThemeStyleboxOverride("panel", wrapperStyle);
+
+        var marginBox = new MarginContainer
+        {
+            Name = "WrapperMargin",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        marginBox.SetAnchorsPreset(LayoutPreset.FullRect);
+        marginBox.AddThemeConstantOverride("margin_left", 10);
+        marginBox.AddThemeConstantOverride("margin_right", 10);
+        marginBox.AddThemeConstantOverride("margin_top", 4);
+        marginBox.AddThemeConstantOverride("margin_bottom", 4);
+        inputWrapper.AddChild(marginBox);
+
+        var wrapperBox = new HBoxContainer
+        {
+            Name = "WrapperBox",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.Fill
+        };
+        wrapperBox.AddThemeConstantOverride("separation", 6);
+        marginBox.AddChild(wrapperBox);
+
+        // Search icon inside input box
+        var searchIcon = new TextureRect
+        {
+            Name = "InputSearchIcon",
+            Texture = LoadTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/zoom.png"),
+            CustomMinimumSize = new Vector2(16, 16),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            SelfModulate = new Color(0.50f, 0.56f, 0.62f)
+        };
+        wrapperBox.AddChild(searchIcon);
 
         addFriendInput = new LineEdit
         {
             Name = "ModalAddFriendInput",
             PlaceholderText = "输入好友名称",
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.Fill,
+            Flat = true
         };
-        var editStyle = new StyleBoxFlat
-        {
-            BgColor = new Color(0.06f, 0.08f, 0.10f, 0.88f),
-            BorderColor = new Color(0.42f, 0.50f, 0.58f, 0.32f),
-            BorderWidthLeft = 1,
-            BorderWidthTop = 1,
-            BorderWidthRight = 1,
-            BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 4,
-            CornerRadiusTopRight = 4,
-            CornerRadiusBottomLeft = 4,
-            CornerRadiusBottomRight = 4
+        addFriendInput.AddThemeStyleboxOverride("normal", new StyleBoxEmpty());
+        addFriendInput.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+        addFriendInput.AddThemeColorOverride("font_color", new Color(0.96f, 0.98f, 1f));
+        addFriendInput.AddThemeColorOverride("font_placeholder_color", new Color(0.45f, 0.52f, 0.58f));
+        addFriendInput.AddThemeFontSizeOverride("font_size", 13);
+        addFriendInput.CaretBlink = true;
+
+        addFriendInput.FocusEntered += () => {
+            inputWrapper.AddThemeStyleboxOverride("panel", wrapperFocusStyle);
+            searchIcon.SelfModulate = new Color(0.96f, 0.79f, 0.30f);
         };
-        addFriendInput.AddThemeStyleboxOverride("normal", editStyle);
-        addFriendInput.AddThemeStyleboxOverride("focus", new StyleBoxFlat
-        {
-            BgColor = new Color(0.06f, 0.08f, 0.10f, 0.88f),
-            BorderColor = new Color(0.96f, 0.79f, 0.30f, 0.62f),
-            BorderWidthLeft = 1,
-            BorderWidthTop = 1,
-            BorderWidthRight = 1,
-            BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 4,
-            CornerRadiusTopRight = 4,
-            CornerRadiusBottomLeft = 4,
-            CornerRadiusBottomRight = 4
-        });
+        addFriendInput.FocusExited += () => {
+            inputWrapper.AddThemeStyleboxOverride("panel", wrapperStyle);
+            searchIcon.SelfModulate = new Color(0.50f, 0.56f, 0.62f);
+        };
         addFriendInput.TextSubmitted += (val) => _ = AddFriend();
-        wrap.AddChild(addFriendInput);
+        
+        wrapperBox.AddChild(addFriendInput);
+        wrap.AddChild(inputWrapper);
 
+        // Buttons row
         var btnRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ShrinkEnd };
-        btnRow.AddThemeConstantOverride("separation", 10);
+        btnRow.AddThemeConstantOverride("separation", 12);
 
-        var cancelBtn = AddButton("取消", CloseModal, ButtonTone.Secondary, 13);
-        cancelBtn.CustomMinimumSize = new Vector2(88, 30);
+        var cancelBtn = AddButton("❌ 取消", CloseModal, ButtonTone.Secondary, 13);
+        cancelBtn.CustomMinimumSize = new Vector2(96, 32);
         btnRow.AddChild(cancelBtn);
 
-        var confirmBtn = AddButton("发送申请", () => _ = AddFriend(), ButtonTone.Primary, 13);
-        confirmBtn.CustomMinimumSize = new Vector2(88, 30);
+        var confirmBtn = AddButton("✉️ 发送申请", () => _ = AddFriend(), ButtonTone.Primary, 13);
+        confirmBtn.CustomMinimumSize = new Vector2(96, 32);
         btnRow.AddChild(confirmBtn);
 
         wrap.AddChild(btnRow);
-
         modalBody.AddChild(wrap);
+
         ShowModal();
 
-        // 弹窗显示后立即聚焦输入框
+        // Focus the input field immediately
         addFriendInput.GrabFocus();
     }
 
@@ -1869,6 +2743,18 @@ public partial class LobbyScreen : Control
             return;
 
         ClearChildren(roomRows);
+
+        var isLocal = NetClient.Instance is null || GameState.Instance?.IsGuest == true;
+        if (isLocal)
+        {
+            if (IsLive(roomStatusLabel))
+                roomStatusLabel.Text = "本地战役大厅已就绪 (单机协作模拟)";
+
+            AddSimulatedRoomRow("local_room_1", "【主线】沙漠前锋突击战术团", 4, 5);
+            AddSimulatedRoomRow("local_room_2", "【训练】重装坦克铁甲洪流编队", 2, 5);
+            AddSimulatedRoomRow("local_room_3", "【探索】空中走廊联合打击中队", 1, 5);
+            return;
+        }
 
         if (NetClient.Instance is null || string.IsNullOrEmpty(GameState.Instance?.Token))
         {
@@ -2031,6 +2917,60 @@ public partial class LobbyScreen : Control
         roomRows.AddChild(panel);
     }
 
+    void AddSimulatedRoomRow(string roomId, string roomName, int count, int maxPlayers)
+    {
+        if (!IsLive(roomRows))
+            return;
+
+        var mapName = BattleMapCatalog.GlobalConquestName;
+        var modeHint = "5人协作对抗敌军";
+        var isActiveRoom = !string.IsNullOrEmpty(roomId) && (roomId == activeRoomId || roomId == GameState.Instance?.CurrentRoomId);
+
+        if (isActiveRoom)
+        {
+            activeRoomId = roomId;
+            activeRoomMap = mapName;
+            activeRoomMaxPlayers = maxPlayers;
+            activeRoomPlayerCount = count;
+            activeRoomHostId = GameState.Instance?.UserId ?? "guest";
+            activeRoomPlayers.Clear();
+            activeRoomPlayers.Add(activeRoomHostId);
+            for (int i = 1; i < count; i++)
+            {
+                activeRoomPlayers.Add($"guest_ally_{i}");
+            }
+        }
+
+        var panel = new Panel { Name = "Room_" + roomId, CustomMinimumSize = new Vector2(0, 68) };
+        MetalUiStyle.ApplyMetalPanel(panel, isActiveRoom ? MetalUiStyle.Green : MetalUiStyle.Steel, 1, 6, 4);
+        var row = AddHBox(panel, "RoomRow", 10);
+        row.SetAnchorsPreset(LayoutPreset.FullRect);
+        row.OffsetLeft = 10;
+        row.OffsetRight = -10;
+        row.OffsetTop = 8;
+        row.OffsetBottom = -8;
+
+        var info = new VBoxContainer { Name = "RoomInfo", SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        info.AddChild(AddLabel(isActiveRoom ? $"当前房间：{roomName}" : roomName, 15, isActiveRoom ? GoodText : PanelText, HorizontalAlignment.Left));
+        info.AddChild(AddLabel($"{mapName}  {count}/{maxPlayers}  {modeHint}  就绪中", 12, isActiveRoom ? GoodText : MutedText, HorizontalAlignment.Left));
+        row.AddChild(info);
+
+        var invite = AddButton("邀请", () => ShowInvitePanel(roomId), ButtonTone.Secondary, 12);
+        invite.Disabled = true;
+        row.AddChild(invite);
+
+        var join = AddButton(isActiveRoom ? "进入" : "加入", () =>
+        {
+            if (isActiveRoom)
+                _ = OpenGlobalConquestTeamPanel();
+            else
+                _ = JoinRoom(roomId);
+        }, ButtonTone.Primary, 12);
+        join.Disabled = string.IsNullOrEmpty(roomId) || (!isActiveRoom && count >= maxPlayers);
+        row.AddChild(join);
+        roomRows.AddChild(panel);
+    }
+
     async Task KickPlayer(string targetUserId)
     {
         if (NetClient.Instance is null || string.IsNullOrEmpty(activeRoomId))
@@ -2156,6 +3096,36 @@ public partial class LobbyScreen : Control
 
     async Task JoinRoom(string roomId)
     {
+        var isLocal = NetClient.Instance is null || GameState.Instance?.IsGuest == true;
+        if (isLocal)
+        {
+            activeRoomId = roomId;
+            activeRoomMap = BattleMapCatalog.GlobalConquestName;
+            activeRoomMaxPlayers = 5;
+            activeRoomPlayerCount = roomId switch
+            {
+                "local_room_1" => 4,
+                "local_room_2" => 2,
+                "local_room_3" => 1,
+                _ => 5
+            };
+            selectedMap = activeRoomMap;
+            GameState.Instance?.SelectMap(activeRoomMap, GlobalConquestMode);
+            GameState.Instance?.SetCurrentRoom(activeRoomId);
+
+            activeRoomHostId = "local_room_host";
+            activeRoomPlayers.Clear();
+            activeRoomPlayers.Add(GameState.Instance?.UserId ?? "guest");
+            for (int i = 1; i < activeRoomPlayerCount; i++)
+            {
+                activeRoomPlayers.Add($"guest_ally_{i}");
+            }
+
+            ShowToast("已成功加入本地组队房间");
+            _ = OpenGlobalConquestTeamPanel();
+            return;
+        }
+
         if (NetClient.Instance is null || string.IsNullOrWhiteSpace(roomId))
             return;
 
@@ -2268,9 +3238,14 @@ public partial class LobbyScreen : Control
         await StartBattle(false);
     }
 
-    void ShowInvitePanel(string roomId)
+    void ShowInvitePanel(string roomId, string activeTab = "friends")
     {
-        modalTitle.Text = "邀请好友";
+        _ = ShowInvitePanelAsync(roomId, activeTab);
+    }
+
+    async Task ShowInvitePanelAsync(string roomId, string activeTab)
+    {
+        modalTitle.Text = "邀请玩家";
         ClearChildren(modalBody);
         modalBody.AddChild(AddLabel(string.IsNullOrEmpty(roomId) ? "当前没有可邀请的房间。" : $"房间编号：{roomId}", 13, MutedText, HorizontalAlignment.Left));
         if (string.IsNullOrEmpty(roomId))
@@ -2279,24 +3254,133 @@ public partial class LobbyScreen : Control
             return;
         }
 
-        if (loadedFriendNames.Count == 0)
+        // Add Tab Buttons at the top
+        var tabRow = new HBoxContainer
         {
-            modalBody.AddChild(AddLabel("暂无可邀请好友，先在左侧添加好友或刷新列表。", 14, MutedText, HorizontalAlignment.Left));
-            modalBody.AddChild(AddButton("刷新好友", () => _ = RefreshFriends(), ButtonTone.Secondary, 13));
-        }
-        else
+            Name = "InviteTabBarRow",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkBegin
+        };
+        tabRow.AddThemeConstantOverride("separation", 10);
+        modalBody.AddChild(tabRow);
+
+        var friendsTabBtn = AddButton("好友邀请", () => ShowInvitePanel(roomId, "friends"), activeTab == "friends" ? ButtonTone.Gold : ButtonTone.Secondary, 12);
+        friendsTabBtn.CustomMinimumSize = new Vector2(120, 32);
+        friendsTabBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        tabRow.AddChild(friendsTabBtn);
+
+        var guildTabBtn = AddButton("公会邀请", () => ShowInvitePanel(roomId, "guild"), activeTab == "guild" ? ButtonTone.Gold : ButtonTone.Secondary, 12);
+        guildTabBtn.CustomMinimumSize = new Vector2(120, 32);
+        guildTabBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        tabRow.AddChild(guildTabBtn);
+
+        // Add a separator
+        var spacer = new Control { CustomMinimumSize = new Vector2(0, 5) };
+        modalBody.AddChild(spacer);
+
+        if (activeTab == "friends")
         {
-            foreach (var friendName in loadedFriendNames)
+            // Gather online friends
+            var onlineFriends = new List<(string name, string status)>();
+
+            var friendsList = new Godot.Collections.Array();
+            if (cachedFriendsData.ContainsKey("friends"))
             {
-                var row = new HBoxContainer { Name = "Invite_" + friendName };
-                row.AddThemeConstantOverride("separation", 8);
-                var label = AddLabel(friendName, 15, PanelText, HorizontalAlignment.Left);
-                label.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-                row.AddChild(label);
-                row.AddChild(AddButton("发送邀请", () => _ = SendInvite(friendName, roomId), ButtonTone.Gold, 13));
-                modalBody.AddChild(row);
+                friendsList = cachedFriendsData.GetArray("friends");
+            }
+
+            foreach (var item in friendsList)
+            {
+                var friend = item.AsGodotDictionary();
+                var name = friend.GetString("username");
+                var status = friend.GetString("status");
+                if (status != "离线" && !string.IsNullOrEmpty(name))
+                {
+                    onlineFriends.Add((name, status));
+                }
+            }
+
+            // Fallback to mock data if empty (for demo/testing or offline mode)
+            if (onlineFriends.Count == 0)
+            {
+                onlineFriends.Add(("IronWolf", "在线"));
+                onlineFriends.Add(("SeaHammer", "匹配中"));
+            }
+
+            // Render
+            if (onlineFriends.Count == 0)
+            {
+                modalBody.AddChild(AddLabel("当前没有在线的好友。", 14, MutedText, HorizontalAlignment.Left));
+            }
+            else
+            {
+                foreach (var friend in onlineFriends)
+                {
+                    var row = new HBoxContainer { Name = "Invite_" + friend.name };
+                    row.AddThemeConstantOverride("separation", 8);
+                    
+                    var label = AddLabel($"{friend.name} [{friend.status}]", 15, PanelText, HorizontalAlignment.Left);
+                    label.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                    row.AddChild(label);
+                    
+                    row.AddChild(AddButton("发送邀请", () => _ = SendInvite(friend.name, roomId), ButtonTone.Gold, 13));
+                    modalBody.AddChild(row);
+                }
             }
         }
+        else // guild tab
+        {
+            var onlineGuildMembers = new List<(string name, string status)>();
+
+            // Request guild members from server
+            if (NetClient.Instance is not null && GameState.Instance?.IsGuest == false)
+            {
+                var response = await NetClient.Instance.GetGuildMembers();
+                if (response.GetBool("success") && response.ContainsKey("members"))
+                {
+                    var membersList = response.GetArray("members");
+                    foreach (var item in membersList)
+                    {
+                        var member = item.AsGodotDictionary();
+                        var name = member.GetString("username");
+                        var status = member.GetString("status");
+                        if (status != "离线" && !string.IsNullOrEmpty(name))
+                        {
+                            onlineGuildMembers.Add((name, status));
+                        }
+                    }
+                }
+            }
+
+            // Fallback to mock data if empty (for demo/testing or offline/guest mode)
+            if (onlineGuildMembers.Count == 0)
+            {
+                onlineGuildMembers.Add(("雷神指挥官", "在线"));
+                onlineGuildMembers.Add(("战车大亨", "匹配中"));
+            }
+
+            // Render
+            if (onlineGuildMembers.Count == 0)
+            {
+                modalBody.AddChild(AddLabel("当前没有在线的公会成员。", 14, MutedText, HorizontalAlignment.Left));
+            }
+            else
+            {
+                foreach (var member in onlineGuildMembers)
+                {
+                    var row = new HBoxContainer { Name = "Invite_" + member.name };
+                    row.AddThemeConstantOverride("separation", 8);
+                    
+                    var label = AddLabel($"{member.name} [{member.status}]", 15, PanelText, HorizontalAlignment.Left);
+                    label.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                    row.AddChild(label);
+                    
+                    row.AddChild(AddButton("发送邀请", () => _ = SendInvite(member.name, roomId), ButtonTone.Gold, 13));
+                    modalBody.AddChild(row);
+                }
+            }
+        }
+
         ShowModal();
     }
 
@@ -2397,6 +3481,7 @@ public partial class LobbyScreen : Control
 
     void ShowShopModal()
     {
+        ExpandModalPanel(true);
         OpenFeatureModal("军需商店", "补给、加速与全球争霸军备包会在这里统一购买。");
         AddModalSummaryRow(
             AddStatCard("金币", $"{GameState.Instance?.Gold ?? 0}", "常规资源", WarningText),
@@ -2411,11 +3496,11 @@ public partial class LobbyScreen : Control
         {
             Name = "ShopGrid",
             Columns = 3,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
-        grid.AddThemeConstantOverride("h_separation", 14);
-        grid.AddThemeConstantOverride("v_separation", 14);
+        grid.AddThemeConstantOverride("h_separation", 16);
+        grid.AddThemeConstantOverride("v_separation", 16);
         list.AddChild(grid);
 
         foreach (var offer in BuildShopOffers())
@@ -2649,7 +3734,7 @@ public partial class LobbyScreen : Control
         var card = new Panel
         {
             Name = "ShopItem_" + offer.Name,
-            CustomMinimumSize = new Vector2(280, 275), // Width 280, Height 275
+            CustomMinimumSize = new Vector2(272, 310),
             SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
             SizeFlagsVertical = SizeFlags.ShrinkBegin,
             ClipContents = true
@@ -2698,9 +3783,9 @@ public partial class LobbyScreen : Control
         };
         margin.SetAnchorsPreset(LayoutPreset.FullRect);
         margin.AddThemeConstantOverride("margin_left", 12);
-        margin.AddThemeConstantOverride("margin_top", 12);
+        margin.AddThemeConstantOverride("margin_top", 10);
         margin.AddThemeConstantOverride("margin_right", 12);
-        margin.AddThemeConstantOverride("margin_bottom", 12);
+        margin.AddThemeConstantOverride("margin_bottom", 10);
         card.AddChild(margin);
 
         var content = new VBoxContainer
@@ -2709,12 +3794,12 @@ public partial class LobbyScreen : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
-        content.AddThemeConstantOverride("separation", 6);
+        content.AddThemeConstantOverride("separation", 5);
         margin.AddChild(content);
 
         // 1. 上面一个大图标 (Top: Big Icon/Preview Block)
         var preview = CreateShopPreviewBlock(offer);
-        preview.CustomMinimumSize = new Vector2(256, 110);
+        preview.CustomMinimumSize = new Vector2(248, 108);
         content.AddChild(preview);
 
         // 2. 下面一行介绍 (Middle: Title & Description)
@@ -2724,7 +3809,7 @@ public partial class LobbyScreen : Control
 
         var detail = AddLabel(offer.Description, 10, MutedText, HorizontalAlignment.Center);
         detail.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        detail.CustomMinimumSize = new Vector2(0, 32);
+        detail.CustomMinimumSize = new Vector2(0, 36);
         content.AddChild(detail);
 
         // 3. 标签就是分类 (Middle: Tags for Category and Badge)
@@ -2742,7 +3827,7 @@ public partial class LobbyScreen : Control
 
         // 4. 再下面是价格按钮，点击价格进入购买页
         var priceBtn = CreateShopPriceButton(offer);
-        priceBtn.CustomMinimumSize = new Vector2(160, 32);
+        priceBtn.CustomMinimumSize = new Vector2(160, 34);
         priceBtn.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
         priceBtn.Pressed += () => ShowToast($"{offer.Name} 的购买接口待接入");
         content.AddChild(priceBtn);
@@ -2755,24 +3840,26 @@ public partial class LobbyScreen : Control
         var holder = new Panel
         {
             Name = "ShopPreview_" + offer.Name,
-            CustomMinimumSize = new Vector2(256, 110),
+            CustomMinimumSize = new Vector2(248, 114),
             SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
+            SizeFlagsVertical = SizeFlags.ShrinkBegin,
+            ClipContents = true
         };
         holder.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
-            BgColor = new Color(0.02f, 0.03f, 0.03f, 0.44f),
-            BorderColor = new Color(offer.Accent.R, offer.Accent.G, offer.Accent.B, 0.42f),
+            BgColor = new Color(0.04f, 0.05f, 0.06f, 0.90f),
+            BorderColor = new Color(offer.Accent.R, offer.Accent.G, offer.Accent.B, 0.65f),
             BorderWidthLeft = 1,
             BorderWidthTop = 1,
             BorderWidthRight = 1,
             BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 6,
-            CornerRadiusTopRight = 6,
-            CornerRadiusBottomLeft = 6,
-            CornerRadiusBottomRight = 6
+            CornerRadiusTopLeft = 8,
+            CornerRadiusTopRight = 8,
+            CornerRadiusBottomLeft = 8,
+            CornerRadiusBottomRight = 8
         });
 
+        // 1. 高彩 3D/科技商品效果小图 (全幅呈现，无灰盒遮挡)
         var back = new TextureRect
         {
             Name = "ShopPreviewBg_" + offer.Name,
@@ -2780,60 +3867,37 @@ public partial class LobbyScreen : Control
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
             MouseFilter = MouseFilterEnum.Ignore,
-            Modulate = new Color(1f, 1f, 1f, 0.90f)
+            Modulate = new Color(1f, 1f, 1f, 1.0f)
         };
         back.SetAnchorsPreset(LayoutPreset.FullRect);
         holder.AddChild(back);
 
-        var gloss = new ColorRect
+        // 2. 底部暗色渐变遮罩 (衬托文字与边框)
+        var scrim = new ColorRect
         {
-            Name = "ShopPreviewGloss_" + offer.Name,
-            Color = new Color(0.03f, 0.04f, 0.04f, 0.16f),
+            Name = "ShopPreviewScrim_" + offer.Name,
+            Color = new Color(0.02f, 0.03f, 0.04f, 0.25f),
             MouseFilter = MouseFilterEnum.Ignore
         };
-        gloss.SetAnchorsPreset(LayoutPreset.FullRect);
-        holder.AddChild(gloss);
+        scrim.SetAnchorsPreset(LayoutPreset.FullRect);
+        holder.AddChild(scrim);
 
-        var iconFrame = new Panel
+        // 3. 右上角精美斜角贴签 (替代中间占位灰盒)
+        if (!string.IsNullOrEmpty(offer.Badge))
         {
-            Name = "ShopPreviewIconFrame_" + offer.Name,
-            CustomMinimumSize = new Vector2(54, 54),
-            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-            SizeFlagsVertical = SizeFlags.ShrinkCenter
-        };
-        iconFrame.SetAnchorsPreset(LayoutPreset.Center);
-        iconFrame.GrowHorizontal = GrowDirection.Both;
-        iconFrame.GrowVertical = GrowDirection.Both;
-        iconFrame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
-        {
-            BgColor = new Color(0.04f, 0.06f, 0.07f, 0.60f),
-            BorderColor = new Color(1f, 1f, 1f, 0.18f),
-            BorderWidthLeft = 1,
-            BorderWidthTop = 1,
-            BorderWidthRight = 1,
-            BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 10,
-            CornerRadiusTopRight = 10,
-            CornerRadiusBottomLeft = 10,
-            CornerRadiusBottomRight = 10
-        });
-        holder.AddChild(iconFrame);
+            var badgeTag = CreateTag(offer.Badge, new Color(offer.Accent.R * 0.25f, offer.Accent.G * 0.25f, offer.Accent.B * 0.25f, 0.92f), new Color(1f, 0.96f, 0.85f));
+            var badgeMargin = new MarginContainer
+            {
+                Name = "ShopBadgeMargin_" + offer.Name
+            };
+            badgeMargin.SetAnchorsPreset(LayoutPreset.TopRight);
+            badgeMargin.GrowHorizontal = GrowDirection.Begin;
+            badgeMargin.AddThemeConstantOverride("margin_right", 8);
+            badgeMargin.AddThemeConstantOverride("margin_top", 8);
+            badgeMargin.AddChild(badgeTag);
+            holder.AddChild(badgeMargin);
+        }
 
-        var icon = new TextureRect
-        {
-            Name = "ShopPreviewIcon_" + offer.Name,
-            Texture = LoadTexture(offer.IconPath),
-            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-            MouseFilter = MouseFilterEnum.Ignore,
-            SelfModulate = new Color(1f, 1f, 1f, 0.96f)
-        };
-        icon.SetAnchorsPreset(LayoutPreset.FullRect);
-        icon.OffsetLeft = 10;
-        icon.OffsetTop = 10;
-        icon.OffsetRight = -10;
-        icon.OffsetBottom = -10;
-        iconFrame.AddChild(icon);
         return holder;
     }
 
@@ -2926,6 +3990,7 @@ public partial class LobbyScreen : Control
 
     void ShowResearchModal()
     {
+        ExpandModalPanel(true);
         OpenFeatureModal("科技研究中心", "升级主基地战略科研，为战场部署获取更强的机动、火力、装甲或维修加成。");
         
         int maxLvl = 1;
@@ -3155,12 +4220,25 @@ public partial class LobbyScreen : Control
             _ => techKey
         };
 
-        if (techEndAtMs > NowMs())
+        if (level >= 5)
+        {
+            box.AddChild(AddLabel("已升级至最高等级 (Lv.5)", 12, GoodText, HorizontalAlignment.Center));
+        }
+        else if (techEndAtMs > NowMs())
         {
             box.AddChild(AddLabel("其他科研正在计时中", 12, MutedText, HorizontalAlignment.Center));
         }
         else
         {
+            var cost = GetTechUpgradeCost(level);
+            var myGold = GameState.Instance?.Gold ?? 0;
+            var isEnough = myGold >= cost;
+
+            var costBox = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+            costBox.AddChild(AddLabel("升级消耗: ", 12, MutedText, HorizontalAlignment.Left));
+            costBox.AddChild(AddLabel($"{cost} 金币", 12, isEnough ? WarningText : new Color(0.95f, 0.28f, 0.22f), HorizontalAlignment.Left));
+            box.AddChild(costBox);
+
             var upgradeBtn = AddButton("启动升级项目", () => StartResearchProject(techKey, serverTechKey), ButtonTone.Gold, 13);
             upgradeBtn.CustomMinimumSize = new Vector2(0, 32);
             upgradeBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
@@ -3168,13 +4246,20 @@ public partial class LobbyScreen : Control
         }
     }
 
+    int GetTechUpgradeCost(int currentLevel)
+    {
+        return currentLevel switch
+        {
+            1 => 200,
+            2 => 500,
+            3 => 1000,
+            4 => 2000,
+            _ => 999999
+        };
+    }
+
     void StartResearchProject(string techKey, string serverTechKey)
     {
-        GameState.Instance?.UpgradeTech(techKey);
-
-        _ = StartTechResearch();
-        ShowResearchModal();
-        
         string name = "科技";
         foreach (var t in BattleTechCatalog.GetForBuilding("main_base"))
         {
@@ -3184,11 +4269,60 @@ public partial class LobbyScreen : Control
                 break;
             }
         }
+
+        var isLocal = NetClient.Instance is null || GameState.Instance?.IsGuest == true;
+        if (isLocal)
+        {
+            var currentLevel = GameState.Instance?.GetTechLevel(techKey) ?? 1;
+            if (currentLevel >= 5)
+            {
+                ShowToast("该科技已达到最高等级！");
+                return;
+            }
+
+            var cost = GetTechUpgradeCost(currentLevel);
+            if (GameState.Instance is not null)
+            {
+                if (GameState.Instance.Gold < cost)
+                {
+                    ShowToast($"启动失败：金币不足！升级需要 {cost} 金币。");
+                    return;
+                }
+
+                if (!GameState.Instance.TrySpendCurrency(cost, 0))
+                {
+                    ShowToast("启动失败：扣除金币失败！");
+                    return;
+                }
+            }
+
+            var duration = currentLevel switch
+            {
+                1 => 30,
+                2 => 60,
+                3 => 120,
+                4 => 240,
+                _ => 30
+            };
+            GameState.Instance?.StartLocalResearch(techKey, duration);
+            ShowResearchModal();
+            
+            ShowToast($"已成功扣除 {cost} 金币，启动 {name} 升级科研，需耗时 {duration} 秒！");
+            _ = RefreshLobbyData(false);
+            return;
+        }
+
+        GameState.Instance?.UpgradeTech(techKey);
+
+        _ = StartTechResearch();
+        ShowResearchModal();
+        
         ShowToast($"已成功启动 {name} 升级项目！");
     }
 
     void ShowWarehouseModal(string activeTab = "blueprints")
     {
+        ExpandModalPanel(true);
         var currentStarterKey = GameState.Instance?.GlobalConquestStarterUnitKey ?? "tank";
         var currentStarter = BattleUnitCatalog.Get(currentStarterKey);
         var currentFaction = BattleUnitCatalog.GetGlobalConquestFactionByStarter(currentStarterKey);
@@ -3219,7 +4353,7 @@ public partial class LobbyScreen : Control
         currentWarehouseDetailPanel = new Panel
         {
             Name = "WarehouseDetailPanel",
-            CustomMinimumSize = new Vector2(210, 240),
+            CustomMinimumSize = new Vector2(310, 240),
             SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
@@ -3263,10 +4397,24 @@ public partial class LobbyScreen : Control
         {
             Name = "WarehouseTabBar",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
+            SizeFlagsVertical = SizeFlags.ShrinkBegin,
+            ClipContents = true
         };
         MetalUiStyle.ApplyMetalPanel(panel, WarehousePanel, 1, 6, 4);
         AddTopAccentStripe(panel, new Color(0.92f, 0.78f, 0.34f, 0.60f), 2);
+
+        // 引入科技风仓库仓储背景图
+        var bgTex = new TextureRect
+        {
+            Name = "WarehouseTabBarBgTexture",
+            Texture = LoadTexture("res://assets/campaign/warehouse_lobby_bg.png"),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+            SelfModulate = new Color(1f, 1f, 1f, 0.35f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+        panel.AddChild(bgTex);
 
         var margin = new MarginContainer
         {
@@ -3293,14 +4441,13 @@ public partial class LobbyScreen : Control
         helper.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         box.AddChild(helper);
 
-        var row = new HFlowContainer
+        var row = new HBoxContainer
         {
             Name = "WarehouseTabBarRow",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
-        row.AddThemeConstantOverride("h_separation", 8);
-        row.AddThemeConstantOverride("v_separation", 8);
+        row.AddThemeConstantOverride("separation", 10);
         box.AddChild(row);
 
         row.AddChild(CreateWarehouseTabButton("军备蓝图", "blueprints", activeTab));
@@ -3314,7 +4461,7 @@ public partial class LobbyScreen : Control
     {
         var button = AddButton(text, () => ShowWarehouseModal(tabKey), tabKey == activeTab ? ButtonTone.Gold : ButtonTone.Secondary, 12);
         button.CustomMinimumSize = new Vector2(136, 36);
-        button.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        button.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         button.ClipText = true;
         button.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
         return button;
@@ -3326,10 +4473,25 @@ public partial class LobbyScreen : Control
         {
             Name = "WarehouseSection_" + title,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
+            SizeFlagsVertical = SizeFlags.ShrinkBegin,
+            ClipContents = true
         };
         MetalUiStyle.ApplyMetalPanel(panel, WarehousePanel, 1, 8, 4);
         AddTopAccentStripe(panel, new Color(accent.R, accent.G, accent.B, 0.76f), 3);
+
+        // 引入科技风仓库仓储背景图
+        var bgTex = new TextureRect
+        {
+            Name = "WarehouseSectionBgTexture",
+            Texture = LoadTexture("res://assets/campaign/warehouse_lobby_bg.png"),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+            SelfModulate = new Color(1f, 1f, 1f, 0.40f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+        panel.AddChild(bgTex);
+
         parent.AddChild(panel);
 
         var margin = new MarginContainer
@@ -3357,7 +4519,7 @@ public partial class LobbyScreen : Control
         var grid = new GridContainer
         {
             Name = "WarehouseSectionGrid_" + title,
-            Columns = 4,
+            Columns = 7,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
@@ -3437,7 +4599,7 @@ public partial class LobbyScreen : Control
 
     Control CreateWarehouseInventoryCard(string name, string type, string count, string description)
     {
-        var iconPath = "";
+        var iconPath = "res://assets/unity_migrated/Assets/Resources/UI/CurrencyIcons/currency_gem_blue.png";
         return CreateWarehouseGridCell(
             name,
             iconPath,
@@ -3472,26 +4634,55 @@ public partial class LobbyScreen : Control
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         margin.SetAnchorsPreset(LayoutPreset.FullRect);
-        margin.AddThemeConstantOverride("margin_left", 6);
-        margin.AddThemeConstantOverride("margin_top", 6);
-        margin.AddThemeConstantOverride("margin_right", 6);
-        margin.AddThemeConstantOverride("margin_bottom", 6);
+        margin.AddThemeConstantOverride("margin_left", 2);
+        margin.AddThemeConstantOverride("margin_top", 2);
+        margin.AddThemeConstantOverride("margin_right", 2);
+        margin.AddThemeConstantOverride("margin_bottom", 2);
         button.AddChild(margin);
 
-        // Display the item name centered inside the card
-        var nameLabel = new Label
+        // 1. Draw Icon
+        if (!string.IsNullOrEmpty(iconPath))
         {
-            Name = "TitleLabel",
-            Text = title,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            AutowrapMode = TextServer.AutowrapMode.WordSmart,
-            MouseFilter = Control.MouseFilterEnum.Ignore
-        };
-        nameLabel.SetAnchorsPreset(LayoutPreset.FullRect);
-        nameLabel.AddThemeFontSizeOverride("font_size", 10);
-        nameLabel.AddThemeColorOverride("font_color", new Color(0.9f, 0.93f, 0.95f));
-        margin.AddChild(nameLabel);
+            var iconRect = new TextureRect
+            {
+                Name = "IconRect",
+                Texture = LoadTexture(iconPath),
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.Scale,
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            
+            // If the item is locked, modulate it to be slightly darker/greyed out
+            if (status == "待解锁")
+            {
+                iconRect.SelfModulate = new Color(0.4f, 0.4f, 0.4f, 0.7f);
+            }
+            
+            margin.AddChild(iconRect);
+        }
+
+        // 3. Draw Quantity Badge (if any)
+        if (!string.IsNullOrEmpty(quantity) && quantity != "0" && quantity != "")
+        {
+            var qtyLabel = new Label
+            {
+                Name = "QuantityLabel",
+                Text = quantity,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            qtyLabel.SetAnchorsPreset(LayoutPreset.BottomRight);
+            qtyLabel.GrowHorizontal = GrowDirection.Both;
+            qtyLabel.GrowVertical = GrowDirection.Both;
+            qtyLabel.OffsetRight = -2;
+            qtyLabel.OffsetBottom = -2;
+            qtyLabel.AddThemeFontSizeOverride("font_size", 8);
+            qtyLabel.AddThemeColorOverride("font_color", new Color(0.95f, 0.95f, 0.1f)); // Yellow text for quantity
+            margin.AddChild(qtyLabel);
+        }
 
         button.Pressed += () =>
         {
@@ -3507,6 +4698,19 @@ public partial class LobbyScreen : Control
             return;
 
         ClearChildren(currentWarehouseDetailPanel);
+
+        // 重新添加详情面板的科幻背景图，使其在切换卡片时依然完美保留
+        var detailBgTex = new TextureRect
+        {
+            Name = "WarehouseDetailBgTexture",
+            Texture = LoadTexture("res://assets/campaign/warehouse_lobby_bg.png"),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+            SelfModulate = new Color(1f, 1f, 1f, 0.30f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        detailBgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+        currentWarehouseDetailPanel.AddChild(detailBgTex);
 
         AddTopAccentStripe(currentWarehouseDetailPanel, new Color(accent.R, accent.G, accent.B, 0.80f), 3);
 
@@ -3849,11 +5053,29 @@ public partial class LobbyScreen : Control
                 AddStatCard("模式", usingCache ? "缓存数据" : "离线样例", usingCache ? "等待服务器刷新" : "服务器不可用时展示", WarningText),
                 AddStatCard("我的胜场", $"{GameState.Instance?.Wins ?? 0}", "本地账号缓存", GoodText),
                 AddStatCard("我的军衔", FriendlyText(GameState.Instance?.RankTitle, "列兵"), "当前档案", PanelText));
+
+            // 将玩家与离线样例数据放在一起，按胜场（降序）、等级（降序）进行动态排序
+            var entries = new System.Collections.Generic.List<(string Username, int Level, int Wins, int Losses, string RankTitle, bool IsCurrent)>
+            {
+                (GameState.Instance?.Username ?? "Commander", GameState.Instance?.Level ?? 1, GameState.Instance?.Wins ?? 0, GameState.Instance?.Losses ?? 0, GameState.Instance?.RankTitle ?? "列兵", true),
+                ("IronWolf", 8, 12, 4, "上将", false),
+                ("SeaHammer", 6, 9, 3, "中将", false),
+                ("SkyLancer", 5, 7, 5, "少将", false)
+            };
+
+            entries.Sort((a, b) => {
+                int compareWins = b.Wins.CompareTo(a.Wins);
+                if (compareWins != 0) return compareWins;
+                return b.Level.CompareTo(a.Level);
+            });
+
             AddLeaderboardTableHeader(out var sampleList);
-            AddLeaderboardRow(sampleList, 1, GameState.Instance?.Username ?? "Commander", GameState.Instance?.Level ?? 1, GameState.Instance?.Wins ?? 0, GameState.Instance?.Losses ?? 0, GameState.Instance?.RankTitle ?? "列兵", true);
-            AddLeaderboardRow(sampleList, 2, "IronWolf", 8, 12, 4, "上将", false);
-            AddLeaderboardRow(sampleList, 3, "SeaHammer", 6, 9, 3, "中将", false);
-            AddLeaderboardRow(sampleList, 4, "SkyLancer", 5, 7, 5, "少将", false);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                AddLeaderboardRow(sampleList, i + 1, entry.Username, entry.Level, entry.Wins, entry.Losses, entry.RankTitle, entry.IsCurrent);
+            }
+
             ShowModal();
             return;
         }
@@ -3934,11 +5156,11 @@ public partial class LobbyScreen : Control
             row.AddThemeConstantOverride("separation", 16);
             rewardSec.AddChild(row);
             
-            row.AddChild(AddLabel($"🎁 包含金币 x{mail.RewardGold} | 钻石 x{mail.RewardGems}", 14, WarningText, HorizontalAlignment.Center));
+            row.AddChild(CreateRewardControl($"🎁 包含金币 x{mail.RewardGold} | 钻石 x{mail.RewardGems}", 14, WarningText, HorizontalAlignment.Center));
             
             if (!mail.IsClaimed)
             {
-                var claimBtn = AddButton("领取奖励", () => ClaimMailReward(mail.Id), ButtonTone.Gold, 13);
+                var claimBtn = AddButton("领取奖励", () => _ = ClaimMailReward(mail.Id), ButtonTone.Gold, 13);
                 row.AddChild(claimBtn);
             }
             else
@@ -3954,7 +5176,21 @@ public partial class LobbyScreen : Control
         ShowModal();
     }
 
-    void ClaimMailReward(string mailId)
+    void ApplyClaimedMails(Godot.Collections.Array claimedMailIds)
+    {
+        if (claimedMailIds == null) return;
+        for (int i = 0; i < systemMails.Count; i++)
+        {
+            var m = systemMails[i];
+            if (claimedMailIds.Contains(m.Id))
+            {
+                m.IsClaimed = true;
+                systemMails[i] = m;
+            }
+        }
+    }
+
+    async Task ClaimMailReward(string mailId)
     {
         for (int i = 0; i < systemMails.Count; i++)
         {
@@ -3963,10 +5199,36 @@ public partial class LobbyScreen : Control
                 var updated = systemMails[i];
                 if (updated.IsClaimed)
                     break;
+
+                var isLocal = NetClient.Instance is null || GameState.Instance?.IsGuest == true;
+                if (isLocal)
+                {
+                    updated.IsClaimed = true;
+                    systemMails[i] = updated;
+
+                    GameState.Instance?.AddCurrency(updated.RewardGold, updated.RewardGems);
+                    RefreshTopBar();
+
+                    ShowToast($"领取成功！金币 +{updated.RewardGold}，钻石 +{updated.RewardGems}");
+                    ShowMailDetail(updated);
+                    break;
+                }
+
+                var data = await NetClient.Instance.ClaimMailReward(mailId, updated.RewardGold, updated.RewardGems);
+                if (!data.GetBool("success"))
+                {
+                    ShowToast("领取失败：" + FriendlyText(data.GetString("error"), "请稍后重试"));
+                    break;
+                }
+
                 updated.IsClaimed = true;
                 systemMails[i] = updated;
 
-                GameState.Instance?.AddCurrency(updated.RewardGold, updated.RewardGems);
+                GameState.Instance?.ApplyLobbyData(data);
+                if (data.ContainsKey("claimedMailIds"))
+                {
+                    ApplyClaimedMails(data.GetArray("claimedMailIds"));
+                }
                 RefreshTopBar();
 
                 ShowToast($"领取成功！金币 +{updated.RewardGold}，钻石 +{updated.RewardGems}");
@@ -4020,7 +5282,9 @@ public partial class LobbyScreen : Control
                 { "from", "IronWolf" },
                 { "mapName", "沙漠绿洲" },
                 { "maxPlayers", 2 },
-                { "playerCount", 1 }
+                { "playerCount", 1 },
+                { "level", 18 },
+                { "rank", "黄金指挥官" }
             };
             invites = new Godot.Collections.Array { mockInvite };
         }
@@ -4069,58 +5333,117 @@ public partial class LobbyScreen : Control
         var mapName = FriendlyText(invite.GetString("mapName"), BattleMapCatalog.DefaultMapName);
         var maxPlayers = Math.Max(2, invite.GetInt("maxPlayers", 2));
         var playerCount = Math.Max(0, invite.GetInt("playerCount", 0));
+        var level = invite.GetInt("level", 1);
+        var rank = FriendlyText(invite.GetString("rank"), "列兵");
 
         var card = new Panel
         {
             Name = "InviteCard_" + ShortRoomId(roomId),
-            CustomMinimumSize = new Vector2(0, 108)
+            CustomMinimumSize = new Vector2(0, 68),
+            MouseFilter = Control.MouseFilterEnum.Pass
         };
-        MetalUiStyle.ApplyMetalPanel(card, MetalUiStyle.Steel, 1, 8, 4);
-        AddTopAccentStripe(card, new Color(0.95f, 0.76f, 0.30f, 0.86f), 3);
+        MetalUiStyle.ApplyMetalPanel(card, MetalUiStyle.Steel, 1, 4, 3);
+
+        card.MouseEntered += () =>
+        {
+            MetalUiStyle.ApplyMetalPanel(card, MetalUiStyle.Gold, 1, 4, 3);
+        };
+        card.MouseExited += () =>
+        {
+            MetalUiStyle.ApplyMetalPanel(card, MetalUiStyle.Steel, 1, 4, 3);
+        };
 
         var row = AddHBox(card, "InviteCardRow", 10);
         row.SetAnchorsPreset(LayoutPreset.FullRect);
-        row.OffsetLeft = 12;
-        row.OffsetRight = -12;
-        row.OffsetTop = 14;
-        row.OffsetBottom = -12;
+        row.OffsetLeft = 8;
+        row.OffsetRight = -8;
+        row.OffsetTop = 6;
+        row.OffsetBottom = -6;
+        row.MouseFilter = Control.MouseFilterEnum.Ignore;
 
-        var info = new VBoxContainer
+        // Avatar
+        row.AddChild(CreateFriendAvatar(from, "在线"));
+
+        // Sender Info
+        var senderInfo = new VBoxContainer
         {
-            Name = "InviteCardInfo",
+            Name = "SenderInfo",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ExpandFill
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        info.AddThemeConstantOverride("separation", 4);
-        info.AddChild(AddLabel(from, 16, PanelText, HorizontalAlignment.Left));
+        senderInfo.AddThemeConstantOverride("separation", 1);
 
-        var metaRow = new HFlowContainer
+        var nameLabel = AddLabel(from, 13, PanelText, HorizontalAlignment.Left);
+        nameLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        senderInfo.AddChild(nameLabel);
+
+        var rankRow = new HBoxContainer
         {
-            Name = "InviteMeta_" + ShortRoomId(roomId),
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
+            Name = "SenderRankRow",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        metaRow.AddThemeConstantOverride("h_separation", 6);
-        metaRow.AddThemeConstantOverride("v_separation", 6);
-        metaRow.AddChild(CreateTag(mapName, new Color(0.18f, 0.28f, 0.35f, 0.92f), new Color(0.92f, 0.97f, 0.99f)));
-        metaRow.AddChild(CreateTag($"{playerCount}/{maxPlayers}", new Color(0.31f, 0.23f, 0.08f, 0.94f), new Color(1f, 0.94f, 0.78f)));
-        info.AddChild(metaRow);
+        rankRow.AddThemeConstantOverride("separation", 4);
 
-        var detailLabel = AddLabel($"房间号: {ShortRoomId(roomId)}  |  点击接受后直接加入房间。", 11, MutedText, HorizontalAlignment.Left);
-        detailLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        info.AddChild(detailLabel);
-        row.AddChild(info);
+        var levelLabel = AddLabel($"Lv.{level}", 11, MutedText, HorizontalAlignment.Left);
+        levelLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        levelLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        rankRow.AddChild(levelLabel);
 
-        var actions = new VBoxContainer
+        rankRow.AddChild(CreateFriendRankBadge(rank));
+
+        var rankLabel = AddLabel(NormalizeRankTitle(rank), 11, LobbyRankColor(rank), HorizontalAlignment.Left);
+        rankLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        rankLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        rankRow.AddChild(rankLabel);
+
+        senderInfo.AddChild(rankRow);
+        row.AddChild(senderInfo);
+
+        // Room Info
+        var roomInfo = new VBoxContainer
+        {
+            Name = "RoomInfo",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        roomInfo.AddThemeConstantOverride("separation", 2);
+
+        var mapLabel = AddLabel(mapName, 12, PanelText, HorizontalAlignment.Left);
+        mapLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        roomInfo.AddChild(mapLabel);
+
+        var detailsText = $"人数: {playerCount}/{maxPlayers} | 房间: {ShortRoomId(roomId)}";
+        var detailsLabel = AddLabel(detailsText, 10, MutedText, HorizontalAlignment.Left);
+        detailsLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        roomInfo.AddChild(detailsLabel);
+
+        row.AddChild(roomInfo);
+
+        // Action buttons: ✓ and ✗
+        var actions = new HBoxContainer
         {
             Name = "InviteCardActions",
             SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
             SizeFlagsVertical = SizeFlags.ShrinkCenter
         };
-        actions.AddThemeConstantOverride("separation", 6);
-        var acceptButton = AddButton("接受", () => _ = RespondInvite(inviteId, true, roomId, mapName), ButtonTone.Primary, 12);
-        acceptButton.CustomMinimumSize = new Vector2(96, 0);
-        var rejectButton = AddButton("拒绝", () => _ = RespondInvite(inviteId, false, roomId, mapName), ButtonTone.Secondary, 12);
-        rejectButton.CustomMinimumSize = new Vector2(96, 0);
+        actions.AddThemeConstantOverride("separation", 8);
+
+        var acceptButton = AddButton("✓", () => _ = RespondInvite(inviteId, true, roomId, mapName), ButtonTone.Primary, 16);
+        acceptButton.CustomMinimumSize = new Vector2(36, 36);
+        acceptButton.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
+        acceptButton.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        acceptButton.TooltipText = "接受并进入房间";
+
+        var rejectButton = AddButton("✗", () => _ = RespondInvite(inviteId, false, roomId, mapName), ButtonTone.Secondary, 16);
+        rejectButton.CustomMinimumSize = new Vector2(36, 36);
+        rejectButton.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
+        rejectButton.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        rejectButton.TooltipText = "拒绝并忽略邀请";
+
         actions.AddChild(acceptButton);
         actions.AddChild(rejectButton);
         row.AddChild(actions);
@@ -4213,11 +5536,26 @@ public partial class LobbyScreen : Control
         titleLabel.VerticalAlignment = VerticalAlignment.Top;
         box.AddChild(titleLabel);
 
-        var valueLabel = AddLabel(value, 18, accent, HorizontalAlignment.Left);
-        valueLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        valueLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        valueLabel.VerticalAlignment = VerticalAlignment.Top;
-        box.AddChild(valueLabel);
+        Control valueControl;
+        if (title.Contains("金币") || title == "金币" || value.Contains("金币"))
+        {
+            var displayVal = value.Replace("金币", "").Trim();
+            valueControl = CreateRewardControl(displayVal + "金币", 18, accent, HorizontalAlignment.Left);
+        }
+        else if (title.Contains("钻石") || title == "钻石" || value.Contains("钻石"))
+        {
+            var displayVal = value.Replace("钻石", "").Trim();
+            valueControl = CreateRewardControl(displayVal + "钻石", 18, accent, HorizontalAlignment.Left);
+        }
+        else
+        {
+            var valueLabel = AddLabel(value, 18, accent, HorizontalAlignment.Left);
+            valueLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            valueLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            valueLabel.VerticalAlignment = VerticalAlignment.Top;
+            valueControl = valueLabel;
+        }
+        box.AddChild(valueControl);
 
         var noteLabel = AddLabel(note, 11, PanelText, HorizontalAlignment.Left);
         noteLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
@@ -4656,7 +5994,7 @@ public partial class LobbyScreen : Control
     static string UnitCategory(string unitKey) => unitKey switch
     {
         "scout_plane" or "fighter" or "bomber" => "空军",
-        "patrol_boat" or "destroyer_ship" or "transport_ship" => "海军",
+        "patrol_boat" or "destroyer_ship" or "transport_ship" or "aircraft_carrier" => "海军",
         "light_tank" or "tank" or "heavy_tank" or "artillery" or "anti_air_gun" => "装甲",
         _ => "陆军"
     };
@@ -4677,12 +6015,13 @@ public partial class LobbyScreen : Control
         "patrol_boat" => "轻型水面巡逻与护航单位",
         "destroyer_ship" => "主力海军火力单位，适合中远程压制",
         "transport_ship" => "大型运输舰船，适合海上投送",
+        "aircraft_carrier" => "海上浮动停机场，提供 4 个舰载机机位，支持战斗机和轰炸机起降",
         _ => "已编入战场军备库"
     };
 
     static string WarehouseUnitStatus(string unitKey) => unitKey switch
     {
-        "fighter" or "bomber" or "destroyer_ship" or "transport_ship" => "需对应军备建筑解锁",
+        "fighter" or "bomber" or "destroyer_ship" or "transport_ship" or "aircraft_carrier" => "需对应军备建筑解锁",
         "heavy_tank" => "需更高主基地等级",
         _ => "已收录，可在战斗内生产"
     };
@@ -4691,27 +6030,128 @@ public partial class LobbyScreen : Control
     {
         selectedMode = QuickMatchMode;
 
-        // 使用匹配等待小规格对话框
-        Place(modalPanel, new Rect2(0.320f, 0.350f, 0.360f, 0.300f));
-        modalPanel.CustomMinimumSize = new Vector2(440, 200);
+        modalScroll.VerticalScrollMode = ScrollContainer.ScrollMode.Disabled;
+
+        // 使用匹配等待小规格对话框，适当扩大尺寸，给高科技雷达扫描动画留出空间并防止划动条出现
+        Place(modalPanel, new Rect2(0.295f, 0.280f, 0.410f, 0.440f));
+        modalPanel.CustomMinimumSize = new Vector2(500, 320);
 
         ClearChildren(modalBody);
         modalTitle.Text = "3v3 战术匹配";
+        
+        // 1. 战术雷达扫描动画
+        var radarControl = new Control
+        {
+            CustomMinimumSize = new Vector2(400, 60),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter
+        };
+        
+        var radarBg = new Panel
+        {
+            CustomMinimumSize = new Vector2(400, 50),
+            Position = new Vector2(0, 5)
+        };
+        radarBg.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.86f, 0.66f, 0.24f, 0.03f),
+            CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6,
+            CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
+            BorderColor = new Color(0.86f, 0.66f, 0.24f, 0.08f),
+            BorderWidthTop = 1, BorderWidthBottom = 1,
+            BorderWidthLeft = 1, BorderWidthRight = 1
+        });
+        radarControl.AddChild(radarBg);
 
-        var descLabel = AddLabel("正在联络战区服务器，匹配队友与对手中...", 13, MutedText, HorizontalAlignment.Center);
-        modalBody.AddChild(descLabel);
+        var centerDot = new Panel
+        {
+            CustomMinimumSize = new Vector2(8, 8),
+            Position = new Vector2(196, 26)
+        };
+        centerDot.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.86f, 0.66f, 0.24f, 1.0f),
+            CornerRadiusTopLeft = 4, CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4, CornerRadiusBottomRight = 4,
+            ShadowColor = new Color(0.86f, 0.66f, 0.24f, 0.6f),
+            ShadowSize = 6
+        });
+        radarControl.AddChild(centerDot);
 
-        var timeLabel = AddLabel("已匹配时间: 00:00", 14, WarningText, HorizontalAlignment.Center);
+        for (int i = 0; i < 3; i++)
+        {
+            var ring = new Panel
+            {
+                CustomMinimumSize = new Vector2(8, 8),
+                Position = new Vector2(196, 26),
+                PivotOffset = new Vector2(4, 4)
+            };
+            ring.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+            {
+                BgColor = new Color(0, 0, 0, 0),
+                BorderColor = new Color(0.86f, 0.66f, 0.24f, 0.65f),
+                BorderWidthLeft = 1, BorderWidthRight = 1,
+                BorderWidthTop = 1, BorderWidthBottom = 1,
+                CornerRadiusTopLeft = 100, CornerRadiusTopRight = 100,
+                CornerRadiusBottomLeft = 100, CornerRadiusBottomRight = 100
+            });
+            radarControl.AddChild(ring);
+            
+            var ringTween = ring.CreateTween().SetLoops();
+            ringTween.TweenInterval(i * 0.45);
+            ringTween.TweenProperty(ring, "scale", new Vector2(24f, 24f), 1.35f);
+            ringTween.Parallel().TweenProperty(ring, "modulate:a", 0.0f, 1.35f);
+        }
+        modalBody.AddChild(radarControl);
+
+        // 2. 战术联络状态面板
+        var statusContainer = new PanelContainer
+        {
+            CustomMinimumSize = new Vector2(400, 36),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter
+        };
+        statusContainer.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.08f, 0.09f, 0.11f, 0.65f),
+            CornerRadiusTopLeft = 4, CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4, CornerRadiusBottomRight = 4,
+            BorderColor = new Color(0.86f, 0.66f, 0.24f, 0.15f),
+            BorderWidthTop = 1, BorderWidthBottom = 1,
+            BorderWidthLeft = 1, BorderWidthRight = 1
+        });
+        var descLabel = AddLabel("📡 正在联络战区服务器，匹配队友与对手中...", 12, PanelText, HorizontalAlignment.Center);
+        descLabel.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        statusContainer.AddChild(descLabel);
+        modalBody.AddChild(statusContainer);
+
+        // 3. 匹配计时器标签
+        var timeLabel = AddLabel("⏱️ 已匹配时间: 00:00", 15, WarningText, HorizontalAlignment.Center);
         modalBody.AddChild(timeLabel);
 
+        // 4. 黄金流光进度条
         var progress = new ProgressBar
         {
-            CustomMinimumSize = new Vector2(280, 8),
+            CustomMinimumSize = new Vector2(320, 6),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
             ShowPercentage = false,
             Value = 0f
         };
+        progress.AddThemeStyleboxOverride("background", new StyleBoxFlat
+        {
+            BgColor = new Color(0.06f, 0.08f, 0.1f, 1.0f),
+            CornerRadiusTopLeft = 3, CornerRadiusTopRight = 3,
+            CornerRadiusBottomLeft = 3, CornerRadiusBottomRight = 3
+        });
+        progress.AddThemeStyleboxOverride("fill", new StyleBoxFlat
+        {
+            BgColor = new Color(0.86f, 0.66f, 0.24f, 1.0f),
+            CornerRadiusTopLeft = 3, CornerRadiusTopRight = 3,
+            CornerRadiusBottomLeft = 3, CornerRadiusBottomRight = 3,
+            ShadowColor = new Color(0.86f, 0.66f, 0.24f, 0.3f),
+            ShadowSize = 4
+        });
         modalBody.AddChild(progress);
 
+        // 5. 战术取消按钮
         var btnRow = new HBoxContainer 
         { 
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
@@ -4722,13 +6162,15 @@ public partial class LobbyScreen : Control
         var cancelBtn = AddButton("取消匹配", () => {
             cancelled = true;
         }, ButtonTone.Secondary, 13);
-        cancelBtn.CustomMinimumSize = new Vector2(120, 32);
+        cancelBtn.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
+        cancelBtn.CustomMinimumSize = new Vector2(180, 36);
         btnRow.AddChild(cancelBtn);
         modalBody.AddChild(btnRow);
 
         ShowModal();
 
         int elapsed = 0;
+        timeLabel.Text = "⏱️ 已匹配时间: 00:00";
         while (elapsed < 3 && !cancelled)
         {
             await Task.Delay(1000);
@@ -4736,7 +6178,7 @@ public partial class LobbyScreen : Control
                 break;
 
             elapsed++;
-            timeLabel.Text = $"已匹配时间: {elapsed:02} 秒";
+            timeLabel.Text = $"⏱️ 已匹配时间: {elapsed / 60:00}:{elapsed % 60:00}";
             progress.Value = (elapsed / 3f) * 100f;
         }
 
@@ -4811,8 +6253,8 @@ public partial class LobbyScreen : Control
         GameState.Instance?.SelectMap(selectedMap, selectedMode);
 
         // 使用极其紧凑的特定对话框规格
-        Place(modalPanel, new Rect2(0.260f, 0.300f, 0.480f, 0.400f));
-        modalPanel.CustomMinimumSize = new Vector2(580, 252);
+        Place(modalPanel, new Rect2(0.260f, 0.200f, 0.480f, 0.580f));
+        modalPanel.CustomMinimumSize = new Vector2(580, 420);
 
         ClearChildren(modalBody);
         modalTitle.Text = "匹配就绪 - 3v3战术对抗";
@@ -4869,6 +6311,22 @@ public partial class LobbyScreen : Control
 
         updateSlots();
 
+        // Divider & Spacing to separate buttons from columns
+        var spacer = new Control { CustomMinimumSize = new Vector2(0, 16) };
+        modalBody.AddChild(spacer);
+
+        var divider = new Panel
+        {
+            Name = "ActionsDivider",
+            CustomMinimumSize = new Vector2(0, 1),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        divider.AddThemeStyleboxOverride("panel", new StyleBoxFlat { BgColor = new Color(0.84f, 0.72f, 0.36f, 0.25f) }); // Subtle gold line
+        modalBody.AddChild(divider);
+
+        var spacer2 = new Control { CustomMinimumSize = new Vector2(0, 12) };
+        modalBody.AddChild(spacer2);
+
         // Control Buttons Row
         var btnRow = new HBoxContainer 
         { 
@@ -4876,21 +6334,23 @@ public partial class LobbyScreen : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             Alignment = BoxContainer.AlignmentMode.Center
         };
-        btnRow.AddThemeConstantOverride("separation", 16);
+        btnRow.AddThemeConstantOverride("separation", 24);
         
-        var acceptBtn = AddButton("同意战斗", () => {
+        var acceptBtn = AddButton("⚔️ 同意战斗", () => {
             confState.Accepted = true;
             blueReady[0] = true;
             updateSlots();
             ShowToast("您已同意，等待其他玩家确认...");
         }, ButtonTone.Primary, 13);
-        acceptBtn.CustomMinimumSize = new Vector2(160, 34);
+        acceptBtn.CustomMinimumSize = new Vector2(160, 36);
+        acceptBtn.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
         btnRow.AddChild(acceptBtn);
 
-        var declineBtn = AddButton("拒绝匹配", () => {
+        var declineBtn = AddButton("❌ 拒绝匹配", () => {
             confState.Declined = true;
         }, ButtonTone.Secondary, 13);
-        declineBtn.CustomMinimumSize = new Vector2(120, 34);
+        declineBtn.CustomMinimumSize = new Vector2(120, 36);
+        declineBtn.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
         btnRow.AddChild(declineBtn);
         modalBody.AddChild(btnRow);
 
@@ -5359,8 +6819,22 @@ public partial class LobbyScreen : Control
         {
             modalTitle.Text = "全球争霸组队大厅";
 
-            var lobbyPanel = new Panel { Name = "GcLobbyPanel", CustomMinimumSize = new Vector2(0, 110) };
+            var lobbyPanel = new Panel { Name = "GcLobbyPanel", CustomMinimumSize = new Vector2(0, 120), ClipContents = true };
             MetalUiStyle.ApplyMetalPanel(lobbyPanel, MetalUiStyle.Steel, 1, 8, 4);
+
+            // 引入生成的现代军事战术中心背景大图，增加科技感与美感
+            var bgTex = new TextureRect
+            {
+                Name = "GcLobbyBgTexture",
+                Texture = LoadTexture("res://assets/campaign/global_conquest_lobby_bg.png"),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+                SelfModulate = new Color(1f, 1f, 1f, 0.45f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+            lobbyPanel.AddChild(bgTex);
+
             var lobbyBox = AddVBox(lobbyPanel, "GcLobbyBox", 8, new Vector2(12, 10), new Vector2(-12, -10));
 
             var row = new HBoxContainer { Name = "GcLobbyRow" };
@@ -5637,7 +7111,7 @@ public partial class LobbyScreen : Control
         var bottomRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ShrinkEnd };
         bottomRow.AddThemeConstantOverride("separation", 12);
 
-        var rewardLabel = AddLabel($"通关奖励: {level.Reward}", 12, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left);
+        var rewardLabel = CreateRewardControl($"通关奖励: {level.Reward}", 12, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left);
         rewardLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         bottomRow.AddChild(rewardLabel);
 
@@ -5877,6 +7351,17 @@ public partial class LobbyScreen : Control
             commanderAvatarIcon.Texture = LoadTexture(LocalCommanderAvatarTexturePath());
         if (commanderRankIcon is not null)
             commanderRankIcon.Texture = LoadTexture(LobbyRankBadgeTexturePath(gs?.RankTitle));
+        
+        if (guildTopBarIcon is not null)
+        {
+            var inGuild = gs is not null && !string.IsNullOrWhiteSpace(gs.GuildName) && gs.GuildName != "无工会";
+            var iconPath = inGuild
+                ? FinalIconRoot + "badge.png"
+                : "res://assets/third_party/kenney/game-icons/PNG/White/2x/plus.png";
+            guildTopBarIcon.Texture = LoadTexture(iconPath);
+            guildTopBarIcon.SelfModulate = inGuild ? Colors.White : new Color(0.96f, 0.79f, 0.30f);
+        }
+
         RefreshModeCards();
     }
 
@@ -6088,11 +7573,19 @@ public partial class LobbyScreen : Control
 
     void ShowSettingsModal()
     {
-        OpenFeatureModal("设置", "管理本地公告、战场屏蔽记录与账号会话。");
+        OpenFeatureModal("设置", "管理大厅音乐音量、本地公告、战场屏蔽记录与账号会话。");
         AddModalSummaryRow(
             AddStatCard("账号", FriendlyText(GameState.Instance?.Username, "游客"), FriendlyText(GameState.Instance?.RankTitle, "列兵"), WarningText),
-            AddStatCard("房间", string.IsNullOrWhiteSpace(GameState.Instance?.CurrentRoomId) ? "未加入" : ShortRoomId(GameState.Instance?.CurrentRoomId ?? ""), "当前会话", PanelText),
-            AddStatCard("公告", $"{GetVisibleAnnouncements().Count} 条", "本地保留", GoodText));
+            AddStatCard("大厅音乐", (lobbyBgmMuted || lobbyBgmVolume <= 0.001f) ? "静音" : $"{Mathf.RoundToInt(lobbyBgmVolume * 100)}%", "音频控制", (lobbyBgmMuted || lobbyBgmVolume <= 0.001f) ? WarningText : GoodText),
+            AddStatCard("公告", $"{GetVisibleAnnouncements().Count} 条", "本地保留", PanelText));
+
+        // 音频与音乐设置栏目
+        var audioSection = AddModalSectionPanel("大厅背景音乐", "支持滑动调节战歌音量、快速预设以及一键静音/开启音乐。", WarningText);
+        audioSection.AddChild(CreateLobbyAudioSettingsPanel());
+
+        // 头像更换栏目，限制非军衔段位的头像
+        var avatarSection = AddModalSectionPanel("更换头像", "根据军衔等级解锁更多专属头像。", WarningText);
+        avatarSection.AddChild(CreateSettingsAvatarGrid());
 
         var section = AddModalSectionPanel("本地操作", "下面的动作会立即作用到当前本地档案。", WarningText);
         section.AddChild(CreateSettingsActionRow(
@@ -6108,6 +7601,304 @@ public partial class LobbyScreen : Control
             LogoutToLogin,
             ButtonTone.Primary));
         ShowModal();
+    }
+
+    Control CreateLobbyAudioSettingsPanel()
+    {
+        var box = new VBoxContainer
+        {
+            Name = "LobbyAudioSettingsPanel",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        box.AddThemeConstantOverride("separation", 10);
+
+        // 音量调节滑动条 (HSlider)
+        var sliderRow = new HBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        sliderRow.AddThemeConstantOverride("separation", 10);
+
+        var sliderTag = new Label
+        {
+            Text = "音量大小：",
+            CustomMinimumSize = new Vector2(80, 0)
+        };
+        sliderTag.AddThemeColorOverride("font_color", PanelText);
+        sliderTag.AddThemeFontSizeOverride("font_size", 14);
+        sliderRow.AddChild(sliderTag);
+
+        var slider = new HSlider
+        {
+            MinValue = 0.0,
+            MaxValue = 1.0,
+            Step = 0.05,
+            Value = lobbyBgmVolume,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(180, 24),
+            MouseDefaultCursorShape = CursorShape.PointingHand
+        };
+
+        var valLabel = new Label
+        {
+            Text = (lobbyBgmMuted || lobbyBgmVolume <= 0.001f) ? "静音" : $"{Mathf.RoundToInt(lobbyBgmVolume * 100)}%",
+            CustomMinimumSize = new Vector2(45, 0),
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        valLabel.AddThemeColorOverride("font_color", (lobbyBgmMuted || lobbyBgmVolume <= 0.001f) ? WarningText : GoodText);
+        valLabel.AddThemeFontSizeOverride("font_size", 14);
+
+        slider.ValueChanged += (val) =>
+        {
+            lobbyBgmVolume = (float)val;
+            if (lobbyBgmVolume > 0.001f && lobbyBgmMuted)
+                lobbyBgmMuted = false;
+            ApplyLobbyBgmVolume();
+            SaveAudioSettings();
+            valLabel.Text = (lobbyBgmMuted || lobbyBgmVolume <= 0.001f) ? "静音" : $"{Mathf.RoundToInt(lobbyBgmVolume * 100)}%";
+            valLabel.AddThemeColorOverride("font_color", (lobbyBgmMuted || lobbyBgmVolume <= 0.001f) ? WarningText : GoodText);
+        };
+
+        sliderRow.AddChild(slider);
+        sliderRow.AddChild(valLabel);
+        box.AddChild(sliderRow);
+
+        // 音量预设按键组
+        var btnRow = new HBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        btnRow.AddThemeConstantOverride("separation", 8);
+
+        void AddPresetBtn(string text, float targetVol, bool isMuteToggle = false)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                CustomMinimumSize = new Vector2(88, 30),
+                MouseDefaultCursorShape = CursorShape.PointingHand
+            };
+            btn.AddThemeFontSizeOverride("font_size", 13);
+            btn.Pressed += () =>
+            {
+                if (isMuteToggle)
+                {
+                    lobbyBgmMuted = !lobbyBgmMuted;
+                }
+                else
+                {
+                    lobbyBgmVolume = targetVol;
+                    lobbyBgmMuted = false;
+                }
+                ApplyLobbyBgmVolume();
+                SaveAudioSettings();
+                ShowSettingsModal(); // 刷新设置框
+            };
+            btnRow.AddChild(btn);
+        }
+
+        AddPresetBtn("100% 满级", 1.0f);
+        AddPresetBtn("50% 推荐", 0.5f);
+        AddPresetBtn("20% 柔和", 0.2f);
+        AddPresetBtn(lobbyBgmMuted ? "开启音乐" : "静音音乐", 0f, true);
+
+        box.AddChild(btnRow);
+
+        return box;
+    }
+
+    Control CreateSettingsAvatarGrid()
+    {
+        var grid = new GridContainer
+        {
+            Name = "SettingsAvatarGrid",
+            Columns = 3,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 10);
+
+        var selected = LocalCommanderAvatarTexturePath();
+        foreach (var avatarPath in GetCommanderAvatarOptions())
+            grid.AddChild(CreateSettingsAvatarOption(avatarPath, avatarPath == selected));
+        return grid;
+    }
+
+    Control CreateSettingsAvatarOption(string avatarPath, bool selected)
+    {
+        var rankTitle = GameState.Instance?.RankTitle ?? "列兵";
+        var unlocked = IsAvatarUnlocked(avatarPath, rankTitle);
+
+        var shell = new VBoxContainer
+        {
+            Name = "SettingsAvatarOption_" + StableVisualIndex(avatarPath, 2000),
+            CustomMinimumSize = new Vector2(0, 126),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        shell.AddThemeConstantOverride("separation", 6);
+
+        var button = new Button
+        {
+            Text = "",
+            CustomMinimumSize = new Vector2(0, 92),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            MouseDefaultCursorShape = CursorShape.PointingHand,
+            TooltipText = !unlocked ? $"需达到军衔【{GetAvatarRequiredRank(avatarPath)}】才能解锁" : selected ? "当前使用中" : "切换为这个头像"
+        };
+        
+        if (unlocked)
+        {
+            button.Pressed += () => SelectAvatarFromSettings(avatarPath);
+        }
+        else
+        {
+            button.Pressed += () => ShowToast($"无法更换：该头像需要【{GetAvatarRequiredRank(avatarPath)}】及以上军衔解锁！");
+        }
+
+        var border = selected ? new Color(1f, 0.82f, 0.34f, 0.98f) : new Color(0.72f, 0.64f, 0.36f, 0.36f);
+        button.AddThemeStyleboxOverride("normal", TransparentButtonStyle(new Color(0.05f, 0.07f, 0.08f, 0.82f), 8, border));
+        button.AddThemeStyleboxOverride("hover", TransparentButtonStyle(new Color(0.10f, 0.12f, 0.10f, 0.90f), 8, new Color(1f, 0.86f, 0.42f, 0.96f)));
+        button.AddThemeStyleboxOverride("pressed", TransparentButtonStyle(new Color(0.12f, 0.10f, 0.06f, 0.94f), 8, new Color(1f, 0.78f, 0.28f, 1f)));
+        button.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+
+        var holder = new Control
+        {
+            Name = "AvatarOptionHolder",
+            CustomMinimumSize = new Vector2(84, 84),
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        holder.SetAnchorsPreset(LayoutPreset.Center);
+        holder.Position = new Vector2(10, 4);
+        button.AddChild(holder);
+
+        var frame = new TextureRect
+        {
+            Name = "AvatarOptionFrame",
+            Position = Vector2.Zero,
+            Size = new Vector2(84, 84),
+            Texture = LoadTexture(UnityLobbyRoot + "gen_portrait_ring.png"),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.Scale,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        PortraitFrameUtils.ApplyWrapFrame(
+            frame,
+            new Color(0.86f, 0.66f, 0.20f, 0.98f),
+            new Color(1f, 0.96f, 0.80f, 0.92f),
+            0.49f,
+            0.015f,
+            0.0035f,
+            0.010f);
+        holder.AddChild(frame);
+
+        var avatar = new TextureRect
+        {
+            Name = "AvatarOptionTexture",
+            Position = new Vector2(7, 7),
+            Size = new Vector2(70, 70),
+            Texture = LoadTexture(avatarPath),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.Scale,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        
+        if (!unlocked)
+        {
+            avatar.SelfModulate = new Color(0.25f, 0.25f, 0.25f, 0.85f);
+        }
+
+        PortraitFrameUtils.ApplyCircularPortrait(
+            avatar,
+            new Color(0.94f, 0.74f, 0.24f, 1f),
+            new Color(1f, 0.95f, 0.78f, 1f),
+            0.47f,
+            0.0055f,
+            0.012f,
+            new Vector2(1.20f, 1.20f),
+            new Vector2(0.01f, -0.025f));
+        holder.AddChild(avatar);
+
+        if (!unlocked)
+        {
+            var lockIcon = new TextureRect
+            {
+                Name = "AvatarLockIcon",
+                Position = new Vector2(26, 26),
+                Size = new Vector2(32, 32),
+                Texture = LoadTexture(KenneyGameIconRoot + "locked.png"),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                SelfModulate = new Color(0.95f, 0.40f, 0.35f, 0.95f),
+                MouseFilter = MouseFilterEnum.Ignore
+            };
+            holder.AddChild(lockIcon);
+        }
+
+        shell.AddChild(button);
+        
+        string labelText;
+        Color labelColor;
+        if (!unlocked)
+        {
+            labelText = $"锁 定 (需{GetAvatarRequiredRank(avatarPath)})";
+            labelColor = new Color(0.85f, 0.35f, 0.30f);
+        }
+        else
+        {
+            labelText = selected ? "使用中" : AvatarDisplayName(avatarPath);
+            labelColor = selected ? WarningText : PanelText;
+        }
+
+        shell.AddChild(AddLabel(labelText, 11, labelColor, HorizontalAlignment.Center));
+        return shell;
+    }
+
+    void SelectAvatarFromSettings(string avatarPath)
+    {
+        GameState.Instance?.SetSelectedAvatarPath(avatarPath);
+        RefreshTopBar();
+        ShowSettingsModal(); // Refresh Settings Modal
+    }
+
+    static bool IsAvatarUnlocked(string avatarPath, string? rankTitle)
+    {
+        var normalized = NormalizeRankTitle(rankTitle);
+        if (avatarPath.Contains("field_commander", StringComparison.OrdinalIgnoreCase) || 
+            avatarPath.Contains("friend_a", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (avatarPath.Contains("tank_commander", StringComparison.OrdinalIgnoreCase) || 
+            avatarPath.Contains("friend_b", StringComparison.OrdinalIgnoreCase))
+        {
+            return ContainsAny(normalized, "白银", "少将", "silver", "黄金", "中将", "wing", "gold", "上校", "少校", "major", "diamond", "钻石", "元帅", "王者", "将军", "marshal");
+        }
+
+        if (avatarPath.Contains("air_wing", StringComparison.OrdinalIgnoreCase))
+        {
+            return ContainsAny(normalized, "黄金", "中将", "wing", "gold", "上校", "少校", "major", "diamond", "钻石", "元帅", "王者", "将军", "marshal");
+        }
+
+        if (avatarPath.Contains("naval_command", StringComparison.OrdinalIgnoreCase))
+        {
+            return ContainsAny(normalized, "上校", "少校", "major", "diamond", "钻石", "元帅", "王者", "将军", "marshal");
+        }
+
+        return true;
+    }
+
+    static string GetAvatarRequiredRank(string avatarPath)
+    {
+        if (avatarPath.Contains("field_commander", StringComparison.OrdinalIgnoreCase) || 
+            avatarPath.Contains("friend_a", StringComparison.OrdinalIgnoreCase))
+            return "列兵";
+        if (avatarPath.Contains("tank_commander", StringComparison.OrdinalIgnoreCase) || 
+            avatarPath.Contains("friend_b", StringComparison.OrdinalIgnoreCase))
+            return "白银";
+        if (avatarPath.Contains("air_wing", StringComparison.OrdinalIgnoreCase))
+            return "黄金";
+        if (avatarPath.Contains("naval_command", StringComparison.OrdinalIgnoreCase))
+            return "少校";
+        return "列兵";
     }
 
     void ShowInfoModal(string title, string body)
@@ -6551,6 +8342,7 @@ public partial class LobbyScreen : Control
         modalPanel.Visible = false;
         ClearChildren(modalBody);
         ExpandModalPanel(false);
+        modalScroll.VerticalScrollMode = ScrollContainer.ScrollMode.Auto;
     }
 
     async void ShowToast(string message)
@@ -6700,6 +8492,88 @@ public partial class LobbyScreen : Control
         label.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.78f));
         label.AddThemeConstantOverride("outline_size", 1);
         return label;
+    }
+
+    Control CreateRewardControl(string text, int fontSize, Color baseColor, HorizontalAlignment alignment = HorizontalAlignment.Left)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return new Control();
+        }
+
+        if (!text.Contains("金币") && !text.Contains("钻石"))
+        {
+            return AddLabel(text, fontSize, baseColor, alignment);
+        }
+
+        var container = new HBoxContainer
+        {
+            Name = "ParsedRewardBox",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            Alignment = alignment switch
+            {
+                HorizontalAlignment.Center => BoxContainer.AlignmentMode.Center,
+                HorizontalAlignment.Right => BoxContainer.AlignmentMode.End,
+                _ => BoxContainer.AlignmentMode.Begin
+            }
+        };
+        container.AddThemeConstantOverride("separation", 2);
+
+        var pattern = @"(?:(?<num>\d+)\s*(?<type>金币|钻石))|(?:(?<type>金币|钻石)\s*[xX：:]?\s*(?<num>\d+))";
+        var matches = System.Text.RegularExpressions.Regex.Matches(text, pattern);
+        
+        int lastIndex = 0;
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            if (match.Index > lastIndex)
+            {
+                var preText = text.Substring(lastIndex, match.Index - lastIndex);
+                var preLabel = AddLabel(preText, fontSize, baseColor, HorizontalAlignment.Left);
+                preLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+                container.AddChild(preLabel);
+            }
+
+            var type = match.Groups["type"].Value;
+            var num = match.Groups["num"].Value;
+
+            var itemBox = new HBoxContainer { Name = type + "RewardItem" };
+            itemBox.AddThemeConstantOverride("separation", 2);
+
+            var iconRect = new TextureRect
+            {
+                Name = type + "Icon",
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                CustomMinimumSize = new Vector2(fontSize + 6, fontSize + 6),
+                SizeFlagsVertical = SizeFlags.ShrinkCenter
+            };
+
+            var iconPath = type == "金币"
+                ? CurrencyIconRoot + "currency_gold_coin.png"
+                : CurrencyIconRoot + "currency_gem_blue.png";
+
+            iconRect.Texture = LoadTexture(iconPath);
+            itemBox.AddChild(iconRect);
+
+            var valColor = type == "金币" ? new Color(0.95f, 0.76f, 0.24f) : new Color(0.64f, 0.90f, 1f);
+            var valLabel = AddLabel(num, fontSize, valColor, HorizontalAlignment.Left);
+            valLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+            itemBox.AddChild(valLabel);
+
+            container.AddChild(itemBox);
+
+            lastIndex = match.Index + match.Length;
+        }
+
+        if (lastIndex < text.Length)
+        {
+            var postText = text.Substring(lastIndex);
+            var postLabel = AddLabel(postText, fontSize, baseColor, HorizontalAlignment.Left);
+            postLabel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+            container.AddChild(postLabel);
+        }
+
+        return container;
     }
 
     Button AddButton(string text, Action onPressed, ButtonTone tone, int fontSize)
@@ -6955,14 +8829,17 @@ public partial class LobbyScreen : Control
 
     static Texture2D LoadTexture(string resourcePath)
     {
-        if (ResourceLoader.Exists(resourcePath))
-        {
-            return ResourceLoader.Load<Texture2D>(resourcePath);
-        }
+        if (string.IsNullOrEmpty(resourcePath))
+            return GetFallbackTexture();
 
         try
         {
             var globalPath = ProjectSettings.GlobalizePath(resourcePath);
+            if (!System.IO.File.Exists(globalPath))
+            {
+                var relPath = resourcePath.Replace("res://", "");
+                globalPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), relPath);
+            }
             if (System.IO.File.Exists(globalPath))
             {
                 var image = Image.LoadFromFile(globalPath);
@@ -6972,11 +8849,28 @@ public partial class LobbyScreen : Control
                 }
             }
         }
-        catch {}
+        catch { }
 
-        GD.PushError($"Failed to load lobby image: {resourcePath}");
+        if (ResourceLoader.Exists(resourcePath))
+        {
+            try
+            {
+                var tex = ResourceLoader.Load<Texture2D>(resourcePath);
+                if (tex is not null)
+                {
+                    return tex;
+                }
+            }
+            catch { }
+        }
+
+        return GetFallbackTexture();
+    }
+
+    static Texture2D GetFallbackTexture()
+    {
         var fallback = Image.CreateEmpty(4, 4, false, Image.Format.Rgba8);
-        fallback.Fill(new Color(1f, 0f, 1f, 1f));
+        fallback.Fill(new Color(0.12f, 0.22f, 0.14f, 0.95f)); // Tactical dark green fallback
         return ImageTexture.CreateFromImage(fallback);
     }
 
@@ -7192,13 +9086,35 @@ public partial class LobbyScreen : Control
     private readonly System.Collections.Generic.HashSet<int> claimedRecruitDays = new();
     private string activeEventTab = "recruit";
 
-    void MarkLocalTaskClaimed(string taskId) => claimedLocalTaskIds.Add(taskId);
-    bool IsLocalTaskClaimed(string taskId) => claimedLocalTaskIds.Contains(taskId);
-    void MarkRecruitDayClaimed(int day) => claimedRecruitDays.Add(day);
-    bool IsRecruitDayClaimed(int day) => claimedRecruitDays.Contains(day);
+    void MarkLocalTaskClaimed(string taskId)
+    {
+        claimedLocalTaskIds.Add(taskId);
+        GameState.Instance?.MarkLocalTaskClaimed(taskId);
+    }
+
+    bool IsLocalTaskClaimed(string taskId)
+    {
+        if (GameState.Instance is not null)
+            return GameState.Instance.IsLocalTaskClaimed(taskId);
+        return claimedLocalTaskIds.Contains(taskId);
+    }
+
+    void MarkRecruitDayClaimed(int day)
+    {
+        claimedRecruitDays.Add(day);
+        GameState.Instance?.MarkRecruitDayClaimed(day);
+    }
+
+    bool IsRecruitDayClaimed(int day)
+    {
+        if (GameState.Instance is not null)
+            return GameState.Instance.IsRecruitDayClaimed(day);
+        return claimedRecruitDays.Contains(day);
+    }
 
     void ShowEventsModal()
     {
+        ExpandModalPanel(true);
         activeFeatureModal = "events";
         OpenFeatureModal("活动中心", "指战员，参与限时战场活动，完成战术演练，即可赢取海量金币与珍贵科研图纸。");
         
@@ -7293,25 +9209,21 @@ public partial class LobbyScreen : Control
             3);
 
         const string radarMapPath = "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/tech_bg_radar_map.png";
-        if (ResourceLoader.Exists(radarMapPath))
+        var bgTex = new TextureRect
         {
-            var bgTex = new TextureRect
-            {
-                Texture = ResourceLoader.Load<Texture2D>(radarMapPath),
-                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
-                SelfModulate = new Color(1f, 1f, 1f, claimed ? 0.06f : 0.18f),
-                MouseFilter = Control.MouseFilterEnum.Ignore
-            };
-            bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
-            card.AddChild(bgTex);
-        }
+            Texture = LoadTexture(radarMapPath),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+            SelfModulate = new Color(1f, 1f, 1f, claimed ? 0.06f : 0.18f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
+        card.AddChild(bgTex);
 
         var box = AddVBox(card, "Box", 4, new Vector2(4, 6), new Vector2(-4, -6));
         box.AddChild(AddLabel($"第 {day} 天", 12, claimed ? MutedText : PanelText, HorizontalAlignment.Center));
         
-        var rewardLabel = AddLabel(reward, 10, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Center);
-        rewardLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        var rewardLabel = CreateRewardControl(reward, 10, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Center);
         rewardLabel.SizeFlagsVertical = SizeFlags.ExpandFill;
         box.AddChild(rewardLabel);
 
@@ -7338,11 +9250,11 @@ public partial class LobbyScreen : Control
         var panel = new Panel { CustomMinimumSize = new Vector2(0, 60), ClipContents = true };
         MetalUiStyle.ApplyMetalPanel(panel, MetalUiStyle.Steel, 1, 4, 3);
 
-        if (!string.IsNullOrEmpty(bgPath) && ResourceLoader.Exists(bgPath))
+        if (!string.IsNullOrEmpty(bgPath))
         {
             var bgTex = new TextureRect
             {
-                Texture = ResourceLoader.Load<Texture2D>(bgPath),
+                Texture = LoadTexture(bgPath),
                 ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
                 StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
                 SelfModulate = new Color(1f, 1f, 1f, 0.22f),
@@ -7366,7 +9278,7 @@ public partial class LobbyScreen : Control
         var metaRow = new HBoxContainer { Name = "EventTaskMetaRow" };
         metaRow.AddThemeConstantOverride("separation", 8);
         metaRow.AddChild(AddLabel(progressText, 11, canClaim ? GoodText : MutedText, HorizontalAlignment.Left));
-        metaRow.AddChild(AddLabel(reward, 11, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left));
+        metaRow.AddChild(CreateRewardControl(reward, 11, new Color(0.95f, 0.76f, 0.24f), HorizontalAlignment.Left));
         info.AddChild(metaRow);
         row.AddChild(info);
 

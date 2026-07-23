@@ -1562,7 +1562,7 @@ public partial class BattleHud : CanvasLayer
         FreeChildNodes(commandList);
 
         var manager = BattleGameManager.Instance;
-        if (!string.IsNullOrEmpty(manager?.PendingBuildKey))
+        if (!string.IsNullOrEmpty(manager?.PendingBuildKey) || !string.IsNullOrEmpty(activeTechTargetKey))
         {
             commandPanel.Visible = false;
             return;
@@ -3055,10 +3055,7 @@ public partial class BattleHud : CanvasLayer
             SelfModulate = new Color(tech.Tint.R, tech.Tint.G, tech.Tint.B, 1.0f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        if (ResourceLoader.Exists(tech.BackgroundTexturePath))
-        {
-            iconRect.Texture = ResourceLoader.Load<Texture2D>(tech.BackgroundTexturePath);
-        }
+        iconRect.Texture = LoadHudTexture(tech.BackgroundTexturePath);
         card.AddChild(iconRect);
 
         var title = HudLabel(tech.DisplayName, 15, new Color(1f, 0.90f, 0.62f));
@@ -3291,7 +3288,7 @@ public partial class BattleHud : CanvasLayer
         if (hit.Count > 0 && hit.ContainsKey("position"))
         {
             var hitPos = hit["position"].AsVector3();
-            point = new Vector3(hitPos.X, 0f, hitPos.Z);
+            point = hitPos;
             return true;
         }
 
@@ -3409,12 +3406,23 @@ public partial class BattleHud : CanvasLayer
         AddGameOverChrome(gameOverPanel);
 
         gameOverResultBadge = Panel(new Vector2(62, 38), new Vector2(58, 58), new Color(0.16f, 0.12f, 0.05f, 0.94f));
+        gameOverResultBadge.MouseFilter = Control.MouseFilterEnum.Stop;
+        gameOverResultBadge.MouseDefaultCursorShape = Control.CursorShape.PointingHand;
+        gameOverResultBadge.GuiInput += (InputEvent @event) =>
+        {
+            if (@event is InputEventMouseButton mouseBtn && mouseBtn.Pressed && mouseBtn.ButtonIndex == MouseButton.Left)
+            {
+                ReturnToLobbyFromGameOver();
+            }
+        };
         gameOverPanel.AddChild(gameOverResultBadge);
+
         gameOverResultMark = HudLabel("", 28, new Color(1f, 0.86f, 0.42f));
         gameOverResultMark.HorizontalAlignment = HorizontalAlignment.Center;
         gameOverResultMark.VerticalAlignment = VerticalAlignment.Center;
         gameOverResultMark.Position = new Vector2(0, 5);
         gameOverResultMark.Size = new Vector2(58, 46);
+        gameOverResultMark.MouseFilter = Control.MouseFilterEnum.Ignore;
         gameOverResultBadge.AddChild(gameOverResultMark);
 
         gameOverTitle = HudLabel("", 42, new Color(1f, 0.86f, 0.42f));
@@ -3537,7 +3545,7 @@ public partial class BattleHud : CanvasLayer
         gameOverSummaryValueLabels[1].Text = $"{manager.PlayerPowerUsed}/{manager.PlayerPowerProvided}";
         gameOverSummaryValueLabels[2].Text = manager.GetPlayerBaseSummaryText();
         gameOverSummaryValueLabels[3].Text = $"{manager.PlayerUnitKills + manager.PlayerBuildingKills} 击杀";
-        RefreshGameOverReport(manager.BuildBattleReportData());
+        RefreshGameOverReport(manager);
     }
 
     void BuildGameOverReportSection()
@@ -3576,61 +3584,133 @@ public partial class BattleHud : CanvasLayer
 
         gameOverReportGrid = new GridContainer
         {
-            Columns = 3,
-            Position = new Vector2(16, 48),
-            Size = new Vector2(572, 160),
+            Columns = 6,
+            Position = new Vector2(16, 44),
+            Size = new Vector2(572, 166),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        gameOverReportGrid.AddThemeConstantOverride("h_separation", 16);
-        gameOverReportGrid.AddThemeConstantOverride("v_separation", 2);
+        gameOverReportGrid.AddThemeConstantOverride("h_separation", 6);
+        gameOverReportGrid.AddThemeConstantOverride("v_separation", 4);
         reportPanel.AddChild(gameOverReportGrid);
-
-        // 我方右对齐，项目居中对齐，敌方左对齐，宽度按 220-100-220 黄金比例分配
-        gameOverReportPlayerHeader = CreateReportCell(220, 16, HorizontalAlignment.Right, 12, new Color(0.42f, 0.94f, 0.76f), true);
-        gameOverReportCenterHeader = CreateReportCell(100, 16, HorizontalAlignment.Center, 12, new Color(1f, 0.86f, 0.42f), true);
-        gameOverReportEnemyHeader = CreateReportCell(220, 16, HorizontalAlignment.Left, 12, new Color(1f, 0.50f, 0.42f), true);
-        gameOverReportGrid.AddChild(gameOverReportPlayerHeader);
-        gameOverReportGrid.AddChild(gameOverReportCenterHeader);
-        gameOverReportGrid.AddChild(gameOverReportEnemyHeader);
     }
 
-    void RefreshGameOverReport(BattleGameManager.BattleReportData report)
+    void RefreshGameOverReport(BattleGameManager? manager)
     {
-        if (gameOverReportGrid is null)
+        if (gameOverReportGrid is null || manager is null)
             return;
 
-        gameOverReportMeta.Text = $"{report.TeamLine}    用时 {report.DurationText}";
-        gameOverReportPlayerHeader.Text = string.IsNullOrWhiteSpace(report.PlayerHeader) ? "我方" : report.PlayerHeader;
-        gameOverReportCenterHeader.Text = "项目";
-        gameOverReportEnemyHeader.Text = string.IsNullOrWhiteSpace(report.EnemyHeader) ? "敌方" : report.EnemyHeader;
-
-        while (gameOverReportPlayerValues.Count < report.Rows.Length)
+        // Clear all previous cells (if any)
+        foreach (var child in gameOverReportGrid.GetChildren())
         {
-            var player = CreateReportCell(220, 14, HorizontalAlignment.Right, 11, new Color(0.78f, 0.96f, 0.90f), false);
-            var metric = CreateReportCell(100, 14, HorizontalAlignment.Center, 11, new Color(0.68f, 0.75f, 0.78f), false);
-            var enemy = CreateReportCell(220, 14, HorizontalAlignment.Left, 11, new Color(1f, 0.78f, 0.74f), false);
-            gameOverReportPlayerValues.Add(player);
-            gameOverReportMetricLabels.Add(metric);
-            gameOverReportEnemyValues.Add(enemy);
-            gameOverReportGrid.AddChild(player);
-            gameOverReportGrid.AddChild(metric);
-            gameOverReportGrid.AddChild(enemy);
+            gameOverReportGrid.RemoveChild(child);
+            child.QueueFree();
         }
 
-        for (var i = 0; i < gameOverReportPlayerValues.Count; i++)
-        {
-            var visible = i < report.Rows.Length;
-            gameOverReportPlayerValues[i].Visible = visible;
-            gameOverReportMetricLabels[i].Visible = visible;
-            gameOverReportEnemyValues[i].Visible = visible;
-            if (!visible)
-                continue;
+        // Header Row (6 cells)
+        var headerColor = new Color(0.98f, 0.85f, 0.35f); // Gold
+        string[] headers = { "玩家", "击杀", "损失", "出兵", "伤害", "金币/收入" };
+        float[] colWidths = { 132f, 70f, 70f, 80f, 110f, 110f };
 
-            var row = report.Rows[i];
-            gameOverReportPlayerValues[i].Text = row.PlayerValue;
-            gameOverReportMetricLabels[i].Text = row.Label;
-            gameOverReportEnemyValues[i].Text = row.EnemyValue;
+        for (int i = 0; i < 6; i++)
+        {
+            var alignment = (i == 0) ? HorizontalAlignment.Left : HorizontalAlignment.Center;
+            var cell = CreateReportCell(colWidths[i], 18, alignment, 12, headerColor, true);
+            cell.Text = headers[i];
+            gameOverReportGrid.AddChild(cell);
         }
+
+        var myName = GameState.Instance?.Username ?? "指战员(我)";
+        var bluePlayers = new[] { myName, "战鹰02", "钢铁泰坦" };
+        var redPlayers = new[] { "阿尔法九号", "闪击野狼", "重装先锋" };
+
+        System.Random rand = new System.Random(12345); // stable seed for teammates' details
+
+        // 1. Blue Team (Ally) - 3 players
+        for (int i = 0; i < 3; i++)
+        {
+            string name = $"[我方] {bluePlayers[i]}";
+            int kills, losses, produced;
+            float damage, gold;
+
+            if (i == 0) // Local Player
+            {
+                kills = manager.PlayerUnitKills + manager.PlayerBuildingKills;
+                losses = manager.PlayerUnitsLost + manager.PlayerBuildingsLost;
+                produced = manager.PlayerUnitsProduced;
+                damage = manager.PlayerDamageDealt;
+                gold = manager.PlayerGoldIncome;
+            }
+            else // Teammates (simulated proportional to local player)
+            {
+                kills = System.Math.Max(0, (manager.PlayerUnitKills + manager.PlayerBuildingKills) * (10 - i * 3) / 10 + rand.Next(-1, 2));
+                losses = System.Math.Max(0, (manager.PlayerUnitsLost + manager.PlayerBuildingsLost) * (10 - i * 2) / 10 + rand.Next(-1, 2));
+                produced = System.Math.Max(0, manager.PlayerUnitsProduced * (10 - i * 3) / 10 + rand.Next(-1, 2));
+                damage = System.Math.Max(0f, manager.PlayerDamageDealt * (10f - i * 3f) / 10f + rand.Next(-200, 200));
+                gold = System.Math.Max(0f, manager.PlayerGoldIncome * (10f - i * 2f) / 10f + rand.Next(-100, 100));
+            }
+
+            AddPlayerRow(name, kills, losses, produced, damage, gold, new Color(0.42f, 0.94f, 0.76f)); // Light green/cyan for allies
+        }
+
+        // 2. Red Team (Enemy) - 3 players
+        for (int i = 0; i < 3; i++)
+        {
+            string name = $"[敌方] {redPlayers[i]}";
+            int kills, losses, produced;
+            float damage, gold;
+
+            // Enemies (simulated proportional to aggregate enemy stats)
+            // Total enemy kills = player losses. Total enemy losses = player kills.
+            int totalEnemyKills = manager.PlayerUnitsLost + manager.PlayerBuildingsLost;
+            int totalEnemyLosses = manager.PlayerUnitKills + manager.PlayerBuildingKills;
+
+            kills = System.Math.Max(0, totalEnemyKills * (10 - i * 2) / 10 + rand.Next(-1, 2));
+            losses = System.Math.Max(0, totalEnemyLosses * (10 - i * 3) / 10 + rand.Next(-1, 2));
+            produced = System.Math.Max(0, manager.EnemyUnitsProduced * (10 - i * 3) / 10 + rand.Next(-1, 2));
+            damage = System.Math.Max(0f, manager.EnemyDamageDealt * (10f - i * 3f) / 10f + rand.Next(-200, 200));
+            gold = System.Math.Max(0f, manager.EnemyGoldIncome * (10f - i * 2f) / 10f + rand.Next(-100, 100));
+
+            AddPlayerRow(name, kills, losses, produced, damage, gold, new Color(1.0f, 0.50f, 0.42f)); // Light red for enemies
+        }
+
+        var durationText = $"{Mathf.FloorToInt(manager.GameTime) / 60:00}:{Mathf.FloorToInt(manager.GameTime) % 60:00}";
+        gameOverReportMeta.Text = $"战役模式 (3v3战术对抗)    用时 {durationText}";
+    }
+
+    void AddPlayerRow(string name, int kills, int losses, int produced, float damage, float gold, Color nameColor)
+    {
+        float[] colWidths = { 132f, 70f, 70f, 80f, 110f, 110f };
+        var cellColor = new Color(0.9f, 0.9f, 0.9f); // Off-white for general values
+
+        // Cell 0: Player name
+        var nameCell = CreateReportCell(colWidths[0], 16, HorizontalAlignment.Left, 11, nameColor, false);
+        nameCell.Text = name;
+        gameOverReportGrid.AddChild(nameCell);
+
+        // Cell 1: Kills
+        var killsCell = CreateReportCell(colWidths[1], 16, HorizontalAlignment.Center, 11, cellColor, false);
+        killsCell.Text = kills.ToString();
+        gameOverReportGrid.AddChild(killsCell);
+
+        // Cell 2: Losses
+        var lossesCell = CreateReportCell(colWidths[2], 16, HorizontalAlignment.Center, 11, cellColor, false);
+        lossesCell.Text = losses.ToString();
+        gameOverReportGrid.AddChild(lossesCell);
+
+        // Cell 3: Produced
+        var prodCell = CreateReportCell(colWidths[3], 16, HorizontalAlignment.Center, 11, cellColor, false);
+        prodCell.Text = produced.ToString();
+        gameOverReportGrid.AddChild(prodCell);
+
+        // Cell 4: Damage
+        var dmgCell = CreateReportCell(colWidths[4], 16, HorizontalAlignment.Center, 11, cellColor, false);
+        dmgCell.Text = damage.ToString("N0");
+        gameOverReportGrid.AddChild(dmgCell);
+
+        // Cell 5: Gold
+        var goldCell = CreateReportCell(colWidths[5], 16, HorizontalAlignment.Center, 11, cellColor, false);
+        goldCell.Text = gold.ToString("N0");
+        gameOverReportGrid.AddChild(goldCell);
     }
 
     void StartGameOverCountdown(float seconds)
@@ -4247,7 +4327,7 @@ public partial class BattleHud : CanvasLayer
 
             var card = new Panel
             {
-                CustomMinimumSize = new Vector2(238, 108),
+                CustomMinimumSize = new Vector2(238, 84),
                 ClipContents = true
             };
             var bg = isSelected
@@ -4298,8 +4378,8 @@ public partial class BattleHud : CanvasLayer
             var actionRow = new HBoxContainer
             {
                 Name = $"ParticipantActions_{participant.ParticipantId}",
-                Position = new Vector2(6, 42),
-                Size = new Vector2(226, 40)
+                Position = new Vector2(6, 40),
+                Size = new Vector2(226, 36)
             };
             actionRow.AddThemeConstantOverride("separation", 6);
             card.AddChild(actionRow);
@@ -5535,6 +5615,7 @@ public partial class BattleHud : CanvasLayer
         "patrol_boat" => "prod_patrol_boat.png",
         "destroyer_ship" => "prod_destroyer_ship.png",
         "transport_ship" => "prod_battleship.png",
+        "aircraft_carrier" => "prod_battleship.png",   // 暂复用战舰图
         _ => "prod_infantry.png"
     });
 
@@ -5552,6 +5633,7 @@ public partial class BattleHud : CanvasLayer
         "patrol_boat" => "prod_patrol_boat_icon.png",
         "destroyer_ship" => "prod_destroyer_ship_icon.png",
         "transport_ship" => "prod_battleship_icon.png",
+        "aircraft_carrier" => "prod_battleship_icon.png",   // 暂复用战舰图标
         _ => "prod_infantry_icon.png"
     });
 
@@ -6785,7 +6867,7 @@ public partial class BattleHud : CanvasLayer
         foreach (var child in parent.GetChildren().ToArray())
         {
             if (child is Node node && GodotObject.IsInstanceValid(node))
-                node.Free();
+                node.QueueFree();
         }
     }
 

@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -11,19 +11,37 @@ public partial class RtsCamera : Node3D
     [Export] public float MaxHeight { get; set; } = 48f;
     [Export] public float DragPanSensitivity { get; set; } = 0.04f;
 
-    Camera3D camera = null!;
+    Camera3D _camera = null!;
+    Camera3D camera => _camera ??= GetNode<Camera3D>("Camera3D");
     bool dragging;
     readonly Dictionary<int, Vector2> touches = new();
     bool touchGestureActive;
     float lastPinchDistance;
     Vector2 lastTouchCenter;
     ulong suppressMouseUntilMs;
+    float initialRatio = 1.1f;
 
     public override void _Ready()
     {
-        camera = GetNode<Camera3D>("Camera3D");
-        camera.Near = 1f;
-        camera.Far = 800f;
+        var cam = camera;
+        cam.Near = 1f;
+        cam.Far = 800f;
+
+        if (cam.Position.Y > 0.01f)
+        {
+            initialRatio = cam.Position.Z / cam.Position.Y;
+        }
+    }
+
+    float shakeIntensity;
+    float shakeDuration;
+    float shakeTimer;
+
+    public void TriggerShake(float intensity, float duration)
+    {
+        shakeIntensity = intensity;
+        shakeDuration = duration;
+        shakeTimer = duration;
     }
 
     public override void _Process(double delta)
@@ -41,7 +59,7 @@ public partial class RtsCamera : Node3D
         // 鼠标边界滚屏检测 (Edge Scrolling)
         var viewport = GetViewport();
         bool isEdgePanning = false;
-        if (viewport is not null && !Input.IsMouseButtonPressed(MouseButton.Left))
+        if (viewport is not null && !Input.IsMouseButtonPressed(MouseButton.Left) && !CommandLineArgs.Get().Any(arg => arg.Contains("capture")))
         {
             var mousePos = viewport.GetMousePosition();
             var windowSize = viewport.GetVisibleRect().Size;
@@ -81,6 +99,23 @@ public partial class RtsCamera : Node3D
         }
 
         ClampVisibleAreaToMap();
+
+        if (shakeTimer > 0f)
+        {
+            shakeTimer -= (float)delta;
+            if (shakeTimer <= 0f)
+            {
+                camera.HOffset = 0f;
+                camera.VOffset = 0f;
+            }
+            else
+            {
+                var ratio = shakeTimer / shakeDuration;
+                var currentIntensity = shakeIntensity * ratio;
+                camera.HOffset = (float)GD.RandRange(-currentIntensity, currentIntensity);
+                camera.VOffset = (float)GD.RandRange(-currentIntensity, currentIntensity);
+            }
+        }
     }
 
     public override void _UnhandledInput(InputEvent evt)
@@ -108,9 +143,9 @@ public partial class RtsCamera : Node3D
             if (button.ButtonIndex == MouseButton.Middle)
                 dragging = button.Pressed;
             else if (button.ButtonIndex == MouseButton.WheelUp && button.Pressed)
-                AdjustZoom(-ZoomSpeed);
+                AdjustZoom(-ZoomSpeed, button.Position);
             else if (button.ButtonIndex == MouseButton.WheelDown && button.Pressed)
-                AdjustZoom(ZoomSpeed);
+                AdjustZoom(ZoomSpeed, button.Position);
         }
         else if (evt is InputEventMouseMotion motion && dragging)
         {
@@ -173,7 +208,7 @@ public partial class RtsCamera : Node3D
         var centerDelta = center - lastTouchCenter;
         PanByScreenDelta(centerDelta, 1.15f);
 
-        AdjustZoom((lastPinchDistance - distance) * 0.035f);
+        AdjustZoom((lastPinchDistance - distance) * 0.035f, center);
         lastTouchCenter = center;
         lastPinchDistance = distance;
         GetViewport().SetInputAsHandled();
@@ -190,12 +225,27 @@ public partial class RtsCamera : Node3D
         touchGestureActive = true;
     }
 
-    void AdjustZoom(float amount)
+    void AdjustZoom(float amount, Vector2? screenFocusPoint = null)
     {
+        var viewport = GetViewport();
+        var focus = screenFocusPoint ?? (viewport?.GetVisibleRect().Size * 0.5f) ?? Vector2.Zero;
+
+        Vector3 groundBefore = Vector3.Zero;
+        bool projectedBefore = TryProjectScreenPointToGround(focus, out groundBefore);
+
         var p = camera.Position;
         p.Y = Mathf.Clamp(p.Y + amount, MinHeight, MaxHeight);
-        p.Z = Mathf.Clamp(p.Z + amount, MinHeight, MaxHeight);
+        p.Z = p.Y * initialRatio;
         camera.Position = p;
+
+        camera.ForceUpdateTransform();
+
+        if (projectedBefore && TryProjectScreenPointToGround(focus, out Vector3 groundAfter))
+        {
+            var delta = groundBefore - groundAfter;
+            GlobalPosition += new Vector3(delta.X, 0f, delta.Z);
+        }
+
         ClampVisibleAreaToMap();
     }
 
@@ -280,6 +330,9 @@ public partial class RtsCamera : Node3D
 
     void ClampVisibleAreaToMap()
     {
+        if (CommandLineArgs.Get().Any(arg => arg.Contains("capture")))
+            return;
+
         if (!TryGetViewportGroundPolygon(out var polygon) || polygon.Length == 0)
             return;
 

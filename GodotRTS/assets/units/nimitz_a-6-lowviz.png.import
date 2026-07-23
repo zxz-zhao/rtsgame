@@ -2,16 +2,24 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b6vml5jqxmqgj"
-valid=false
+uid="uid://buqrwlxsfikdj"
+path.s3tc="res://.godot/imported/nimitz_a-6-lowviz.png-7456ec5127ef0cc185948a9e554cc3d1.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "60d7d88ea972fcbf192092fbb1182165"
+}
 
 [deps]
 
-source_file="res://assets/unity_migrated/Assets/Resources/LoginBG.jpg"
+source_file="res://assets/units/nimitz_a-6-lowviz.png"
+dest_files=["res://.godot/imported/nimitz_a-6-lowviz.png-7456ec5127ef0cc185948a9e554cc3d1.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -19,7 +27,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=false
+mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""
@@ -33,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

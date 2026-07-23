@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -57,7 +57,18 @@ public static class BattleBuildingUpgradeCatalog
 
         return buildKey switch
         {
-            "main_base" => clampedLevel == 2 ? MainBaseLevel2() : MainBaseLevel3(),
+            "main_base" => clampedLevel switch
+            {
+                2 => MainBaseLevel2(),
+                3 => MainBaseLevel3(),
+                4 => MainBaseLevel4(),
+                5 => MainBaseLevel5(),
+                6 => MainBaseLevel6(),
+                7 => MainBaseLevel7(),
+                8 => MainBaseLevel8(),
+                9 => MainBaseLevel9(),
+                _ => BaseLevel()
+            },
             "barracks" => clampedLevel == 2
                 ? ProductionLevel2(260, 980f, 1.15f)
                 : ProductionLevel3(420, 1200f, 1.30f),
@@ -107,6 +118,88 @@ public static class BattleBuildingUpgradeCatalog
             MaxHealthOverride: 5600f,
             PopCapBonusOverride: 20,
             GoldIncomeOverride: 55);
+
+    static BattleBuildingUpgradeDefinition MainBaseLevel4()
+        => new(
+            4, 2200, 1f, 1f, 1f, 1f, 0f, 0, 0,
+            new[]
+            {
+                new BattleBuildingRequirement("main_base", 1, 3),
+                new BattleBuildingRequirement("barracks", 1, 2),
+                new BattleBuildingRequirement("gold_mine", 4),
+                new BattleBuildingRequirement("power_plant", 4)
+            },
+            MaxHealthOverride: 7200f,
+            PopCapBonusOverride: 26,
+            GoldIncomeOverride: 70);
+
+    static BattleBuildingUpgradeDefinition MainBaseLevel5()
+        => new(
+            5, 3200, 1f, 1f, 1f, 1f, 0f, 0, 0,
+            new[]
+            {
+                new BattleBuildingRequirement("main_base", 1, 4),
+                new BattleBuildingRequirement("tank_factory", 1, 2),
+                new BattleBuildingRequirement("air_factory", 1, 2),
+                new BattleBuildingRequirement("naval_yard", 1, 2)
+            },
+            MaxHealthOverride: 9000f,
+            PopCapBonusOverride: 32,
+            GoldIncomeOverride: 85);
+
+    static BattleBuildingUpgradeDefinition MainBaseLevel6()
+        => new(
+            6, 4500, 1f, 1f, 1f, 1f, 0f, 0, 0,
+            new[]
+            {
+                new BattleBuildingRequirement("main_base", 1, 5),
+                new BattleBuildingRequirement("armor_factory", 1, 2),
+                new BattleBuildingRequirement("airfield", 2),
+                new BattleBuildingRequirement("gold_mine", 4, 1)
+            },
+            MaxHealthOverride: 11000f,
+            PopCapBonusOverride: 38,
+            GoldIncomeOverride: 100);
+
+    static BattleBuildingUpgradeDefinition MainBaseLevel7()
+        => new(
+            7, 6000, 1f, 1f, 1f, 1f, 0f, 0, 0,
+            new[]
+            {
+                new BattleBuildingRequirement("main_base", 1, 6),
+                new BattleBuildingRequirement("barracks", 2, 2),
+                new BattleBuildingRequirement("turret", 3, 2)
+            },
+            MaxHealthOverride: 13500f,
+            PopCapBonusOverride: 44,
+            GoldIncomeOverride: 120);
+
+    static BattleBuildingUpgradeDefinition MainBaseLevel8()
+        => new(
+            8, 8000, 1f, 1f, 1f, 1f, 0f, 0, 0,
+            new[]
+            {
+                new BattleBuildingRequirement("main_base", 1, 7),
+                new BattleBuildingRequirement("armor_factory", 2, 2),
+                new BattleBuildingRequirement("naval_yard", 2, 2)
+            },
+            MaxHealthOverride: 16500f,
+            PopCapBonusOverride: 50,
+            GoldIncomeOverride: 145);
+
+    static BattleBuildingUpgradeDefinition MainBaseLevel9()
+        => new(
+            9, 10500, 1f, 1f, 1f, 1f, 0f, 0, 0,
+            new[]
+            {
+                new BattleBuildingRequirement("main_base", 1, 8),
+                new BattleBuildingRequirement("tank_factory", 2, 3),
+                new BattleBuildingRequirement("air_factory", 2, 3),
+                new BattleBuildingRequirement("armor_factory", 2, 3)
+            },
+            MaxHealthOverride: 20000f,
+            PopCapBonusOverride: 60,
+            GoldIncomeOverride: 175);
 
     static BattleBuildingUpgradeDefinition ProductionLevel2(int cost, float maxHealth, float productionSpeed)
         => new(
@@ -159,11 +252,21 @@ public static class BattleBuildingUpgradeCatalog
             TurretCooldownOverride: 0.88f);
 
     public static int GetMaxLevel(string buildKey)
-        => buildKey switch
+    {
+        if (buildKey == "main_base")
         {
-            "power_plant" or "gold_mine" or "airfield" => 1,
-            _ => MaxLevel
-        };
+            if (GameState.Instance is not null && GameState.Instance.LastBattleMode == "全球争霸")
+            {
+                return 9;
+            }
+            return 3;
+        }
+
+        if (buildKey is "power_plant" or "gold_mine" or "airfield")
+            return 1;
+
+        return MaxLevel;
+    }
 
     public static bool HasNextLevel(string buildKey, int currentLevel)
         => currentLevel < GetMaxLevel(buildKey);

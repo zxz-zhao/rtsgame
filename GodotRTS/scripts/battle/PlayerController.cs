@@ -483,7 +483,7 @@ public partial class PlayerController : Node
         if (buildPlacementPreview is null || !GodotObject.IsInstanceValid(buildPlacementPreview))
             return;
 
-        var previewPosition = new Vector3(position.X, 0f, position.Z);
+        var previewPosition = position;
         buildPlacementPreviewPoint = previewPosition;
         hasBuildPlacementPreviewPoint = true;
 
@@ -802,12 +802,37 @@ public partial class PlayerController : Node
             if (selected.Count == 0)
                 return;
 
+            int orderedCount = 0;
+            bool targetIsUnit = enemy is RtsUnit;
+            string enemyUnitKey = targetIsUnit ? ((RtsUnit)enemy).UnitKey : "";
+
             foreach (var unit in selected)
             {
+                if (targetIsUnit)
+                {
+                    if (!BattleUnitCatalog.CanAttackTargetType(unit.UnitKey, enemyUnitKey))
+                        continue;
+                }
                 unit.Attack(enemy);
                 GameRelay.Instance?.SendAttack(unit.NetId, GetNetId(enemy), target.IsInGroup("rts_buildings"));
+                orderedCount++;
             }
-            BattleFeedback.Command(this, enemy.GlobalPosition, "ATTACK", new Color(1f, 0.38f, 0.30f));
+
+            if (orderedCount > 0)
+            {
+                BattleFeedback.Command(this, enemy.GlobalPosition, "ATTACK", new Color(1f, 0.38f, 0.30f));
+            }
+            else
+            {
+                if (targetIsUnit && BattleUnitCatalog.IsAirUnit(enemyUnitKey))
+                {
+                    FindHud()?.ShowAlert("所选单位无法攻击空中单位！");
+                }
+                else
+                {
+                    FindHud()?.ShowAlert("所选单位无法攻击该目标！");
+                }
+            }
             return;
         }
 
@@ -1018,7 +1043,7 @@ public partial class PlayerController : Node
         if (hit.Count > 0 && hit.ContainsKey("position"))
         {
             var hitPos = hit["position"].AsVector3();
-            position = new Vector3(hitPos.X, 0f, hitPos.Z);
+            position = hitPos;
             return true;
         }
 

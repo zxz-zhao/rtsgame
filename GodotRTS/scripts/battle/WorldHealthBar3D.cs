@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 
 public partial class WorldHealthBar3D : Node3D
 {
@@ -148,7 +148,7 @@ public partial class WorldHealthBar3D : Node3D
             Roughness = 0.85f,
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            NoDepthTest = true,
+            NoDepthTest = false, // 改为 false：当单位被遮蔽或卡在建筑物内时，血条会被物理模型正确遮挡，避免“只见血条不见人”的浮空 Bug
             RenderPriority = 10,
             BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled
         });

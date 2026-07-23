@@ -54,12 +54,14 @@ public partial class BattleGameManager : Node
     [Export] public PackedScene? InfantryScene { get; set; }
     [Export] public PackedScene? FighterScene { get; set; }
     [Export] public PackedScene? BomberScene { get; set; }
+    [Export] public PackedScene? AircraftCarrierScene { get; set; }
     [Export] public float UnitVisionRadius { get; set; } = 32f;
     [Export] public float BuildingVisionRadius { get; set; } = 46f;
     [Export] public float MainBaseVisionRadius { get; set; } = 70f;
     [Export] public int MainBaseRebuildCost { get; set; } = 600;
     [Export] public float MainBaseRebuildDuration { get; set; } = 30f;
 
+    public static bool DisableFogOfWar { get; set; } = false;
     public static BattleGameManager? Instance { get; private set; }
 
     public int PlayerGold { get; private set; }
@@ -120,6 +122,7 @@ public partial class BattleGameManager : Node
     readonly Dictionary<int, Vector3> aircraftParkingSlots = new();
     int lastPlayerBaseLevel = 1;
     int lastPlayerBaseHp;
+    AudioStreamPlayer? bgmPlayer;
     int lastPlayerBaseMaxHp;
     int lastEnemyBaseLevel = 1;
     int lastEnemyBaseHp;
@@ -138,6 +141,9 @@ public partial class BattleGameManager : Node
         ApplyGlobalConquestStarterIfNeeded();
         // 将原本的异步等待改为同步加载，使重型 3D 资产（FBX模型）在加载界面背后装载完毕，避免进入战场画面后的瞬间发生二次卡顿
         RegisterExistingCombatants();
+
+        // 战局开启时启动紧张氛围背景音乐
+        StartTenseBattleBgm();
     }
 
     public override void _Process(double delta)
@@ -320,25 +326,37 @@ public partial class BattleGameManager : Node
             {
                 1 => 1,
                 2 => 2,
-                _ => 3
+                3 => 3,
+                4 or 5 => 4,
+                6 or 7 => 5,
+                _ => 6
             },
             "air_factory" or "airfield" or "tank_factory" or "armor_factory" or "naval_yard" => mainBaseLevel switch
             {
                 1 => 0, // Level 1 main base cannot construct advanced factory buildings
                 2 => 1,
-                _ => 2
+                3 or 4 => 2,
+                5 or 6 => 3,
+                7 or 8 => 4,
+                _ => 5
             },
             "turret" => mainBaseLevel switch
             {
                 1 => 2,
                 2 => 4,
-                _ => 6
+                3 or 4 => 6,
+                5 or 6 => 9,
+                7 or 8 => 12,
+                _ => 16
             },
             "gold_mine" or "power_plant" => mainBaseLevel switch
             {
                 1 => 2,
                 2 => 3,
-                _ => 4
+                3 or 4 => 4,
+                5 or 6 => 6,
+                7 or 8 => 8,
+                _ => 10
             },
             _ => int.MaxValue
         };
@@ -426,14 +444,16 @@ public partial class BattleGameManager : Node
             return false;
         }
 
-        // 主基地 1 级时，部分高阶功能性建筑锁死不可建造
-        if (baseLevel == 1)
+        // 主基地等级限制解锁高阶功能性建筑
+        if (buildKey is "tank_factory" or "airfield" or "naval_yard" && baseLevel < 2)
         {
-            if (buildKey == "tank_factory" || buildKey == "armor_factory" || buildKey == "airfield" || buildKey == "air_factory" || buildKey == "naval_yard")
-            {
-                message = $"{BattleBuildingCatalog.Get(buildKey).DisplayName}需要主基地升级到 Lv.2 才能建造";
-                return false;
-            }
+            message = $"{BattleBuildingCatalog.Get(buildKey).DisplayName}需要主基地升级到 Lv.2 才能建造";
+            return false;
+        }
+        if (buildKey is "armor_factory" or "air_factory" && baseLevel < 3)
+        {
+            message = $"{BattleBuildingCatalog.Get(buildKey).DisplayName}需要主基地升级到 Lv.3 才能建造";
+            return false;
         }
 
         var limit = GetBuildingLimit(buildKey, playerOwned);
@@ -456,9 +476,9 @@ public partial class BattleGameManager : Node
             message = playerOwned ? "\u4e3b\u57fa\u5730\u5df2\u5931\u6548\uff0c\u65e0\u6cd5\u5efa\u9020\u5efa\u7b51" : "\u57fa\u5730\u5df2\u5931\u6548";
             return false;
         }
-        if (Mathf.Abs(position.X) > BattleMapCatalog.MapHalfSize - 18f || Mathf.Abs(position.Z) > BattleMapCatalog.MapHalfSize - 18f)
+        if (Mathf.Abs(position.X) > BattleMapCatalog.GetMapHalfSize(currentMap) - 18f || Mathf.Abs(position.Z) > BattleMapCatalog.GetMapHalfSize(currentMap) - 18f)
         {
-            message = "\u5efa\u9020\u4f4d\u7f6e\u8d85\u51fa\u5730\u56fe\u8fb9\u754c";
+            message = "建造位置超出地图边界";
             return false;
         }
 
@@ -478,7 +498,7 @@ public partial class BattleGameManager : Node
         var mainBase = FindOperationalMainBase(playerOwned);
         if (mainBase is not null && position.DistanceTo(mainBase.GlobalPosition) > Mathf.Max(8f, 60f - footprintRadius))
         {
-            message = "\u5efa\u7b51\u9700\u8981\u653e\u5728\u4e3b\u57fa\u5730\u5efa\u9020\u8303\u56f4\u5185";
+            message = "\u5efa\u7b51\u9700\u8981\u653e\u572c\u4e3b\u57fa\u5730\u5efa\u9020\u8303\u56f4\u5185";
             return false;
         }
 
@@ -542,17 +562,19 @@ public partial class BattleGameManager : Node
         }
         if (BattleUnitCatalog.RequiresAirfieldSlot(def.Key))
         {
-            var capacity = CountBuildings("airfield", true, false) * 4;
+            var carrierSlots = GetUnits(true).Count(u => BattleUnitCatalog.IsCarrier(u.UnitKey) && !u.IsDead)
+                * BattleUnitCatalog.CarrierSlotCount;
+            var capacity = CountBuildings("airfield", true, false) * 4 + carrierSlots;
             var occupied = GetUnits(true).Count(unit => BattleUnitCatalog.RequiresAirfieldSlot(unit.UnitKey))
                 + CountQueuedAircraft(true);
             if (capacity <= 0)
             {
-                message = "需要先建造停机场";
+                message = "需要先建造停机场或航母";
                 return false;
             }
             if (occupied >= capacity)
             {
-                message = $"停机场机位不足：{occupied}/{capacity}";
+                message = $"机位不足：{occupied}/{capacity}（停机场或航母可提供机位）";
                 return false;
             }
         }
@@ -605,12 +627,14 @@ public partial class BattleGameManager : Node
 
         if (BattleUnitCatalog.RequiresAirfieldSlot(def.Key))
         {
-            var capacity = CountBuildings("airfield", playerOwned, false) * 4;
+            var carrierSlots = GetUnits(playerOwned).Count(u => BattleUnitCatalog.IsCarrier(u.UnitKey) && !u.IsDead)
+                * BattleUnitCatalog.CarrierSlotCount;
+            var capacity = CountBuildings("airfield", playerOwned, false) * 4 + carrierSlots;
             var occupied = GetUnits(playerOwned).Count(unit => BattleUnitCatalog.RequiresAirfieldSlot(unit.UnitKey))
                 + CountQueuedAircraft(playerOwned);
             if (capacity <= 0 || occupied >= capacity)
             {
-                message = $"停机场位不足：{occupied}/{capacity}";
+                message = $"机位不足：{occupied}/{capacity}";
                 return false;
             }
         }
@@ -1438,12 +1462,15 @@ public partial class BattleGameManager : Node
         }
 
         var nextLevel = building.BuildingLevel + 1;
-        var requirements = GetUpgradeRequirementStatuses(building.BuildKey, nextLevel, playerOwned);
-        var missing = requirements.Where(item => !item.IsMet).ToArray();
-        if (missing.Length > 0)
+        if (playerOwned)
         {
-            message = $"升级条件不足：{FormatRequirementSummary(missing)}";
-            return false;
+            var requirements = GetUpgradeRequirementStatuses(building.BuildKey, nextLevel, playerOwned);
+            var missing = requirements.Where(item => !item.IsMet).ToArray();
+            if (missing.Length > 0)
+            {
+                message = $"升级条件不足：{FormatRequirementSummary(missing)}";
+                return false;
+            }
         }
 
         var cost = building.NextUpgradeCost();
@@ -1517,15 +1544,32 @@ public partial class BattleGameManager : Node
             return false;
         }
 
-        if (ResolveNearestAirfield(unit.PlayerOwned, unit.GlobalPosition) is not { } airfield)
+        // 同时搜索陆基停机坪和航母，选最近的
+        var airfield = ResolveNearestAirfield(unit.PlayerOwned, unit.GlobalPosition);
+        var carrier  = ResolveNearestCarrier(unit.PlayerOwned, unit.GlobalPosition);
+
+        Vector3 parkingTarget;
+        if (airfield is null && carrier is null)
         {
             message = lowFuel
-                ? $"{unit.DisplayName} 油量不足，但没有可用停机场"
-                : "需要先建造停机场";
+                ? $"{unit.DisplayName} 油量不足，但没有可用停机场或航母"
+                : "需要先建造停机场或部署航母";
             return false;
         }
+        else if (airfield is null)
+            parkingTarget = NormalizeUnitTarget(unit, GetCarrierParkingTarget(carrier!, unit));
+        else if (carrier is null)
+            parkingTarget = NormalizeUnitTarget(unit, GetAircraftParkingTarget(airfield, unit));
+        else
+        {
+            // 选最近的降落点
+            var airfieldDist = airfield.GlobalPosition.DistanceSquaredTo(unit.GlobalPosition);
+            var carrierDist  = carrier.GlobalPosition.DistanceSquaredTo(unit.GlobalPosition);
+            parkingTarget = airfieldDist <= carrierDist
+                ? NormalizeUnitTarget(unit, GetAircraftParkingTarget(airfield, unit))
+                : NormalizeUnitTarget(unit, GetCarrierParkingTarget(carrier, unit));
+        }
 
-        var parkingTarget = NormalizeUnitTarget(unit, GetAircraftParkingTarget(airfield, unit));
         unit.BeginAirfieldParking(BuildAircraftParkingPath(unit, parkingTarget), parkingTarget);
         message = lowFuel
             ? $"{unit.DisplayName} 油量不足，正在返场加油"
@@ -1606,7 +1650,7 @@ public partial class BattleGameManager : Node
         var building = new RtsBuilding
         {
             Name = (playerOwned ? "Player_" : "Enemy_") + def.Key,
-            Position = new Vector3(position.X, 0f, position.Z),
+            Position = position,
             NetId = nextNetId++
         };
         building.AddToGroup("rts_selectable");
@@ -1655,7 +1699,17 @@ public partial class BattleGameManager : Node
             .OfType<Node3D>()
             .FirstOrDefault(child => child.Name.ToString().Contains("model", StringComparison.OrdinalIgnoreCase));
         if (imported is not null)
+        {
             unit.ConfigureVisualRig(unit.UnitKey, imported);
+            return;
+        }
+
+        // 场景中预置但没有内嵌视觉模型的单位（如步兵），动态生成其视觉外观
+        if (!string.IsNullOrWhiteSpace(unit.UnitKey))
+        {
+            var def = BattleUnitCatalog.Get(unit.UnitKey);
+            AddUnitVisual(unit, def, unit.PlayerOwned);
+        }
     }
 
     void ApplyGlobalConquestStarterIfNeeded()
@@ -1792,6 +1846,14 @@ public partial class BattleGameManager : Node
         PlayerWon = playerWon;
         GameOverReason = reason;
         EmitSignal(SignalName.GameEnded, playerWon, reason);
+
+        // 战局结束时渐隐停止背景音乐
+        if (bgmPlayer is not null && bgmPlayer.Playing)
+        {
+            var tween = bgmPlayer.CreateTween();
+            tween.TweenProperty(bgmPlayer, "volume_db", -80f, 1.5f);
+            tween.TweenCallback(Callable.From(bgmPlayer.Stop));
+        }
     }
 
     void RecalculatePopulation()
@@ -1864,6 +1926,15 @@ public partial class BattleGameManager : Node
 
     void ForceRefreshFogOfWar()
     {
+        if (DisableFogOfWar)
+        {
+            foreach (var unit in GetUnits())
+                unit.SetFogRevealed(true);
+            foreach (var building in GetBuildings())
+                building.SetFogRevealed(true);
+            return;
+        }
+
         var playerUnits = GetUnits(true);
         var playerBuildings = GetBuildings(true);
 
@@ -2196,7 +2267,7 @@ public partial class BattleGameManager : Node
             message = "\u4e3b\u57fa\u5730\u5df2\u5931\u6548\uff0c\u65e0\u6cd5\u5efa\u9020\u5efa\u7b51";
             return false;
         }
-        if (Mathf.Abs(position.X) > BattleMapCatalog.MapHalfSize - 18f || Mathf.Abs(position.Z) > BattleMapCatalog.MapHalfSize - 18f)
+        if (Mathf.Abs(position.X) > BattleMapCatalog.GetMapHalfSize(currentMap) - 18f || Mathf.Abs(position.Z) > BattleMapCatalog.GetMapHalfSize(currentMap) - 18f)
         {
             message = "建造位置超出地图边界";
             return false;
@@ -2241,11 +2312,29 @@ public partial class BattleGameManager : Node
         return true;
     }
 
+
     Vector3? ResolveAircraftTransferTarget(RtsBuilding factory, RtsUnit unit)
     {
-        if (ResolveNearestAirfield(factory.PlayerOwned, factory.GlobalPosition) is not { } bestAirfield)
+        // 寻找最近的陆基停机坪或航母，哪个近用哪个
+        var airfield = ResolveNearestAirfield(factory.PlayerOwned, factory.GlobalPosition);
+        var carrier  = ResolveNearestCarrier(factory.PlayerOwned, factory.GlobalPosition);
+
+        Vector3 landingBase;
+        if (airfield is null && carrier is null)
             return NormalizeUnitTarget(unit, factory.GetRallyTarget());
-        return NormalizeUnitTarget(unit, GetAircraftParkingTarget(bestAirfield, unit));
+        else if (airfield is null)
+            landingBase = GetCarrierParkingTarget(carrier!, unit);
+        else if (carrier is null)
+            landingBase = GetAircraftParkingTarget(airfield, unit);
+        else
+        {
+            var airfieldDist = airfield.GlobalPosition.DistanceSquaredTo(factory.GlobalPosition);
+            var carrierDist  = carrier.GlobalPosition.DistanceSquaredTo(factory.GlobalPosition);
+            landingBase = airfieldDist <= carrierDist
+                ? GetAircraftParkingTarget(airfield, unit)
+                : GetCarrierParkingTarget(carrier, unit);
+        }
+        return NormalizeUnitTarget(unit, landingBase);
     }
 
     public RtsBuilding? ResolveNearestAirfield(bool playerOwned, Vector3 origin)
@@ -2253,6 +2342,15 @@ public partial class BattleGameManager : Node
         return GetBuildings(playerOwned)
             .Where(building => building.BuildKey == "airfield" && !building.UnderConstruction && building.Health > 0f)
             .OrderBy(building => building.GlobalPosition.DistanceSquaredTo(origin))
+            .FirstOrDefault();
+    }
+
+    /// <summary>返回最近的存活航母单位，没有则 null。</summary>
+    public RtsUnit? ResolveNearestCarrier(bool playerOwned, Vector3 origin)
+    {
+        return GetUnits(playerOwned)
+            .Where(u => BattleUnitCatalog.IsCarrier(u.UnitKey) && !u.IsDead)
+            .OrderBy(u => u.GlobalPosition.DistanceSquaredTo(origin))
             .FirstOrDefault();
     }
 
@@ -2280,6 +2378,45 @@ public partial class BattleGameManager : Node
 
         return stored;
     }
+
+    /// <summary>
+    /// 在航母甲板上分配停靠位。航母是移动单位，每次都重新计算以跟随航母当前位置。
+    /// 4 个甲板槽位按间距 3.2 m 排列在甲板中线两侧。
+    /// </summary>
+    Vector3 GetCarrierParkingTarget(RtsUnit carrier, RtsUnit aircraft)
+    {
+        // 航母是运动目标，不缓存具体坐标，只缓存槽位索引
+        var key = aircraft.NetId;
+        if (!aircraftParkingSlots.TryGetValue(key, out var stored) || stored.DistanceSquaredTo(carrier.GlobalPosition) > 400f)
+        {
+            var slotIndex = GetUnits(aircraft.PlayerOwned)
+                .Count(existing => existing != aircraft
+                    && BattleUnitCatalog.RequiresAirfieldSlot(existing.UnitKey)
+                    && existing.GlobalPosition.DistanceSquaredTo(carrier.GlobalPosition) < 64f);
+            slotIndex %= BattleUnitCatalog.CarrierSlotCount;
+
+            // 甲板位：前两个靠舰首，后两个靠舰尾，横向各偏 1.6 m
+            var offset = slotIndex switch
+            {
+                0 => new Vector3(-1.6f, 0.9f, -3.0f),
+                1 => new Vector3( 1.6f, 0.9f, -3.0f),
+                2 => new Vector3(-1.6f, 0.9f,  1.8f),
+                _ => new Vector3( 1.6f, 0.9f,  1.8f)
+            };
+            stored = carrier.GlobalPosition + offset;
+            aircraftParkingSlots[key] = stored;
+        }
+        else
+        {
+            // 航母移动时持续更新已分配的停靠点，让飞机跟着甲板走
+            // （甲板 offset 相对于上次记录位置不变，整体平移）
+            // 这里简单地：每帧重新锁定到航母当前位置 + 上次offset
+            var delta = carrier.GlobalPosition - new Vector3(stored.X, carrier.GlobalPosition.Y, stored.Z) + stored;
+            _ = delta; // 实际不需要——飞机停靠后不再移动，航母可以驶离
+        }
+        return stored;
+    }
+
 
     IEnumerable<Vector3> BuildAircraftTransferPath(RtsBuilding factory, Vector3 parkingTarget)
     {
@@ -2335,6 +2472,11 @@ public partial class BattleGameManager : Node
 
         if (BattleUnitCatalog.IsNavalUnit(def.Key))
         {
+            if (def.Key == "aircraft_carrier" && AircraftCarrierScene is not null)
+            {
+                AddPackedUnitVisual(unit, AircraftCarrierScene, "AircraftCarrier", def, playerOwned);
+                return;
+            }
             AddNavalUnitVisual(unit, def, playerOwned);
             return;
         }
@@ -2371,23 +2513,26 @@ public partial class BattleGameManager : Node
 
         var squad = new Node3D { Name = "InfantrySquad" };
         unit.AddChild(squad);
-        var soldierCount = def.Key == "infantry" ? 3 : 2;
-        var infantryTint = playerOwned ? def.Tint : new Color(0.58f, 0.25f, 0.18f);
+        var soldierCount = 1;
+        // 使用更明亮的队伍色（己方高亮，敌方高亮红色），结合 Lerp 混合，防止模型因乘法发暗发黑
+        var infantryTint = playerOwned 
+            ? new Color(Mathf.Min(1f, def.Tint.R * 1.45f), Mathf.Min(1f, def.Tint.G * 1.45f), Mathf.Min(1f, def.Tint.B * 1.45f), 1f) 
+            : new Color(0.95f, 0.28f, 0.22f, 1f);
         for (var i = 0; i < soldierCount; i++)
         {
             var centerOffset = (soldierCount - 1) * 0.5f;
             var soldierRoot = new Node3D
             {
                 Name = $"Infantry_{i}",
-                Position = new Vector3((i - centerOffset) * 0.65f, 0f, i == 1 ? -0.34f : 0.30f),
+                Position = soldierCount == 1 ? Vector3.Zero : new Vector3((i - centerOffset) * 0.65f, 0f, i == 1 ? -0.34f : 0.30f),
                 Scale = Vector3.One * InfantryModelScale(def.Key),
-                Rotation = new Vector3(0f, playerOwned ? 0f : Mathf.Pi, 0f)
+                Rotation = new Vector3(0f, Mathf.Pi, 0f)
             };
             var model = InfantryScene.Instantiate<Node3D>();
             model.Name = "Model";
             soldierRoot.AddChild(model);
             CenterImportedModel(model);
-            TintImportedModel(soldierRoot, infantryTint);
+            TintImportedModel(soldierRoot, infantryTint, 0.20f);
             // 注入 Mixamo 骨骼动画（idle / walk / fire）
             InfantryAnimationBridge.InjectAnimations(model);
             AttachWeaponToInfantry(model, def.Key);
@@ -2398,16 +2543,16 @@ public partial class BattleGameManager : Node
 
     static float InfantryModelScale(string key) => key switch
     {
-        "infantry_artillery" => 1.65f,
-        "infantry_flamethrower" or "flamethrower" => 1.75f,
-        _ => 1.60f
+        "infantry_artillery" => 1.05f,
+        "infantry_flamethrower" or "flamethrower" => 1.10f,
+        _ => 1.00f
     };
 
     void AddProceduralInfantryVisual(RtsUnit unit, BattleUnitDefinition def, bool playerOwned)
     {
         var squad = new Node3D { Name = "InfantrySquad" };
         unit.AddChild(squad);
-        var soldierCount = def.Key == "infantry" ? 3 : 2;
+        var soldierCount = 1;
         var infantryTint = playerOwned ? def.Tint : new Color(0.58f, 0.25f, 0.18f);
         for (var i = 0; i < soldierCount; i++)
         {
@@ -2415,7 +2560,7 @@ public partial class BattleGameManager : Node
             var soldierRoot = new Node3D
             {
                 Name = $"Infantry_{i}",
-                Position = new Vector3((i - centerOffset) * 0.58f, 0f, i == 1 ? -0.34f : 0.28f),
+                Position = soldierCount == 1 ? Vector3.Zero : new Vector3((i - centerOffset) * 0.58f, 0f, i == 1 ? -0.34f : 0.28f),
                 Scale = Vector3.One * 1.55f, // 积木小兵同样等比放大 1.55 倍
                 Rotation = new Vector3(0f, playerOwned ? 0f : Mathf.Pi, 0f)
             };
@@ -2464,7 +2609,9 @@ public partial class BattleGameManager : Node
         for (int b = 0; b < skeleton.GetBoneCount(); b++)
         {
             var name = skeleton.GetBoneName(b);
-            if (name.Contains("RightHand") || name.Contains("Right_Hand") || name.Contains("RightWeapon"))
+            var lower = name.ToLower();
+            if (lower.Contains("righthand") || lower.Contains("right_hand") || lower.Contains("rightweapon") || 
+                lower.Contains("hand_r") || lower.Contains("hand.r") || lower.Contains("wrist_r") || lower.Contains("wrist.r"))
             {
                 handBoneName = name;
                 break;
@@ -2494,6 +2641,14 @@ public partial class BattleGameManager : Node
             offsetPos = new Vector3(-0.02f, 0.05f, 0.02f);
             offsetRot = new Vector3(0f, Mathf.Pi * 0.5f, 0f);
             scale = Vector3.One * 0.55f;
+        }
+        else if (unitKey is "infantry_flamethrower" or "flamethrower")
+        {
+            // 喷火器模型 (使用 blaster-g)
+            weaponPath = "res://assets/unity_migrated/Assets/External/Kenney/BlasterKit/Models/FBX format/blaster-g.fbx";
+            offsetPos = new Vector3(-0.04f, 0.06f, 0.03f);
+            offsetRot = new Vector3(0f, Mathf.Pi * 0.5f, -Mathf.Pi * 0.15f);
+            scale = Vector3.One * 0.65f;
         }
 
         if (string.IsNullOrEmpty(weaponPath))
@@ -2541,9 +2696,25 @@ public partial class BattleGameManager : Node
         visualRoot.AddChild(visual);
         CenterImportedModel(visual);
 
+        var tint = playerOwned ? def.Tint : new Color(0.56f, 0.22f, 0.18f);
         if (ShouldTintImportedModel(def.Key))
-            TintImportedModel(visualRoot, playerOwned ? def.Tint : new Color(0.56f, 0.22f, 0.18f));
+            TintImportedModel(visualRoot, tint);
         AddFallbackAircraftPropellers(visualRoot, def.Key);
+
+        // Mount dynamic military details onto vehicles to distinguish them
+        if (def.Key == "anti_air_gun")
+        {
+            // Mount double-barreled AA guns on the chassis
+            TryAddSizedImportedProp(visualRoot, SpaceKitRoot + "turret_double.fbx", "AntiAirTurret",
+                new Vector3(0f, 0.45f, -0.1f), 1.0f, 1.1f, Vector3.Zero, tint, preserveMaterials: false);
+        }
+        else if (def.Key == "heavy_tank")
+        {
+            // Add secondary single-barrel defense turret on the heavy tank to make it look extra beefy
+            TryAddSizedImportedProp(visualRoot, SpaceKitRoot + "turret_single.fbx", "HeavyDefenseGun",
+                new Vector3(0.35f, 0.55f, 0.6f), 0.5f, 0.6f, Vector3.Zero, tint, preserveMaterials: false);
+        }
+
         unit.AddChild(visualRoot);
         unit.ConfigureVisualRig(def.Key, BattleUnitCatalog.IsAirUnit(def.Key) ? visualRoot : visual);
     }
@@ -2571,6 +2742,7 @@ public partial class BattleGameManager : Node
         "scout_plane" => 2.25f,
         "fighter" => 0.58f,
         "bomber" => 0.62f,
+        "aircraft_carrier" => 0.022f, // Downscale the modern carrier model to fit the game
         _ => 1f
     };
 
@@ -2578,6 +2750,7 @@ public partial class BattleGameManager : Node
     {
         "artillery" => new Vector3(0f, 0.08f, 0f),
         "scout_plane" => new Vector3(0f, 0.08f, 0f),
+        "aircraft_carrier" => new Vector3(0f, 0.05f, 0f), // Align slightly above water
         _ => Vector3.Zero
     };
 
@@ -2609,10 +2782,15 @@ public partial class BattleGameManager : Node
 
     static Vector3 ImportedModelFineRotation(string key) => key switch
     {
-        "artillery" => new Vector3(-Mathf.Pi * 0.5f, 0f, 0f),
-        "heavy_tank" => new Vector3(0f, Mathf.Pi, 0f),
+        "artillery" => new Vector3(-Mathf.Pi * 0.5f, Mathf.Pi, 0f),
+        "light_tank" => new Vector3(0f, Mathf.Pi, 0f),
+        "anti_air_gun" => new Vector3(0f, Mathf.Pi, 0f),
         "tank" => new Vector3(0f, Mathf.Pi, 0f),
         "medium_tank" => new Vector3(0f, Mathf.Pi, 0f),
+        "scout_plane" => new Vector3(0f, Mathf.Pi, 0f),
+        "fighter" => new Vector3(0f, Mathf.Pi, 0f),
+        "bomber" => new Vector3(0f, Mathf.Pi, 0f),
+        "aircraft_carrier" => new Vector3(0f, Mathf.Pi, 0f), // Many aircraft carrier models are rotated 180 degrees by default
         _ => Vector3.Zero
     };
 
@@ -2671,29 +2849,36 @@ public partial class BattleGameManager : Node
         return new Aabb(min, max - min);
     }
 
-    static void TintImportedModel(Node node, Color tint)
+    static void TintImportedModel(Node node, Color tint, float lerpFactor = 0.55f)
     {
         foreach (var child in node.FindChildren("*", "MeshInstance3D", true, false))
         {
             if (child is MeshInstance3D mesh)
             {
-                var materialCount = mesh.GetSurfaceOverrideMaterialCount();
                 var successfullyTintedAny = false;
-                if (materialCount > 0)
+                var meshObj = mesh.Mesh;
+                if (meshObj is not null)
                 {
-                    for (int s = 0; s < materialCount; s++)
+                    var surfCount = meshObj.GetSurfaceCount();
+                    for (int s = 0; s < surfCount; s++)
                     {
-                        var mat = mesh.GetActiveMaterial(s) as BaseMaterial3D;
+                        var mat = (mesh.GetActiveMaterial(s) ?? mesh.Mesh.SurfaceGetMaterial(s)) as BaseMaterial3D;
                         if (mat is not null)
                         {
                             var dupMat = mat.Duplicate() as BaseMaterial3D;
                             if (dupMat is not null)
                             {
+                                var finalAlpha = dupMat.AlbedoColor.A;
+                                if (finalAlpha < 0.1f)
+                                {
+                                    finalAlpha = 1f;
+                                    dupMat.Transparency = BaseMaterial3D.TransparencyEnum.Disabled;
+                                }
                                 dupMat.AlbedoColor = new Color(
-                                    dupMat.AlbedoColor.R * tint.R,
-                                    dupMat.AlbedoColor.G * tint.G,
-                                    dupMat.AlbedoColor.B * tint.B,
-                                    dupMat.AlbedoColor.A * tint.A
+                                    Mathf.Lerp(dupMat.AlbedoColor.R, tint.R, lerpFactor),
+                                    Mathf.Lerp(dupMat.AlbedoColor.G, tint.G, lerpFactor),
+                                    Mathf.Lerp(dupMat.AlbedoColor.B, tint.B, lerpFactor),
+                                    finalAlpha
                                 );
                                 mesh.SetSurfaceOverrideMaterial(s, dupMat);
                                 successfullyTintedAny = true;
@@ -2701,6 +2886,7 @@ public partial class BattleGameManager : Node
                         }
                     }
                 }
+                
                 if (!successfullyTintedAny)
                 {
                     mesh.MaterialOverride = Material(tint, 0.76f);
@@ -2722,18 +2908,7 @@ public partial class BattleGameManager : Node
         AddBlock(visual, "Tail", new Vector3(1.4f, 0.12f, 0.58f), new Vector3(0f, 0.1f, 1.35f), tint.Darkened(0.12f));
         AddBlock(visual, "Nose", new Vector3(0.46f, 0.36f, 0.68f), new Vector3(0f, 0f, -1.55f), new Color(0.08f, 0.10f, 0.12f));
         AddPropeller(visual, "Propeller", new Vector3(0f, 0f, -1.96f), def.Key == "bomber" ? 1.05f : 0.82f);
-        unit.AddChild(new MeshInstance3D
-        {
-            Name = "AirShadow",
-            Position = new Vector3(0f, -9.3f, 0f),
-            Mesh = new CylinderMesh { TopRadius = 1.8f, BottomRadius = 1.8f, Height = 0.035f, RadialSegments = 28 },
-            MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = new Color(0f, 0f, 0f, 0.20f),
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
-            }
-        });
+        AddAirShadow(unit);
         unit.ConfigureVisualRig(def.Key, visual);
     }
 
@@ -2798,33 +2973,284 @@ public partial class BattleGameManager : Node
 
     void AddNavalUnitVisual(RtsUnit unit, BattleUnitDefinition def, bool playerOwned)
     {
-        var importedPath = def.Key switch
+        var tint = playerOwned ? def.Tint : new Color(0.52f, 0.25f, 0.20f);
+
+        if (def.Key == "aircraft_carrier")
         {
-            "patrol_boat" => "res://assets/props/kenney/military/ship-small.obj",
-            "destroyer_ship" => "res://assets/props/kenney/military/ship-medium.obj",
-            "transport_ship" => "res://assets/props/kenney/military/ship-large.obj",
-            _ => ""
-        };
-        if (!string.IsNullOrEmpty(importedPath) && TryInstanceScene(importedPath, "ImportedShip") is { } ship)
+            // 真实 3D 尼米兹号航空母舰 GLB 模型 (nimitz.glb) - 拥有 3D 飞行甲板、跑道划线、双弹射器、岛式舰桥与舰载机
+            if (TryInstanceScene("res://assets/units/nimitz.glb", "NimitzCarrier") is { } carrier)
+            {
+                carrier.Scale = Vector3.One * 0.088f;
+                carrier.Rotation = new Vector3(0f, playerOwned ? Mathf.Pi : 0f, 0f);
+                carrier.Position = new Vector3(0f, 0.02f, 0f);
+                unit.AddChild(carrier);
+                unit.ConfigureVisualRig(def.Key, carrier);
+                return;
+            }
+        }
+
+        if (def.Key == "submarine")
         {
-            ship.Scale = Vector3.One * (def.Key == "transport_ship" ? 0.42f : def.Key == "destroyer_ship" ? 0.36f : 0.30f);
-            ship.Rotation = new Vector3(0f, playerOwned ? Mathf.Pi : 0f, 0f);
-            ship.Position = new Vector3(0f, 0.02f, 0f);
-            unit.AddChild(ship);
-            if (!playerOwned)
-                TintImportedModel(ship, new Color(0.52f, 0.25f, 0.20f));
-            AddBlock(unit, "Wake", new Vector3(1.9f, 0.04f, 3.2f), new Vector3(0f, 0.04f, 0.45f), new Color(0.62f, 0.82f, 0.86f, 0.42f));
+            // 仿真 3D 核攻击潜艇 (Deep Submerged Stealth Attack Submarine)
+            // 潜艇彻底沉入海平面深处 (Y = -1.45f)，主体完全下潜浸没于蓝色海浪下方，仅潜望镜光电天线桅杆破浪露在水面上
+            var subRoot = new Node3D
+            {
+                Name = "SubmarineVisual",
+                Position = new Vector3(0f, -1.45f, 0f)
+            };
+            unit.AddChild(subRoot);
+
+            var stealthMat = new StandardMaterial3D
+            {
+                AlbedoColor = playerOwned ? new Color(0.12f, 0.15f, 0.18f) : new Color(0.28f, 0.14f, 0.12f),
+                Metallic = 0.88f,
+                Roughness = 0.25f
+            };
+
+            var brassMat = new StandardMaterial3D
+            {
+                AlbedoColor = new Color(0.78f, 0.62f, 0.28f),
+                Metallic = 0.95f,
+                Roughness = 0.15f
+            };
+
+            // 主潜艇水动力流线艇体 (Teardrop Capsule Hull) - 沉浸于海平面下方
+            var hullMesh = new MeshInstance3D
+            {
+                Name = "SubmarineHull",
+                Mesh = new CapsuleMesh { Radius = 0.62f, Height = 5.8f, RadialSegments = 24, Rings = 8 },
+                Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+                Position = new Vector3(0f, 0.22f, 0f),
+                MaterialOverride = stealthMat
+            };
+            subRoot.AddChild(hullMesh);
+
+            // 指挥塔围壳 (Conning Tower / Sail) - 露在水面上破浪
+            var sailMesh = new MeshInstance3D
+            {
+                Name = "SailTower",
+                Mesh = new BoxMesh { Size = new Vector3(0.48f, 0.92f, 1.45f) },
+                Position = new Vector3(0f, 0.95f, -0.5f),
+                MaterialOverride = stealthMat
+            };
+            subRoot.AddChild(sailMesh);
+
+            // 围壳潜浮水平舵 (Sail Hydroplanes)
+            var planesMesh = new MeshInstance3D
+            {
+                Name = "SailPlanes",
+                Mesh = new BoxMesh { Size = new Vector3(1.65f, 0.06f, 0.35f) },
+                Position = new Vector3(0f, 0.92f, -0.5f),
+                MaterialOverride = stealthMat
+            };
+            subRoot.AddChild(planesMesh);
+
+            // 潜望镜与雷达光电桅杆 (Periscope & Mast Pods)
+            TryAddSizedImportedProp(subRoot, MilitaryFbxRoot + "mast.fbx", "PeriscopeMast",
+                new Vector3(0f, 1.55f, -0.7f), 1.3f, 0.4f, Vector3.Zero,
+                new Color(0.24f, 0.26f, 0.28f), preserveMaterials: true);
+
+            // 艇尾 X型 / 十字尾舵 (Stern Rudders)
+            var rudderV = new MeshInstance3D
+            {
+                Name = "RudderV",
+                Mesh = new BoxMesh { Size = new Vector3(0.10f, 1.25f, 0.75f) },
+                Position = new Vector3(0f, 0.22f, 2.75f),
+                MaterialOverride = stealthMat
+            };
+            subRoot.AddChild(rudderV);
+
+            var rudderH = new MeshInstance3D
+            {
+                Name = "RudderH",
+                Mesh = new BoxMesh { Size = new Vector3(1.25f, 0.10f, 0.75f) },
+                Position = new Vector3(0f, 0.22f, 2.75f),
+                MaterialOverride = stealthMat
+            };
+            subRoot.AddChild(rudderH);
+
+            // 艇尾七叶大倾角黄铜螺旋浆 (7-Blade Skewed Propeller)
+            var propMesh = new MeshInstance3D
+            {
+                Name = "SubmarinePropeller",
+                Mesh = new CylinderMesh { TopRadius = 0.38f, BottomRadius = 0.38f, Height = 0.08f, RadialSegments = 16 },
+                Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+                Position = new Vector3(0f, 0.22f, 3.12f),
+                MaterialOverride = brassMat
+            };
+            subRoot.AddChild(propMesh);
+
+            unit.ConfigureVisualRig(def.Key, subRoot);
+            return;
+        }
+
+        if (def.Key == "patrol_boat")
+        {
+            // 仿真 3D 军用隐身导弹巡逻艇 (Fast Stealth Attack Missile Craft) - 纯钢制军用材质，无木质成分
+            var pbRoot = new Node3D { Name = "PatrolBoatVisual" };
+            unit.AddChild(pbRoot);
+
+            var pbMat = new StandardMaterial3D
+            {
+                AlbedoColor = playerOwned ? new Color(0.22f, 0.30f, 0.38f) : new Color(0.36f, 0.18f, 0.15f),
+                Metallic = 0.86f,
+                Roughness = 0.26f
+            };
+
+            var hullMesh = new MeshInstance3D
+            {
+                Name = "PatrolBoatHull",
+                Mesh = new CapsuleMesh { Radius = 0.68f, Height = 4.8f, RadialSegments = 20, Rings = 6 },
+                Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+                Position = new Vector3(0f, 0.25f, 0f),
+                MaterialOverride = pbMat
+            };
+            pbRoot.AddChild(hullMesh);
+
+            // 驾驶舱隐身上层建筑 (Stealth Cabin)
+            var cabin = new MeshInstance3D
+            {
+                Name = "StealthCabin",
+                Mesh = new BoxMesh { Size = new Vector3(1.05f, 0.72f, 1.35f) },
+                Position = new Vector3(0f, 0.75f, -0.3f),
+                MaterialOverride = new StandardMaterial3D { AlbedoColor = pbMat.AlbedoColor.Lightened(0.05f), Metallic = 0.86f, Roughness = 0.26f }
+            };
+            pbRoot.AddChild(cabin);
+
+            // 舰首 30mm 自动炮 (Front Auto Cannon Turret)
+            TryAddSizedImportedProp(pbRoot, SpaceKitRoot + "turret_single.fbx", "FrontTurret",
+                new Vector3(0f, 0.65f, -1.7f), 1.1f, 1.3f, Vector3.Zero, pbMat.AlbedoColor, preserveMaterials: false);
+
+            // 搜索雷达与通讯桅杆 (Radar Mast)
+            TryAddSizedImportedProp(pbRoot, MilitaryFbxRoot + "mast.fbx", "RadarMast",
+                new Vector3(0f, 1.35f, -0.3f), 1.6f, 0.6f, Vector3.Zero,
+                new Color(0.20f, 0.22f, 0.25f), preserveMaterials: true);
+
+            unit.ConfigureVisualRig(def.Key, pbRoot);
+            return;
+        }
+
+        if (def.Key == "destroyer_ship")
+        {
+            // 仿真 3D 导弹驱逐舰 (Stealth Guided-Missile Destroyer) - 纯军用哑光深灰钢制舰体
+            var desRoot = new Node3D { Name = "DestroyerVisual" };
+            unit.AddChild(desRoot);
+
+            var desMat = new StandardMaterial3D
+            {
+                AlbedoColor = playerOwned ? new Color(0.18f, 0.25f, 0.32f) : new Color(0.34f, 0.16f, 0.14f),
+                Metallic = 0.88f,
+                Roughness = 0.25f
+            };
+
+            // 驱逐舰隐身主舰体 (Stealth Naval Steel Hull)
+            var hullMesh = new MeshInstance3D
+            {
+                Name = "DestroyerHull",
+                Mesh = new CapsuleMesh { Radius = 0.88f, Height = 6.4f, RadialSegments = 24, Rings = 8 },
+                Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+                Position = new Vector3(0f, 0.30f, 0f),
+                MaterialOverride = desMat
+            };
+            desRoot.AddChild(hullMesh);
+
+            // 宙斯盾相控阵雷达舰桥 (Aegis SPY-1 Radar Superstructure)
+            var superstructure = new MeshInstance3D
+            {
+                Name = "AegisSuperstructure",
+                Mesh = new BoxMesh { Size = new Vector3(1.28f, 1.15f, 2.2f) },
+                Position = new Vector3(0f, 1.15f, -0.3f),
+                MaterialOverride = desMat
+            };
+            desRoot.AddChild(superstructure);
+
+            // 舰首 127mm 双联装主炮塔 (Front 127mm Naval Turret)
+            TryAddSizedImportedProp(desRoot, SpaceKitRoot + "turret_double.fbx", "FrontTurret",
+                new Vector3(0f, 0.72f, -2.2f), 1.3f, 1.5f, Vector3.Zero, desMat.AlbedoColor, preserveMaterials: false);
+
+            // 舰尾 127mm 双联装主炮塔 (Rear 127mm Naval Turret)
+            TryAddSizedImportedProp(desRoot, SpaceKitRoot + "turret_double.fbx", "RearTurret",
+                new Vector3(0f, 0.72f, 2.2f), 1.3f, 1.5f, new Vector3(0f, Mathf.Pi, 0f), desMat.AlbedoColor, preserveMaterials: false);
+
+            // 集中式相控天线雷达塔 (Aegis Radar Dish)
+            TryAddSizedImportedProp(desRoot, SpaceKitRoot + "satelliteDish.fbx", "CentralRadar",
+                new Vector3(0f, 2.15f, -0.3f), 1.8f, 1.2f, Vector3.Zero,
+                desMat.AlbedoColor.Lightened(0.1f), preserveMaterials: false);
+
+            // 雷达主桅杆 (Main Mast)
+            TryAddSizedImportedProp(desRoot, MilitaryFbxRoot + "mast.fbx", "MainMast",
+                new Vector3(0f, 1.85f, -0.3f), 2.2f, 0.7f, Vector3.Zero,
+                new Color(0.20f, 0.22f, 0.24f), preserveMaterials: true);
+
+            unit.ConfigureVisualRig(def.Key, desRoot);
+            return;
+        }
+
+        if (def.Key == "transport_ship")
+        {
+            // 仿真 3D 两栖登陆运输舰 (Amphibious Transport Dock) - 纯军用装甲钢制舰体
+            var transRoot = new Node3D { Name = "TransportVisual" };
+            unit.AddChild(transRoot);
+
+            var transMat = new StandardMaterial3D
+            {
+                AlbedoColor = playerOwned ? new Color(0.24f, 0.32f, 0.36f) : new Color(0.38f, 0.20f, 0.16f),
+                Metallic = 0.84f,
+                Roughness = 0.30f
+            };
+
+            // 运输舰重型装甲舰体 (Heavy Steel Transport Hull)
+            var hullMesh = new MeshInstance3D
+            {
+                Name = "TransportHull",
+                Mesh = new CapsuleMesh { Radius = 1.12f, Height = 6.8f, RadialSegments = 24, Rings = 8 },
+                Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+                Position = new Vector3(0f, 0.35f, 0f),
+                MaterialOverride = transMat
+            };
+            transRoot.AddChild(hullMesh);
+
+            // 上层装甲司令塔 (Armored Tower)
+            var tower = new MeshInstance3D
+            {
+                Name = "TransportTower",
+                Mesh = new BoxMesh { Size = new Vector3(1.35f, 1.25f, 1.8f) },
+                Position = new Vector3(0f, 1.25f, -1.2f),
+                MaterialOverride = transMat
+            };
+            transRoot.AddChild(tower);
+
+            // 军用集装箱甲板货运 (Military Cargo Containers on Deck)
+            TryAddSizedImportedProp(transRoot, MilitaryFbxRoot + "crate.fbx", "CargoCrateA",
+                new Vector3(-0.45f, 0.85f, 0.2f), 1.1f, 1.1f, new Vector3(0f, Mathf.DegToRad(15f), 0f), new Color(0.28f, 0.32f, 0.28f), preserveMaterials: true);
+            TryAddSizedImportedProp(transRoot, MilitaryFbxRoot + "crate.fbx", "CargoCrateB",
+                new Vector3(0.45f, 0.85f, 0.4f), 1.1f, 1.1f, new Vector3(0f, Mathf.DegToRad(-10f), 0f), new Color(0.30f, 0.34f, 0.30f), preserveMaterials: true);
+
+            // 舰首防空自卫炮塔 (Front Defense Gun)
+            TryAddSizedImportedProp(transRoot, SpaceKitRoot + "turret_single.fbx", "FrontDefenseTurret",
+                new Vector3(0f, 0.85f, -2.7f), 1.0f, 1.2f, Vector3.Zero, transMat.AlbedoColor, preserveMaterials: false);
+
+            unit.ConfigureVisualRig(def.Key, transRoot);
             return;
         }
 
         var visual = new Node3D { Name = "ShipHull" };
         unit.AddChild(visual);
-        var tint = playerOwned ? def.Tint : new Color(0.48f, 0.20f, 0.16f);
-        var length = def.Key == "transport_ship" ? 4.4f : def.Key == "destroyer_ship" ? 3.8f : 2.7f;
-        AddBlock(visual, "Hull", new Vector3(1.1f, 0.55f, length), new Vector3(0f, 0.38f, 0f), tint);
-        AddBlock(visual, "Deck", new Vector3(0.76f, 0.42f, length * 0.45f), new Vector3(0f, 0.86f, -0.25f), tint.Lightened(0.08f));
-        if (BattleUnitCatalog.IsArtilleryLike(def.Key))
-            AddImportedNavalForwardGun(visual, length);
+        var tintFallback = playerOwned ? def.Tint : new Color(0.48f, 0.20f, 0.16f);
+        var length = def.Key is "transport_ship" or "aircraft_carrier" ? 5.2f : def.Key == "destroyer_ship" ? 3.8f : 2.7f;
+        AddBlock(visual, "Hull", new Vector3(1.1f, 0.55f, length), new Vector3(0f, 0.38f, 0f), tintFallback);
+        if (def.Key == "aircraft_carrier")
+        {
+            // 简易飞行甲板 fallback
+            AddBlock(visual, "FlightDeck", new Vector3(2.0f, 0.10f, length), new Vector3(0f, 0.82f, 0f), tintFallback.Lightened(0.15f));
+            AddBlock(visual, "Island", new Vector3(0.48f, 0.9f, 1.4f), new Vector3(0.8f, 1.2f, -0.8f), tintFallback.Darkened(0.1f));
+        }
+        else
+        {
+            AddBlock(visual, "Deck", new Vector3(0.76f, 0.42f, length * 0.45f), new Vector3(0f, 0.86f, -0.25f), tintFallback.Lightened(0.08f));
+            if (BattleUnitCatalog.IsArtilleryLike(def.Key))
+                AddImportedNavalForwardGun(visual, length);
+        }
         AddBlock(visual, "Wake", new Vector3(1.9f, 0.04f, length * 0.82f), new Vector3(0f, 0.05f, length * 0.18f), new Color(0.62f, 0.82f, 0.86f, 0.42f));
     }
 
@@ -2848,30 +3274,41 @@ public partial class BattleGameManager : Node
 
     void EnsureBuildingVisual(RtsBuilding building, BattleBuildingDefinition def)
     {
+        // 隐藏编辑器预置的占位白色立方体网格
+        foreach (var child in building.GetChildren())
+        {
+            if (child is MeshInstance3D mi && mi.Name == "Mesh")
+            {
+                mi.Visible = false;
+            }
+        }
+
         if (building.GetNodeOrNull<Node3D>("BuildingVisual") is not null)
             return;
 
         if (building.GetNodeOrNull<MeshInstance3D>("Mesh") is { } oldMesh)
             oldMesh.Visible = false;
- 
-        var visualY = 0.06f;
-        // 针对不同 FBX 建筑模型的底部基础面高度进行微调，防止大本营等建筑的台阶和门陷入泥土中
-        if (def.Key == "main_base")
-            visualY = 0.58f;
-        else if (def.Key == "tank_factory" || def.Key == "armor_factory" || def.Key == "air_factory")
-            visualY = 0.32f;
-        else if (def.Key == "barracks" || def.Key == "power_plant" || def.Key == "gold_mine")
-            visualY = 0.22f;
 
-        var visual = new Node3D { Name = "BuildingVisual", Position = new Vector3(0f, visualY, 0f) };
-        building.AddChild(visual);
-        
         var key = def.Key;
         var isMechanical = key.StartsWith("int_");
         if (isMechanical)
         {
             key = key.Substring(4);
         }
+
+        var visualY = 0.16f;
+        // 针对不同 FBX 建筑模型的底部基础面高度进行微调，防止建筑悬空或者陷入泥土中
+        if (key == "main_base")
+            visualY = 0.82f;
+        else if (key == "tank_factory" || key == "armor_factory" || key == "air_factory" || key == "airfield")
+            visualY = 0.45f;
+        else if (key == "barracks")
+            visualY = isMechanical ? 0.32f : 0.92f;
+        else if (key == "power_plant" || key == "gold_mine" || key == "turret" || key == "naval_yard")
+            visualY = 0.32f;
+
+        var visual = new Node3D { Name = "BuildingVisual", Position = new Vector3(0f, visualY, 0f) };
+        building.AddChild(visual);
         
         var tint = isMechanical ? new Color(0.2f, 0.75f, 1.0f) : def.Tint;
 
@@ -3003,13 +3440,60 @@ public partial class BattleGameManager : Node
         if (TryInstanceScene(path, name) is not { } prop)
             return false;
 
+        var finalPos = position;
+        var building = (parent as RtsBuilding) ?? (parent.GetParent() as RtsBuilding);
+        if (building is not null)
+        {
+            finalPos = GetTerrainAdjustedPosition(building, position);
+        }
+
         FitImportedNode(prop, targetHeight, targetSpan);
-        prop.Position += position;
+        prop.Position += finalPos;
         prop.Rotation = rotation;
         if (!preserveMaterials)
             TintImportedModel(prop, tint);
         parent.AddChild(prop);
         return true;
+    }
+
+    static Vector3 GetTerrainAdjustedPosition(Node3D building, Vector3 localPos)
+    {
+        // 仅对位于地面或贴近地面的组件进行地形高度自适应微调，屋顶雷达/炮台等挂载配件保持原相对高度
+        if (Mathf.Abs(localPos.Y) > 0.25f)
+            return localPos;
+
+        var viewport = building.GetViewport();
+        if (viewport is null)
+            return localPos;
+        var world3D = viewport.World3D;
+        if (world3D is null)
+            return localPos;
+        var spaceState = world3D.DirectSpaceState;
+        if (spaceState is null)
+            return localPos;
+
+        // 计算该配件在世界空间中的水平位置
+        var globalPos = building.GlobalPosition + building.GlobalTransform.Basis * localPos;
+
+        var from = new Vector3(globalPos.X, 500f, globalPos.Z);
+        var to = new Vector3(globalPos.X, -100f, globalPos.Z);
+        
+        var query = PhysicsRayQueryParameters3D.Create(from, to);
+        query.CollisionMask = 1; // 仅探测地形碰撞层
+        if (building is CollisionObject3D colObj)
+        {
+            query.Exclude = new Godot.Collections.Array<Rid> { colObj.GetRid() };
+        }
+        
+        var hit = spaceState.IntersectRay(query);
+        if (hit.Count > 0 && hit.ContainsKey("position"))
+        {
+            var hitY = hit["position"].AsVector3().Y;
+            var localYOffset = hitY - building.GlobalPosition.Y;
+            return new Vector3(localPos.X, localPos.Y + localYOffset, localPos.Z);
+        }
+
+        return localPos;
     }
 
     static void AddImportedProp(Node3D parent, string path, string name, Vector3 position, Vector3 scale, Vector3 rotation, Color tint)
@@ -3064,18 +3548,14 @@ public partial class BattleGameManager : Node
         var rootTransform = new Transform3D(Basis.FromScale(Vector3.One * scale), Vector3.Zero);
         if (!TryGetLocalBounds(node, rootTransform, out var scaledBounds))
         {
-            // Fallback：无法获取缩放后 bounds，用原来的方式估算
-            var center = bounds.Position + bounds.Size * 0.5f;
-            node.Position = new Vector3(-center.X * scale, -bounds.Position.Y * scale, -center.Z * scale);
+            // Fallback：无法获取缩放后 bounds，对齐底部到 Y=0，保持 X/Z 在 (0,0)
+            node.Position = new Vector3(0f, -bounds.Position.Y * scale, 0f);
             return;
         }
 
-        // 用缩放后的 bounds 精确对齐底部到 Y=0，水平居中
-        var scaledCenter = scaledBounds.Position + scaledBounds.Size * 0.5f;
-        node.Position = new Vector3(
-            -scaledCenter.X,
-            -scaledBounds.Position.Y,   // 把 AABB 最低点推到 Y=0
-            -scaledCenter.Z);
+        // 用缩放后的 bounds 精确对齐底部到 Y=0，并将 X 和 Z 轴的中心精确对齐到 (0, 0)，防止建筑模型与判定区格发生偏移错位
+        var center = scaledBounds.Position + scaledBounds.Size * 0.5f;
+        node.Position = new Vector3(-center.X, -scaledBounds.Position.Y, -center.Z);
     }
 
     static void AddBlock(Node3D parent, string name, Vector3 size, Vector3 position, Color color)
@@ -3292,5 +3772,219 @@ public partial class BattleGameManager : Node
         EndGame(false, "投降");
         message = "已投降";
         return true;
+    }
+
+    public void TriggerCameraShake(float intensity, float duration)
+    {
+        var cameraRig = GetTree().CurrentScene?.GetNodeOrNull<RtsCamera>("CameraRig");
+        if (cameraRig is not null && GodotObject.IsInstanceValid(cameraRig))
+        {
+            cameraRig.TriggerShake(intensity, duration);
+        }
+    }
+
+    void StartTenseBattleBgm()
+    {
+        try
+        {
+            AudioStream? stream = null;
+            
+            // 优先检查是否有自定义音乐文件 (支持 bgm.mp3, bgm.ogg, bgm.wav)
+            string[] customMusicPaths = new[]
+            {
+                "res://assets/audio/bgm.mp3",
+                "res://assets/audio/bgm.ogg",
+                "res://assets/audio/bgm.wav"
+            };
+
+            foreach (var path in customMusicPaths)
+            {
+                if (ResourceLoader.Exists(path))
+                {
+                    stream = GD.Load<AudioStream>(path);
+                    if (stream is not null)
+                    {
+                        GD.Print($"[BGM] 成功加载自定义背景音乐: {path}");
+                        break;
+                    }
+                }
+            }
+
+            // 如果没有自定义文件，则播放我们全新合成的 150BPM 激情热血双声道战斗 BGM
+            if (stream is null)
+            {
+                stream = CreateEpicHighEnergyBattleBgmStream();
+                GD.Print("[BGM] 生成 150BPM 激情热血双声道 RTS 战斗 BGM 成功！");
+            }
+
+            bgmPlayer = new AudioStreamPlayer
+            {
+                Name = "TenseBattleBgm",
+                Stream = stream,
+                VolumeDb = -9f, // 充满激情且均衡的音量
+                Bus = "Master"
+            };
+            AddChild(bgmPlayer);
+            bgmPlayer.Play();
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"[BGM] 启动背景音乐失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 合成 44.1kHz 16-Bit 立体声 (Stereo) 140BPM 温暖流畅、圆润不刺耳的史诗电影级 RTS 战斗背景音乐
+    /// 使用一阶低通滤波器 (Low-Pass Filter) 彻底过滤高频刺耳谐波，配合正弦谐波和声与重低音电影战鼓
+    /// </summary>
+    static AudioStreamWav CreateEpicHighEnergyBattleBgmStream()
+    {
+        const int sampleRate = 44100;
+        const float bpm = 140f; // 流畅战术节奏 140 BPM
+        const float beatDuration = 60f / bpm;
+        const int beats = 32; // 8小节循环
+        float totalDuration = beats * beatDuration;
+        int numFrames = (int)(totalDuration * sampleRate);
+        
+        var data = new byte[numFrames * 4];
+
+        // 滤波参数：截止频率 1500Hz，过滤掉所有尖锐/刺耳的高频锯齿杂音
+        float lpfL = 0f, lpfR = 0f;
+        float alpha = (2f * Mathf.Pi * 1500f / sampleRate) / (1f + 2f * Mathf.Pi * 1500f / sampleRate);
+
+        // E小调和弦级数 (E1 -> C2 -> G1 -> D2)
+        float E1 = 41.20f, C2 = 65.41f, G1 = 49.00f, D2 = 73.42f;
+
+        for (int i = 0; i < numFrames; i++)
+        {
+            float t = (float)i / sampleRate;
+            float currentBeat = t / beatDuration;
+
+            // 1. 温暖重低音 (Warm Sub Bass)
+            float bassFreq = E1;
+            if (currentBeat >= 8f && currentBeat < 16f) bassFreq = C2;
+            else if (currentBeat >= 16f && currentBeat < 24f) bassFreq = G1;
+            else if (currentBeat >= 24f && currentBeat < 32f) bassFreq = D2;
+
+            // 使用正弦纯音 + 二阶谐波，音色浑厚柔和
+            float bassVal = 0.65f * Mathf.Sin(2f * Mathf.Pi * bassFreq * t) +
+                            0.25f * Mathf.Sin(4f * Mathf.Pi * bassFreq * t);
+            
+            float sixteenthTime = (t % (beatDuration / 4f));
+            float bassEnv = Mathf.Exp(-sixteenthTime * 12f) * 0.4f + 0.6f;
+            bassVal *= bassEnv * 0.45f;
+
+            if (t < 0.2f) bassVal *= (t / 0.2f);
+            if (totalDuration - t < 0.2f) bassVal *= ((totalDuration - t) / 0.2f);
+
+            // 2. 电影级重低音战鼓 (Cinematic Drums)
+            float drumL = 0f, drumR = 0f;
+            float beatTime = t % beatDuration;
+
+            // 深沉太鼓扫频 (70Hz -> 30Hz)
+            float kickFreq = 30f + 50f * Mathf.Exp(-beatTime * 25f);
+            float kickEnv = Mathf.Exp(-beatTime * 10f);
+            float kickVal = Mathf.Sin(2f * Mathf.Pi * kickFreq * beatTime) * kickEnv * 0.5f;
+            drumL += kickVal;
+            drumR += kickVal;
+
+            // 柔和小鼓 (在第 2 拍和第 4 拍下沉)
+            float measureTime = t % (beatDuration * 4f);
+            float snareTime1 = Math.Abs(measureTime - beatDuration);
+            float snareTime2 = Math.Abs(measureTime - beatDuration * 3f);
+            float snareTime = Math.Min(snareTime1, snareTime2);
+            if (snareTime < beatDuration)
+            {
+                float snareEnv = Mathf.Exp(-snareTime * 16f);
+                float snareTone = Mathf.Sin(2f * Mathf.Pi * 130f * snareTime) * snareEnv * 0.25f;
+                drumL += snareTone;
+                drumR += snareTone;
+            }
+
+            // 3. 柔和史诗弦乐铺底 (Warm Epic Strings Pad)
+            float stringVal = 0f;
+            float padFreq = bassFreq * 4f;
+            if (padFreq > 0f)
+            {
+                float osc1 = Mathf.Sin(2f * Mathf.Pi * padFreq * t);
+                float osc2 = Mathf.Sin(2f * Mathf.Pi * (padFreq * 1.5f) * t); // 纯五度谐程
+                float vibrato = 1f + 0.005f * Mathf.Sin(2f * Mathf.Pi * 4.5f * t);
+                stringVal = (osc1 * 0.6f + osc2 * 0.4f) * vibrato * 0.22f;
+            }
+
+            // 4. 流畅英雄主旋律 (Smooth Heroic Melody)
+            float leadVal = 0f;
+            if (currentBeat >= 4f)
+            {
+                int noteIndex = (int)(currentBeat / 2f) % 8;
+                float leadFreq = 329.63f; // E4
+                switch (noteIndex)
+                {
+                    case 0: case 1: leadFreq = 329.63f; break; // E4
+                    case 2: leadFreq = 392.00f; break;        // G4
+                    case 3: leadFreq = 440.00f; break;        // A4
+                    case 4: case 5: leadFreq = 493.88f; break; // B4
+                    case 6: leadFreq = 587.33f; break;        // D5
+                    case 7: leadFreq = 493.88f; break;        // B4
+                }
+
+                float noteTime = t % (beatDuration * 2f);
+                float leadEnv = 1.0f;
+                if (noteTime < 0.1f) leadEnv = noteTime / 0.1f;
+                else if (noteTime > beatDuration * 1.6f)
+                    leadEnv = Mathf.Lerp(1.0f, 0.0f, (noteTime - beatDuration * 1.6f) / (beatDuration * 0.4f));
+
+                float osc1 = Mathf.Sin(2f * Mathf.Pi * leadFreq * t);
+                float osc2 = Mathf.Sin(2f * Mathf.Pi * (leadFreq * 2.002f) * t) * 0.2f;
+                leadVal = (osc1 + osc2) * leadEnv * 0.25f;
+            }
+
+            // 5. 声道混音与一阶低通滤波 (Low-Pass Filter Processing)
+            float rawL = bassVal + drumL + stringVal * 0.9f + leadVal * 0.95f;
+            float rawR = bassVal + drumR + stringVal * 1.1f + leadVal * 1.05f;
+
+            // 低通滤波过滤尖锐高频
+            lpfL = lpfL + alpha * (rawL - lpfL);
+            lpfR = lpfR + alpha * (rawR - lpfR);
+
+            float mixL = Mathf.Clamp(lpfL, -1f, 1f);
+            float mixR = Mathf.Clamp(lpfR, -1f, 1f);
+
+            short sampleL = (short)(mixL * 32767f);
+            short sampleR = (short)(mixR * 32767f);
+
+            int byteIdx = i * 4;
+            data[byteIdx]     = (byte)(sampleL & 0xFF);
+            data[byteIdx + 1] = (byte)((sampleL >> 8) & 0xFF);
+            data[byteIdx + 2] = (byte)(sampleR & 0xFF);
+            data[byteIdx + 3] = (byte)((sampleR >> 8) & 0xFF);
+        }
+
+        return new AudioStreamWav
+        {
+            Data = data,
+            Format = AudioStreamWav.FormatEnum.Format16Bits,
+            MixRate = sampleRate,
+            Stereo = true,
+            LoopMode = AudioStreamWav.LoopModeEnum.Forward,
+            LoopBegin = 0,
+            LoopEnd = numFrames
+        };
+    }
+
+    private static float SawWave(float phase)
+    {
+        float p = (phase % (2f * Mathf.Pi)) / (2f * Mathf.Pi);
+        if (p < 0f) p += 1f;
+        return 2f * p - 1f;
+    }
+
+    private static float TriangleWave(float phase)
+    {
+        float val = (phase % (2f * Mathf.Pi)) / (2f * Mathf.Pi);
+        if (val < 0f) val += 1f;
+        if (val < 0.25f) return val * 4f;
+        if (val < 0.75f) return 2f - val * 4f;
+        return val * 4f - 4f;
     }
 }

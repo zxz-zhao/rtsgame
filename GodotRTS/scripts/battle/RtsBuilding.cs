@@ -34,7 +34,18 @@ public partial class RtsBuilding : StaticBody3D
 
     [Export] public string BuildKey { get; set; } = "main_base";
     [Export] public string DisplayName { get; set; } = "Building";
-    [Export] public bool PlayerOwned { get; set; } = true;
+    bool playerOwned = true;
+    [Export]
+    public bool PlayerOwned
+    {
+        get => playerOwned;
+        set
+        {
+            playerOwned = value;
+            FogRevealed = value;
+            FogExplored = value;
+        }
+    }
     [Export] public float MaxHealth { get; set; } = 500f;
     [Export] public Vector3 RallyOffset { get; set; } = new(4, 0, 0);
     [Export] public Vector3 RallyPoint { get; set; }
@@ -60,9 +71,9 @@ public partial class RtsBuilding : StaticBody3D
     public int NetId { get; set; }
     public float Health { get; private set; }
     public bool Selected { get; private set; }
-    public bool FogRevealed { get; private set; } = true;
+    public bool FogRevealed { get; private set; }
     /// <summary>曾经被玩家视野探索过（战争迷雾记忆）。</summary>
-    public bool FogExplored { get; private set; } = true;
+    public bool FogExplored { get; private set; }
     public MainBaseState MainBaseState { get; private set; } = MainBaseState.Active;
     public bool IsRuined => MainBaseState == MainBaseState.Ruined;
     public bool IsDestroyed => Health <= 0f || MainBaseState == MainBaseState.Ruined;
@@ -111,6 +122,8 @@ public partial class RtsBuilding : StaticBody3D
 
     public override void _Ready()
     {
+        FogRevealed = PlayerOwned;
+        FogExplored = PlayerOwned;
         if (Health <= 0f)
             Health = MaxHealth;
         originalCollisionLayer = CollisionLayer;
@@ -218,14 +231,17 @@ public partial class RtsBuilding : StaticBody3D
         if (RequiresPower() && !Powered)
             return false;
 
-        EnsureProductionRoster();
-        return productionRoster.Contains(unitKey);
+        return GetProductionRoster().Contains(unitKey);
     }
 
     public string[] GetProductionRoster()
     {
-        EnsureProductionRoster();
-        return productionRoster.ToArray();
+        var fullRoster = BattleBuildingCatalog.Get(BuildKey).ProductionRoster;
+        if (fullRoster == null || fullRoster.Length == 0)
+            return Array.Empty<string>();
+
+        int countToUnlock = Mathf.Clamp(BuildingLevel, 1, fullRoster.Length);
+        return fullRoster.Take(countToUnlock).ToArray();
     }
 
     public string[] GetProductionQueueSnapshot()

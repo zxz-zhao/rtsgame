@@ -12,6 +12,7 @@ struct LobbyState
     bool destroyClaimed = false;
     int winsToday = 0;
     int killsToday = 0;
+    std::vector<std::string> claimedMailIds;
 };
 
 struct ActiveTech

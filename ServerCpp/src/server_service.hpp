@@ -83,6 +83,7 @@ private:
     nlohmann::json HandleLobby(const ParsedRequest& request, int& statusCode);
     nlohmann::json HandlePresence(const ParsedRequest& request, int& statusCode);
     nlohmann::json HandleTaskClaim(const ParsedRequest& request, int& statusCode);
+    nlohmann::json HandleMailClaim(const ParsedRequest& request, int& statusCode);
     nlohmann::json HandleTechStart(const ParsedRequest& request, int& statusCode);
     nlohmann::json HandleTechSpeedup(const ParsedRequest& request, int& statusCode);
     nlohmann::json HandleFriends(const ParsedRequest& request, int& statusCode);

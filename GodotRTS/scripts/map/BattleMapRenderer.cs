@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System;
 
 [Tool]
@@ -211,6 +211,27 @@ public partial class BattleMapRenderer : Node3D
         }
     }
 
+    float GetTerrainHeightAt(Vector3 pos)
+    {
+        var viewport = GetViewport();
+        if (viewport is null) return 0f;
+        var world3D = viewport.World3D;
+        if (world3D is null) return 0f;
+        var spaceState = world3D.DirectSpaceState;
+        if (spaceState is null) return 0f;
+
+        var from = new Vector3(pos.X, 500f, pos.Z);
+        var to = new Vector3(pos.X, -100f, pos.Z);
+        var query = PhysicsRayQueryParameters3D.Create(from, to);
+        query.CollisionMask = 1;
+        var hit = spaceState.IntersectRay(query);
+        if (hit.Count > 0 && hit.ContainsKey("position"))
+        {
+            return hit["position"].AsVector3().Y;
+        }
+        return 0f;
+    }
+
     void AddGround(BattleMapDefinition map)
     {
         var mapSize = ResolveMapSize(map);
@@ -265,7 +286,9 @@ public partial class BattleMapRenderer : Node3D
             var strip = strips[i];
             Material matOverride = prefix == "Road"
                 ? CreateRoadMaterial(color, strip.Size)
-                : Material(color, prefix == "Water" ? 0.28f : 0.82f);
+                : prefix == "Water"
+                    ? CreateWaterMaterial(color, false)
+                    : Material(color, 0.82f);
 
             var mesh = new MeshInstance3D
             {
@@ -277,6 +300,38 @@ public partial class BattleMapRenderer : Node3D
             };
             generatedRoot!.AddChild(mesh);
         }
+    }
+
+    static Material CreateWaterMaterial(Color color, bool riverLike = false)
+    {
+        const string WaterFlowShaderPath = "res://assets/shaders/water_flow.gdshader";
+        if (ResourceLoader.Exists(WaterFlowShaderPath))
+        {
+            if (GD.Load<Shader>(WaterFlowShaderPath) is { } shader)
+            {
+                var mat = new ShaderMaterial { Shader = shader };
+                mat.SetShaderParameter("water_color", new Color(0.06f, 0.28f, 0.48f, 0.85f));
+                mat.SetShaderParameter("foam_color", new Color(0.88f, 0.96f, 1.0f, 0.92f));
+                mat.SetShaderParameter("roughness", 0.08f);
+                mat.SetShaderParameter("metallic", 0.22f);
+                mat.SetShaderParameter("flow_speed", riverLike ? 0.65f : 0.26f);
+                mat.SetShaderParameter("wave_scale", riverLike ? 0.68f : 0.45f);
+                mat.SetShaderParameter("wave_strength", riverLike ? 0.52f : 0.35f);
+                mat.SetShaderParameter("ripple_scale", riverLike ? 14.0f : 8.5f);
+                mat.SetShaderParameter("ripple_strength", riverLike ? 0.22f : 0.16f);
+                mat.SetShaderParameter("shine_strength", 0.35f);
+                return mat;
+            }
+        }
+
+        return new StandardMaterial3D
+        {
+            AlbedoColor = new Color(color.R * 0.80f, color.G * 0.92f, color.B, 0.75f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            Roughness = 0.08f,
+            Metallic = 0.30f,
+            DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+        };
     }
 
     void AddWater(BattleMapDefinition map)
@@ -351,7 +406,7 @@ public partial class BattleMapRenderer : Node3D
             var mesh = new MeshInstance3D
             {
                 Name = $"TerrainPatch_{patch.Name}",
-                Position = new Vector3(patch.Center.X, PatchHeight, patch.Center.Z),
+                Position = new Vector3(patch.Center.X, GetTerrainHeightAt(patch.Center) + PatchHeight, patch.Center.Z),
                 Rotation = new Vector3(0f, Mathf.DegToRad(patch.Angle), 0f),
                 Mesh = new PlaneMesh { Size = patch.Size },
                 MaterialOverride = CreateGroundMaterial(map.GetPatchColor(patch.PaletteIndex))
@@ -370,7 +425,7 @@ public partial class BattleMapRenderer : Node3D
             if (TryAddImportedScenery(
                 PickRockScene(map, i),
                 $"Rock_{i:00}",
-                new Vector3(pos.X, 0.03f, pos.Z),
+                new Vector3(pos.X, GetTerrainHeightAt(pos) + 0.03f, pos.Z),
                 new Vector3(0f, rng.RandfRange(0f, Mathf.Tau), 0f),
                 rng.RandfRange(2.6f, 4.8f),
                 rng.RandfRange(3.8f, 7.0f),
@@ -407,7 +462,7 @@ public partial class BattleMapRenderer : Node3D
                 BattleMapCatalog.JungleName => rng.RandfRange(7.2f, 10.6f),
                 _ => rng.RandfRange(5.8f, 8.6f)
             };
-            var treePos3D = new Vector3(pos.X, 0f, pos.Z);
+            var treePos3D = new Vector3(pos.X, GetTerrainHeightAt(new Vector3(pos.X, 0f, pos.Z)), pos.Z);
 
             // ─── 容器节点（视觉 + 碰撞 + 元数据） ───────────────────────
             var container = new Node3D
@@ -536,10 +591,9 @@ public partial class BattleMapRenderer : Node3D
         };
         for (var i = 0; i < coverCount; i++)
         {
-            var pos = new Vector3(
-                rng.RandfRange(-mapHalfSize + 18f, mapHalfSize - 18f),
-                0f,
-                rng.RandfRange(-mapHalfSize + 18f, mapHalfSize - 18f));
+            var x = rng.RandfRange(-mapHalfSize + 18f, mapHalfSize - 18f);
+            var z = rng.RandfRange(-mapHalfSize + 18f, mapHalfSize - 18f);
+            var pos = new Vector3(x, GetTerrainHeightAt(new Vector3(x, 0f, z)), z);
 
             if (BattleMapCatalog.IsPointInWater(map, pos, 4f))
                 continue;
@@ -589,10 +643,14 @@ public partial class BattleMapRenderer : Node3D
             {
                 var offset = (s - (wall.Segments - 1) * 0.5f) * 5.5f;
                 var local = new Vector3(offset, 1.1f, 0f).Rotated(Vector3.Up, Mathf.DegToRad(wall.Angle));
+                var horizontalPos = new Vector3(wall.Center.X, 0f, wall.Center.Z) + new Vector3(local.X, 0f, local.Z);
+                var terrainY = GetTerrainHeightAt(horizontalPos);
+                var finalPos = new Vector3(horizontalPos.X, terrainY + local.Y, horizontalPos.Z);
+
                 if (TryAddImportedScenery(
                     RuinWallScenePath,
                     $"RuinWall_{i:00}_{s:00}",
-                    new Vector3(wall.Center.X, 0f, wall.Center.Z) + local,
+                    finalPos,
                     new Vector3(0f, Mathf.DegToRad(wall.Angle), 0f),
                     2.8f,
                     5.4f,
@@ -605,7 +663,7 @@ public partial class BattleMapRenderer : Node3D
                 var segment = new MeshInstance3D
                 {
                     Name = $"RuinWall_{i:00}_{s:00}",
-                    Position = new Vector3(wall.Center.X, 0f, wall.Center.Z) + local,
+                    Position = finalPos,
                     Rotation = new Vector3(0f, Mathf.DegToRad(wall.Angle), 0f),
                     Mesh = new BoxMesh { Size = new Vector3(4.8f, 2.2f, 0.8f) },
                     MaterialOverride = Material(map.RuinColor, 0.86f)
@@ -625,7 +683,7 @@ public partial class BattleMapRenderer : Node3D
             _ = TryAddImportedScenery(
                 placement.Path,
                 $"CityRuin_{placement.Position.X:0}_{placement.Position.Z:0}",
-                placement.Position,
+                new Vector3(placement.Position.X, GetTerrainHeightAt(placement.Position), placement.Position.Z),
                 new Vector3(0f, Mathf.DegToRad(placement.Yaw), 0f),
                 placement.Height,
                 placement.Span,
@@ -937,7 +995,9 @@ public partial class BattleMapRenderer : Node3D
             for (var i = 0; i < ring.Count; i++)
             {
                 var angle = Mathf.Tau * i / Mathf.Max(1, ring.Count);
-                var pos = ring.Center + new Vector3(Mathf.Cos(angle) * ring.Radius, 0.35f, Mathf.Sin(angle) * ring.Radius);
+                var horizontalPos = ring.Center + new Vector3(Mathf.Cos(angle) * ring.Radius, 0f, Mathf.Sin(angle) * ring.Radius);
+                var terrainY = GetTerrainHeightAt(horizontalPos);
+                var pos = new Vector3(horizontalPos.X, terrainY + 0.35f, horizontalPos.Z);
                 var bag = new MeshInstance3D
                 {
                     Name = $"Sandbag_{(ring.IsEnemy ? "Enemy" : "Player")}_{i:00}",
@@ -1019,10 +1079,8 @@ public partial class BattleMapRenderer : Node3D
                 _ => null
             };
 
-            if (target is null)
-                continue;
-
-            target.GlobalPosition = spawn.Position;
+            var terrainY = GetTerrainHeightAt(spawn.Position);
+            target.GlobalPosition = new Vector3(spawn.Position.X, terrainY, spawn.Position.Z);
             target.GlobalRotation = new Vector3(0f, Mathf.DegToRad(spawn.Yaw), 0f);
         }
     }

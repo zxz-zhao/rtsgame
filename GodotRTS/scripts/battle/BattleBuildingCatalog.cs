@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System;
 
 public readonly record struct BattleBuildingDefinition(
@@ -49,12 +49,12 @@ public static class BattleBuildingCatalog
 
     public static readonly BattleBuildingDefinition AirFactory = new(
         "air_factory", "飞机工厂", 400, 800f, new Vector3(8.2f, 3.6f, 8.2f),
-        0, 0, 5f, new[] { "fighter", "bomber", "scout_plane" },
+        0, 0, 5f, new[] { "scout_plane", "fighter", "bomber" },
         false, false, 0f, 0f, 0f, 0, 30, new Color(0.26f, 0.36f, 0.46f));
 
     public static readonly BattleBuildingDefinition NavalYard = new(
         "naval_yard", "船坞", 360, 760f, new Vector3(8.8f, 2.4f, 7.6f),
-        0, 0, 5f, new[] { "patrol_boat", "destroyer_ship", "transport_ship" },
+        0, 0, 5f, new[] { "patrol_boat", "destroyer_ship", "transport_ship", "aircraft_carrier", "submarine" },
         false, false, 0f, 0f, 0f, 0, 20, new Color(0.18f, 0.32f, 0.38f));
 
     public static readonly BattleBuildingDefinition Turret = new(
