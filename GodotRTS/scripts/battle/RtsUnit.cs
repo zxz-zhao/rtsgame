@@ -1022,34 +1022,40 @@ public partial class RtsUnit : CharacterBody3D
         float seed = (float)(GetInstanceId() % 1000) * 0.173f;
         bool isSubmarine = UnitKey == "submarine";
         bool isMoving = Velocity.LengthSquared() > 0.05f;
-        float speedMult = isMoving ? 1.45f : 1.0f;
 
-        // 1. 上下沉浮 (Heave)
-        float heaveFreq = isSubmarine ? 1.1f : 1.75f;
-        float heaveAmp = isSubmarine ? 0.14f : (UnitKey == "battleship" || UnitKey == "aircraft_carrier") ? 0.12f : 0.16f;
+        if (isSubmarine)
+        {
+            // 潜艇完全隐蔽深潜于海平面下方 (Y = -1.45m)，无过大上浮或浪面露头，仅在深海暗流中做微厘米级暗潜漂移
+            float subHeave = Mathf.Sin(t * 0.85f + seed) * 0.02f + Mathf.Cos(t * 1.35f + seed * 1.2f) * 0.008f;
+            float subPitch = Mathf.Sin(t * 0.75f + seed * 1.1f) * 0.010f;
+            float subRoll = Mathf.Cos(t * 0.60f + seed * 0.8f) * 0.012f;
+
+            GlobalPosition = new Vector3(GlobalPosition.X, -1.45f + subHeave, GlobalPosition.Z);
+            if (GetNodeOrNull("SubmarineVisual") is Node3D subVisual)
+            {
+                subVisual.Rotation = new Vector3(subPitch, 0f, subRoll);
+            }
+            return;
+        }
+
+        // 水面舰艇 (战列舰/驱逐舰/航母/巡逻艇/运输船) 破浪沉浮与倾斜
+        float speedMult = isMoving ? 1.45f : 1.0f;
+        float heaveFreq = 1.75f;
+        float heaveAmp = (UnitKey == "battleship" || UnitKey == "aircraft_carrier") ? 0.12f : 0.16f;
         float heave = Mathf.Sin(t * heaveFreq * speedMult + seed) * heaveAmp +
                       Mathf.Cos(t * heaveFreq * 1.8f * speedMult + seed * 1.3f) * (heaveAmp * 0.4f);
 
-        // 2. 前后迎浪起伏 (Pitch)
-        float pitchAmp = isSubmarine ? 0.025f : isMoving ? 0.065f : 0.045f;
+        float pitchAmp = isMoving ? 0.065f : 0.045f;
         float pitch = Mathf.Sin(t * 1.35f * speedMult + seed * 1.1f) * pitchAmp;
-        if (isMoving && !isSubmarine)
+        if (isMoving)
             pitch -= 0.028f; // 航行时船头受水流冲击自然微微上仰
 
-        // 3. 左右破浪横摇侧倾 (Roll)
-        float rollAmp = isSubmarine ? 0.035f : isMoving ? 0.085f : 0.055f;
+        float rollAmp = isMoving ? 0.085f : 0.055f;
         float roll = Mathf.Cos(t * 0.95f * speedMult + seed * 0.8f) * rollAmp;
 
-        // 设置潜艇水下深度或表面舰艇海平面基准
-        float baseY = isSubmarine ? -0.55f : BattleUnitCatalog.SpawnHeight(UnitKey);
-        GlobalPosition = new Vector3(GlobalPosition.X, baseY + heave, GlobalPosition.Z);
+        GlobalPosition = new Vector3(GlobalPosition.X, BattleUnitCatalog.SpawnHeight(UnitKey) + heave, GlobalPosition.Z);
 
-        // 寻找舰艇视觉子节点并施加动态浮力倾斜角度
-        if (GetNodeOrNull("SubmarineVisual") is Node3D subVisual)
-        {
-            subVisual.Rotation = new Vector3(pitch, 0f, roll);
-        }
-        else if (GetNodeOrNull("BattleshipVisual") is Node3D bsVisual)
+        if (GetNodeOrNull("BattleshipVisual") is Node3D bsVisual)
         {
             bsVisual.Rotation = new Vector3(pitch, 0f, roll);
         }

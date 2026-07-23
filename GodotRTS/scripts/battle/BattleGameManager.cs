@@ -2996,7 +2996,7 @@ public partial class BattleGameManager : Node
             var subRoot = new Node3D
             {
                 Name = "SubmarineVisual",
-                Position = new Vector3(0f, -1.45f, 0f)
+                Position = Vector3.Zero
             };
             unit.AddChild(subRoot);
 

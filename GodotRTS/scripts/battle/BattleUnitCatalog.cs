@@ -351,7 +351,7 @@ public static class BattleUnitCatalog
         };
 
     public static float SpawnHeight(string key)
-        => IsAirUnit(key) ? 9.5f : IsNavalUnit(key) ? 0.25f : 0f;
+        => IsAirUnit(key) ? 9.5f : key == "submarine" ? -1.45f : IsNavalUnit(key) ? 0.25f : 0f;
 
     public static BattleUnitDefinition PickAi(float gameTime, RandomNumberGenerator rng)
     {
