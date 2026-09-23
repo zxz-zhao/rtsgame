@@ -95,6 +95,26 @@ FALLBACK_MODELS = {
     "claude-opus-4-6": "gemini-2.5-flash",
 }
 
+SUB2API_BASE_URL = "https://www.xn--ai-ku9cy41h.com/v1"
+SUB2API_KEY = "sk-a2bfa9091801725daef2bf00f2a2bfb46b32d87ef5eeb541cf1b3fca7233d665"
+CODEX_AUTH_JSON = r"C:\Users\Administrator\.codex\auth.json"
+if os.path.exists(CODEX_AUTH_JSON):
+    try:
+        with open(CODEX_AUTH_JSON, "r", encoding="utf-8") as f:
+            _cad = json.load(f)
+            if _cad.get("OPENAI_API_KEY"):
+                SUB2API_KEY = _cad.get("OPENAI_API_KEY")
+    except Exception:
+        pass
+
+SUB2API_MODELS = {
+    "gpt-6-astra",
+    "gpt-5.5",
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+}
+
 AVAILABLE_MODELS = [
     {
         "id": "gemini-3.8-flash",
@@ -115,6 +135,36 @@ AVAILABLE_MODELS = [
         "owned_by": "cockpit-claude"
     },
     {
+        "id": "gpt-6-astra",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "sub2api-openai"
+    },
+    {
+        "id": "gpt-5.5",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "sub2api-openai"
+    },
+    {
+        "id": "gpt-5.6-luna",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "sub2api-openai"
+    },
+    {
+        "id": "gpt-5.6-sol",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "sub2api-openai"
+    },
+    {
+        "id": "gpt-5.6-terra",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "sub2api-openai"
+    },
+    {
         "id": "chatos-gpt4o",
         "object": "model",
         "created": 1700000000,
@@ -128,6 +178,24 @@ AVAILABLE_MODELS = [
     },
     {
         "id": "chatos-deepseek",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "chatos-deepseek"
+    },
+    {
+        "id": "gpt-4o",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "chatos-openai"
+    },
+    {
+        "id": "claude-3-5-sonnet",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "chatos-anthropic"
+    },
+    {
+        "id": "deepseek-chat",
         "object": "model",
         "created": 1700000000,
         "owned_by": "chatos-deepseek"
@@ -578,6 +646,49 @@ async def chat_completions(request):
     messages = body.get("messages", [])
     stream = body.get("stream", False)
     print(f"[Bridge Request] model={model_req}, stream={stream}, num_msgs={len(messages)}, last_role={messages[-1].get('role') if messages else None}, last_content={str(messages[-1].get('content'))[:100] if messages else None}", flush=True)
+
+    # 1. 检查是否为 Sub2API / 大王AI 前沿模型
+    if model_req in SUB2API_MODELS or model_req.startswith("sub2api-") or model_req.startswith("dawang-"):
+        actual_model = model_req.replace("sub2api-", "").replace("dawang-", "")
+        forward_body = dict(body)
+        forward_body["model"] = actual_model
+        
+        async def sub2api_stream_generator():
+            headers = {
+                "Authorization": f"Bearer {SUB2API_KEY}",
+                "Content-Type": "application/json"
+            }
+            async with httpx.AsyncClient(timeout=180.0, trust_env=False) as client:
+                async with client.stream("POST", f"{SUB2API_BASE_URL}/chat/completions", json=forward_body, headers=headers) as upstream_resp:
+                    async for chunk in upstream_resp.aiter_raw():
+                        yield chunk
+
+        if stream:
+            headers = {
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "Content-Type": "text/event-stream; charset=utf-8",
+                "X-Accel-Buffering": "no"
+            }
+            return StreamingResponse(sub2api_stream_generator(), media_type="text/event-stream", headers=headers)
+        else:
+            headers = {
+                "Authorization": f"Bearer {SUB2API_KEY}",
+                "Content-Type": "application/json"
+            }
+            async with httpx.AsyncClient(timeout=180.0, trust_env=False) as client:
+                resp = await client.post(f"{SUB2API_BASE_URL}/chat/completions", json=forward_body, headers=headers)
+                return Response(content=resp.content, status_code=resp.status_code, media_type="application/json")
+
+    # 2. 检查是否为 ChatOS 常用别名映射
+    chatos_models_alias = {
+        "gpt-4o": "chatos-gpt4o",
+        "claude-3-5-sonnet": "chatos-claude-3-5-sonnet",
+        "deepseek-chat": "chatos-deepseek"
+    }
+    if model_req in chatos_models_alias:
+        body["model"] = chatos_models_alias[model_req]
+        model_req = body["model"]
 
     if model_req.startswith("chatos-") and chatos_driver:
         if stream:

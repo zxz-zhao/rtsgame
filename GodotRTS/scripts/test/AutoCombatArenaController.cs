@@ -33,12 +33,7 @@ public partial class AutoCombatArenaController : Node3D
     readonly RandomNumberGenerator rng = new();
 
     // UI Controls
-    Label blueStatusLabel = null!;
-    Label redStatusLabel = null!;
-    Label centerTimerLabel = null!;
-    Button autoWaveToggleBtn = null!;
-    Button pauseBtn = null!;
-    Button speedBtn = null!;
+    GodotRTS.Scripts.UI.ArenaBattleHud? _battleHud;
 
     // Camera Drag
     bool isMiddleDragging = false;
@@ -92,22 +87,22 @@ public partial class AutoCombatArenaController : Node3D
             ApplyCameraMode(CameraMode.RtsTopDown);
         }
 
-        BuildArenaUi();
+        InitBattleHud();
 
         // 开局初始化双方海陆空先遣部队
-        // 陆军主力
-        SpawnUnitForSide("tank", true, new Vector3(-16f, 0f, 3f));
+        // 陆军主力：装备精良的现代重装主战坦克
+        SpawnUnitForSide("heavy_tank", true, new Vector3(-16f, 0f, 3f));
         SpawnUnitForSide("infantry", true, new Vector3(-13f, 0f, -2.5f));
-        SpawnUnitForSide("tank", false, new Vector3(16f, 0f, 3f));
+        SpawnUnitForSide("heavy_tank", false, new Vector3(16f, 0f, 3f));
         SpawnUnitForSide("infantry", false, new Vector3(13f, 0f, -2.5f));
 
         // 空军前哨
         SpawnUnitForSide("fighter", true, new Vector3(-22f, 9.5f, 6f));
         SpawnUnitForSide("fighter", false, new Vector3(22f, 9.5f, 6f));
 
-        // 海军护卫
-        SpawnUnitForSide("destroyer_ship", true, new Vector3(-18f, 0f, -28f));
-        SpawnUnitForSide("destroyer_ship", false, new Vector3(18f, 0f, -28f));
+        // 海军护卫战舰（航行于镜头可见的湛蓝河流水道 Z: -10）
+        SpawnUnitForSide("destroyer_ship", true, new Vector3(-18f, 0.5f, -10f));
+        SpawnUnitForSide("destroyer_ship", false, new Vector3(18f, 0.5f, -10f));
     }
 
     public override void _ExitTree()
@@ -210,7 +205,7 @@ public partial class AutoCombatArenaController : Node3D
                 else
                 {
                     float targetZ = BattleUnitCatalog.IsNavalUnit(blue.UnitKey)
-                        ? Mathf.Clamp(blue.GlobalPosition.Z, -32f, -22f)
+                        ? Mathf.Clamp(blue.GlobalPosition.Z, -12f, -8f)
                         : blue.GlobalPosition.Z * 0.4f;
                     blue.AttackMoveTo(new Vector3(RedBaseX, blue.CruiseHeight, targetZ));
                 }
@@ -292,8 +287,8 @@ public partial class AutoCombatArenaController : Node3D
             float jitterZ;
             if (BattleUnitCatalog.IsNavalUnit(unitKey))
             {
-                // 海水区域适航走廊 Z: -32 ~ -22
-                jitterZ = rng.RandfRange(-32f, -22f);
+                // 海水区域适航走廊 Z: -12 ~ -8 (镜头主视野清晰可见河道)
+                jitterZ = rng.RandfRange(-12f, -8f);
             }
             else if (BattleUnitCatalog.IsAirUnit(unitKey))
             {
@@ -302,8 +297,8 @@ public partial class AutoCombatArenaController : Node3D
             }
             else
             {
-                // 陆军交火走廊 Z: -10 ~ 14
-                jitterZ = rng.RandfRange(-10f, 14f);
+                // 陆军交火走廊 Z: -5 ~ 10
+                jitterZ = rng.RandfRange(-5f, 10f);
             }
 
             float spawnY = BattleUnitCatalog.SpawnHeight(unitKey);
@@ -312,7 +307,7 @@ public partial class AutoCombatArenaController : Node3D
 
         var targetX = isBlue ? RedBaseX : BlueBaseX;
         float destZ = BattleUnitCatalog.IsNavalUnit(unitKey)
-            ? Mathf.Clamp(spawnPos.Z, -32f, -22f)
+            ? Mathf.Clamp(spawnPos.Z, -12f, -8f)
             : spawnPos.Z * 0.5f;
         var marchDest = new Vector3(targetX, spawnPos.Y, destZ);
 
@@ -446,253 +441,59 @@ public partial class AutoCombatArenaController : Node3D
         }
     }
 
+    void InitBattleHud()
+    {
+        var hudScene = GD.Load<PackedScene>("res://scenes/ui/ArenaBattleHud.tscn");
+        if (hudScene is not null)
+        {
+            _battleHud = hudScene.Instantiate<GodotRTS.Scripts.UI.ArenaBattleHud>();
+            AddChild(_battleHud);
+
+            _battleHud.SpawnRequested += (unitType, isBlue) => SpawnUnitForSide(unitType, isBlue);
+            _battleHud.WaveRequested += (isBlue) => SpawnBalancedWave(isBlue);
+            _battleHud.ClashRequested += TriggerAllOutClash;
+            _battleHud.ClearRequested += ClearBattlefield;
+            _battleHud.AutoWaveToggled += () => { autoWaveEnabled = !autoWaveEnabled; };
+            _battleHud.SpeedToggled += () => {
+                timeScaleIndex = (timeScaleIndex + 1) % 3;
+                double scale = timeScaleIndex == 0 ? 1.0 : timeScaleIndex == 1 ? 2.0 : 4.0;
+                if (!isPaused) Engine.TimeScale = scale;
+            };
+            _battleHud.PauseToggled += () => {
+                isPaused = !isPaused;
+                if (isPaused)
+                {
+                    Engine.TimeScale = 0.0;
+                }
+                else
+                {
+                    double scale = timeScaleIndex == 0 ? 1.0 : timeScaleIndex == 1 ? 2.0 : 4.0;
+                    Engine.TimeScale = scale;
+                }
+            };
+            _battleHud.CameraModeRequested += () => {
+                var nextMode = currentCamMode switch
+                {
+                    CameraMode.RtsTopDown => CameraMode.FrontlineCloseUp,
+                    CameraMode.FrontlineCloseUp => CameraMode.BirdEyeOverview,
+                    _ => CameraMode.RtsTopDown
+                };
+                ApplyCameraMode(nextMode);
+            };
+            _battleHud.ExitRequested += () => {
+                Engine.TimeScale = 1.0;
+                GetTree().ChangeSceneToFile("res://scenes/lobby/LobbyScene.tscn");
+            };
+        }
+    }
+
     void UpdateUiStats()
     {
         int blueCount = blueUnits.Count(u => GodotObject.IsInstanceValid(u) && !u.IsDead);
         int redCount = redUnits.Count(u => GodotObject.IsInstanceValid(u) && !u.IsDead);
-
-        blueStatusLabel.Text = $"🔵 蓝军部队: {blueCount} | 击杀: {blueKills}";
-        redStatusLabel.Text = $"🔴 红军部队: {redCount} | 击杀: {redKills}";
-
-        int mins = (int)(gameTimer / 60);
-        int secs = (int)(gameTimer % 60);
         int fps = (int)Engine.GetFramesPerSecond();
-        centerTimerLabel.Text = $"⏱️ {mins:D2}:{secs:D2}  |  FPS: {fps}  |  倍速: {Engine.TimeScale:0.0}x";
-    }
+        double currentScale = isPaused ? 0.0 : (timeScaleIndex == 0 ? 1.0 : timeScaleIndex == 1 ? 2.0 : 4.0);
 
-    void BuildArenaUi()
-    {
-        var canvas = new CanvasLayer { Name = "AutoCombatUI" };
-        AddChild(canvas);
-
-        // 1. 顶部战况看板
-        var topBanner = new Panel
-        {
-            Position = new Vector2(225, 12),
-            Size = new Vector2(830, 46),
-            CustomMinimumSize = new Vector2(830, 46)
-        };
-        MetalUiStyle.ApplyMetalPanel(topBanner, MetalUiStyle.Steel, 1, 6, 3);
-        canvas.AddChild(topBanner);
-
-        var topBox = new HBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, SizeFlagsVertical = Control.SizeFlags.ExpandFill };
-        topBox.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        topBox.AddThemeConstantOverride("separation", 24);
-        topBox.Alignment = BoxContainer.AlignmentMode.Center;
-        topBanner.AddChild(topBox);
-
-        blueStatusLabel = new Label();
-        blueStatusLabel.AddThemeColorOverride("font_color", new Color(0.40f, 0.75f, 1f));
-        blueStatusLabel.AddThemeFontSizeOverride("font_size", 14);
-        topBox.AddChild(blueStatusLabel);
-
-        centerTimerLabel = new Label();
-        centerTimerLabel.AddThemeColorOverride("font_color", new Color(1f, 0.88f, 0.40f));
-        centerTimerLabel.AddThemeFontSizeOverride("font_size", 14);
-        topBox.AddChild(centerTimerLabel);
-
-        redStatusLabel = new Label();
-        redStatusLabel.AddThemeColorOverride("font_color", new Color(1f, 0.45f, 0.40f));
-        redStatusLabel.AddThemeFontSizeOverride("font_size", 14);
-        topBox.AddChild(redStatusLabel);
-
-        // 2. 左侧控制栏：蓝军快速部署
-        var bluePanel = new Panel
-        {
-            Position = new Vector2(14, 68),
-            Size = new Vector2(138, 560)
-        };
-        MetalUiStyle.ApplyMetalPanel(bluePanel, MetalUiStyle.Steel, 1, 6, 3);
-        canvas.AddChild(bluePanel);
-
-        var blueBox = new VBoxContainer();
-        blueBox.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        blueBox.AddThemeConstantOverride("margin_left", 6);
-        blueBox.AddThemeConstantOverride("margin_right", 6);
-        blueBox.AddThemeConstantOverride("margin_top", 6);
-        blueBox.AddThemeConstantOverride("margin_bottom", 6);
-        blueBox.AddThemeConstantOverride("separation", 3);
-        bluePanel.AddChild(blueBox);
-
-        var blueTitle = new Label { Text = "🔵 蓝军快速增援", HorizontalAlignment = HorizontalAlignment.Center };
-        blueTitle.AddThemeColorOverride("font_color", new Color(0.40f, 0.75f, 1f));
-        blueTitle.AddThemeFontSizeOverride("font_size", 12);
-        blueBox.AddChild(blueTitle);
-
-        AddCategoryHeader(blueBox, "—— 空中战机 ——", new Color(0.6f, 0.85f, 1f));
-        AddDeployButton(blueBox, "✈️ 战斗机", () => SpawnUnitForSide("fighter", true), MetalUiStyle.Steel);
-        AddDeployButton(blueBox, "💣 轰炸机", () => SpawnUnitForSide("bomber", true), MetalUiStyle.Steel);
-        AddDeployButton(blueBox, "🚁 侦察机", () => SpawnUnitForSide("scout_plane", true), MetalUiStyle.Steel);
-
-        AddCategoryHeader(blueBox, "—— 海军舰队 ——", new Color(0.4f, 0.8f, 0.9f));
-        AddDeployButton(blueBox, "⚓ 驱逐舰", () => SpawnUnitForSide("destroyer_ship", true), MetalUiStyle.Steel);
-        AddDeployButton(blueBox, "⚓ 战列舰", () => SpawnUnitForSide("battleship", true), MetalUiStyle.Gold);
-        AddDeployButton(blueBox, "⚓ 攻击潜艇", () => SpawnUnitForSide("submarine", true), MetalUiStyle.Steel);
-        AddDeployButton(blueBox, "🚢 航空母舰", () => SpawnUnitForSide("aircraft_carrier", true), MetalUiStyle.Gold);
-
-        AddCategoryHeader(blueBox, "—— 陆军装甲 ——", new Color(0.85f, 0.85f, 0.7f));
-        AddDeployButton(blueBox, "🛡️ 中型坦克", () => SpawnUnitForSide("tank", true), MetalUiStyle.Steel);
-        AddDeployButton(blueBox, "🛡️ 重型坦克", () => SpawnUnitForSide("heavy_tank", true), MetalUiStyle.Gold);
-        AddDeployButton(blueBox, "🎯 自行火炮", () => SpawnUnitForSide("artillery", true), MetalUiStyle.Steel);
-        AddDeployButton(blueBox, "⚡ 防空炮车", () => SpawnUnitForSide("anti_air_gun", true), MetalUiStyle.Steel);
-        AddDeployButton(blueBox, "🎖️ 步兵 / 喷火", () => SpawnUnitForSide(rng.RandiRange(0, 1) == 0 ? "infantry" : "infantry_flamethrower", true), MetalUiStyle.Steel);
-
-        AddCategoryHeader(blueBox, "—— 特遣编制 ——", new Color(0.4f, 0.95f, 0.65f));
-        AddDeployButton(blueBox, "🌊 蓝军三军混编", () => SpawnBalancedWave(true), MetalUiStyle.Green);
-
-        // 3. 右侧控制栏：红军快速部署
-        var redPanel = new Panel
-        {
-            Position = new Vector2(1280 - 138 - 14, 68),
-            Size = new Vector2(138, 560)
-        };
-        MetalUiStyle.ApplyMetalPanel(redPanel, MetalUiStyle.Steel, 1, 6, 3);
-        canvas.AddChild(redPanel);
-
-        var redBox = new VBoxContainer();
-        redBox.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        redBox.AddThemeConstantOverride("margin_left", 6);
-        redBox.AddThemeConstantOverride("margin_right", 6);
-        redBox.AddThemeConstantOverride("margin_top", 6);
-        redBox.AddThemeConstantOverride("margin_bottom", 6);
-        redBox.AddThemeConstantOverride("separation", 3);
-        redPanel.AddChild(redBox);
-
-        var redTitle = new Label { Text = "🔴 红军快速增援", HorizontalAlignment = HorizontalAlignment.Center };
-        redTitle.AddThemeColorOverride("font_color", new Color(1f, 0.45f, 0.40f));
-        redTitle.AddThemeFontSizeOverride("font_size", 12);
-        redBox.AddChild(redTitle);
-
-        AddCategoryHeader(redBox, "—— 空中战机 ——", new Color(1f, 0.7f, 0.6f));
-        AddDeployButton(redBox, "✈️ 战斗机", () => SpawnUnitForSide("fighter", false), MetalUiStyle.Steel);
-        AddDeployButton(redBox, "💣 轰炸机", () => SpawnUnitForSide("bomber", false), MetalUiStyle.Steel);
-        AddDeployButton(redBox, "🚁 侦察机", () => SpawnUnitForSide("scout_plane", false), MetalUiStyle.Steel);
-
-        AddCategoryHeader(redBox, "—— 海军舰队 ——", new Color(0.9f, 0.65f, 0.5f));
-        AddDeployButton(redBox, "⚓ 驱逐舰", () => SpawnUnitForSide("destroyer_ship", false), MetalUiStyle.Steel);
-        AddDeployButton(redBox, "⚓ 战列舰", () => SpawnUnitForSide("battleship", false), MetalUiStyle.Gold);
-        AddDeployButton(redBox, "⚓ 攻击潜艇", () => SpawnUnitForSide("submarine", false), MetalUiStyle.Steel);
-        AddDeployButton(redBox, "🚢 航空母舰", () => SpawnUnitForSide("aircraft_carrier", false), MetalUiStyle.Gold);
-
-        AddCategoryHeader(redBox, "—— 陆军装甲 ——", new Color(0.85f, 0.85f, 0.7f));
-        AddDeployButton(redBox, "🛡️ 中型坦克", () => SpawnUnitForSide("tank", false), MetalUiStyle.Steel);
-        AddDeployButton(redBox, "🛡️ 重型坦克", () => SpawnUnitForSide("heavy_tank", false), MetalUiStyle.Gold);
-        AddDeployButton(redBox, "🎯 自行火炮", () => SpawnUnitForSide("artillery", false), MetalUiStyle.Steel);
-        AddDeployButton(redBox, "⚡ 防空炮车", () => SpawnUnitForSide("anti_air_gun", false), MetalUiStyle.Steel);
-        AddDeployButton(redBox, "🎖️ 步兵 / 喷火", () => SpawnUnitForSide(rng.RandiRange(0, 1) == 0 ? "infantry" : "infantry_flamethrower", false), MetalUiStyle.Steel);
-
-        AddCategoryHeader(redBox, "—— 特遣编制 ——", new Color(1f, 0.55f, 0.5f));
-        AddDeployButton(redBox, "🌊 红军三军混编", () => SpawnBalancedWave(false), MetalUiStyle.Red);
-
-        // 4. 底部功能控制条
-        var bottomPanel = new Panel
-        {
-            Position = new Vector2(205, 656),
-            Size = new Vector2(870, 48),
-            CustomMinimumSize = new Vector2(870, 48)
-        };
-        MetalUiStyle.ApplyMetalPanel(bottomPanel, MetalUiStyle.Steel, 1, 6, 3);
-        canvas.AddChild(bottomPanel);
-
-        var bottomBox = new HBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, SizeFlagsVertical = Control.SizeFlags.ExpandFill };
-        bottomBox.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        bottomBox.AddThemeConstantOverride("separation", 10);
-        bottomBox.Alignment = BoxContainer.AlignmentMode.Center;
-        bottomPanel.AddChild(bottomBox);
-
-        // ⚔️ 海陆空大会战
-        var clashBtn = new Button { Text = "⚔️ 海陆空大会战", CustomMinimumSize = new Vector2(124, 32) };
-        MetalUiStyle.ApplyMetalButton(clashBtn, MetalUiStyle.Gold, 12, true);
-        clashBtn.Pressed += TriggerAllOutClash;
-        bottomBox.AddChild(clashBtn);
-
-        // 🔄 自动刷兵开关
-        autoWaveToggleBtn = new Button { Text = "🔄 自动出兵: 开", CustomMinimumSize = new Vector2(110, 32) };
-        MetalUiStyle.ApplyMetalButton(autoWaveToggleBtn, MetalUiStyle.Green, 12);
-        autoWaveToggleBtn.Pressed += () => {
-            autoWaveEnabled = !autoWaveEnabled;
-            autoWaveToggleBtn.Text = autoWaveEnabled ? "🔄 自动出兵: 开" : "🔄 自动出兵: 关";
-            MetalUiStyle.ApplyMetalButton(autoWaveToggleBtn, autoWaveEnabled ? MetalUiStyle.Green : MetalUiStyle.Steel, 12);
-        };
-        bottomBox.AddChild(autoWaveToggleBtn);
-
-        // ⏩ 倍速调节
-        speedBtn = new Button { Text = "⏩ 1.0x", CustomMinimumSize = new Vector2(80, 32) };
-        MetalUiStyle.ApplyMetalButton(speedBtn, MetalUiStyle.Steel, 12);
-        speedBtn.Pressed += () => {
-            timeScaleIndex = (timeScaleIndex + 1) % 3;
-            double scale = timeScaleIndex == 0 ? 1.0 : timeScaleIndex == 1 ? 2.0 : 4.0;
-            if (!isPaused) Engine.TimeScale = scale;
-            speedBtn.Text = $"⏩ {scale:0.0}x";
-        };
-        bottomBox.AddChild(speedBtn);
-
-        // ⏸️ 暂停/恢复
-        pauseBtn = new Button { Text = "⏸️ 暂停", CustomMinimumSize = new Vector2(80, 32) };
-        MetalUiStyle.ApplyMetalButton(pauseBtn, MetalUiStyle.Steel, 12);
-        pauseBtn.Pressed += () => {
-            isPaused = !isPaused;
-            if (isPaused)
-            {
-                Engine.TimeScale = 0.0;
-                pauseBtn.Text = "▶️ 继续";
-            }
-            else
-            {
-                double scale = timeScaleIndex == 0 ? 1.0 : timeScaleIndex == 1 ? 2.0 : 4.0;
-                Engine.TimeScale = scale;
-                pauseBtn.Text = "⏸️ 暂停";
-            }
-        };
-        bottomBox.AddChild(pauseBtn);
-
-        // 🧹 清理战场
-        var clearBtn = new Button { Text = "🧹 清空战场", CustomMinimumSize = new Vector2(90, 32) };
-        MetalUiStyle.ApplyMetalButton(clearBtn, MetalUiStyle.Steel, 12);
-        clearBtn.Pressed += ClearBattlefield;
-        bottomBox.AddChild(clearBtn);
-
-        // 🎥 镜头视角切换
-        var camBtn = new Button { Text = "🎥 切换镜头", CustomMinimumSize = new Vector2(90, 32) };
-        MetalUiStyle.ApplyMetalButton(camBtn, MetalUiStyle.Steel, 12);
-        camBtn.Pressed += () => {
-            var nextMode = currentCamMode switch
-            {
-                CameraMode.RtsTopDown => CameraMode.FrontlineCloseUp,
-                CameraMode.FrontlineCloseUp => CameraMode.BirdEyeOverview,
-                _ => CameraMode.RtsTopDown
-            };
-            ApplyCameraMode(nextMode);
-        };
-        bottomBox.AddChild(camBtn);
-
-        // 🚪 返回大厅
-        var exitBtn = new Button { Text = "🚪 返回大厅", CustomMinimumSize = new Vector2(90, 32) };
-        MetalUiStyle.ApplyMetalButton(exitBtn, MetalUiStyle.Red, 12);
-        exitBtn.Pressed += () => {
-            Engine.TimeScale = 1.0;
-            GetTree().ChangeSceneToFile("res://scenes/lobby/LobbyScene.tscn");
-        };
-        bottomBox.AddChild(exitBtn);
-    }
-
-    static void AddCategoryHeader(VBoxContainer parent, string title, Color color)
-    {
-        var lbl = new Label { Text = title, HorizontalAlignment = HorizontalAlignment.Center };
-        lbl.AddThemeColorOverride("font_color", color);
-        lbl.AddThemeFontSizeOverride("font_size", 9);
-        parent.AddChild(lbl);
-    }
-
-    static void AddDeployButton(VBoxContainer parent, string text, System.Action onClick, MetalUiStyle.MetalPalette? palette = null)
-    {
-        var btn = new Button
-        {
-            Text = text,
-            CustomMinimumSize = new Vector2(120, 24)
-        };
-        MetalUiStyle.ApplyMetalButton(btn, palette ?? MetalUiStyle.Steel, 10);
-        btn.Pressed += onClick;
-        parent.AddChild(btn);
+        _battleHud?.UpdateBattleTelemetry(blueCount, blueKills, redCount, redKills, gameTimer, fps, currentScale, isPaused, autoWaveEnabled);
     }
 }

@@ -3165,11 +3165,27 @@ public partial class RtsUnit : CharacterBody3D
 				Mesh = particleQuad
 			};
 
+			var grad = new Gradient();
+			grad.AddPoint(0f, Colors.White);
+			grad.AddPoint(0.55f, new Color(1, 1, 1, 0.7f));
+			grad.AddPoint(1.0f, new Color(1, 1, 1, 0f));
+			var particleTex = new GradientTexture2D
+			{
+				Gradient = grad,
+				Fill = GradientTexture2D.FillEnum.Radial,
+				FillFrom = new Vector2(0.5f, 0.5f),
+				FillTo = new Vector2(0.5f, 0.0f),
+				Width = 32,
+				Height = 32
+			};
+
 			var flameMat = new StandardMaterial3D
 			{
 				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
 				AlbedoColor = Colors.White,
+				AlbedoTexture = particleTex,
 				Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+				BlendMode = BaseMaterial3D.BlendModeEnum.Add,
 				BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled,
 				VertexColorUseAsAlbedo = true
 			};
@@ -3193,35 +3209,45 @@ public partial class RtsUnit : CharacterBody3D
 			flame.Emitting = true;
 			jetExhaustParticles.Add(flame);
 
-			// 2. 超音速航迹云 / 尾流烟带 (Jet Smoke Wake - 长度适中紧凑尾迹)
+			// 2. 超音速航迹云 / 尾流烟带 (Jet Smoke Wake - 紧凑高空尾流)
 			var smoke = new CpuParticles3D
 			{
 				Name = "JetSmokeTrail",
-				Amount = 24,
-				Lifetime = 0.26f, // 缩短一半寿命，使高空拉烟更加干脆利落紧凑
+				Amount = 14,
+				Lifetime = 0.15f,
 				Direction = new Vector3(0f, 0f, 1f),
-				Spread = 8f,
-				Gravity = new Vector3(0f, 0.1f, 0f),
-				InitialVelocityMin = 0.6f,
-				InitialVelocityMax = 1.8f,
-				ScaleAmountMin = 0.16f,
-				ScaleAmountMax = 0.48f,
+				Spread = 6f,
+				Gravity = Vector3.Zero,
+				InitialVelocityMin = 0.4f,
+				InitialVelocityMax = 1.2f,
+				ScaleAmountMin = 0.08f,
+				ScaleAmountMax = 0.22f,
 				Position = nozzlePos,
-				LocalCoords = false, // 世界坐标，形成连续高空尾流
+				LocalCoords = false,
 				Mesh = particleQuad
 			};
 
-			smoke.MaterialOverride = flameMat;
+			var smokeMat = new StandardMaterial3D
+			{
+				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+				AlbedoColor = new Color(0.85f, 0.95f, 1.0f, 0.5f),
+				AlbedoTexture = particleTex,
+				Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+				BlendMode = BaseMaterial3D.BlendModeEnum.Add,
+				BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled,
+				VertexColorUseAsAlbedo = true
+			};
+			smoke.MaterialOverride = smokeMat;
 
 			var smokeScale = new Curve();
-			smokeScale.AddPoint(new Vector2(0f, 0.35f));
-			smokeScale.AddPoint(new Vector2(1f, 1.15f));
+			smokeScale.AddPoint(new Vector2(0f, 0.4f));
+			smokeScale.AddPoint(new Vector2(1f, 1.0f));
 			smoke.ScaleAmountCurve = smokeScale;
 
 			var smokeRamp = new Gradient();
-			smokeRamp.AddPoint(0f, new Color(0.85f, 0.92f, 1.0f, 0.45f));
-			smokeRamp.AddPoint(0.4f, new Color(0.80f, 0.85f, 0.92f, 0.20f));
-			smokeRamp.AddPoint(1.0f, new Color(0.75f, 0.75f, 0.80f, 0f));
+			smokeRamp.AddPoint(0f, new Color(0.4f, 0.7f, 1.0f, 0.5f));
+			smokeRamp.AddPoint(0.5f, new Color(0.3f, 0.5f, 0.8f, 0.2f));
+			smokeRamp.AddPoint(1.0f, new Color(0.1f, 0.2f, 0.3f, 0f));
 			smoke.ColorRamp = smokeRamp;
 
 			parentNode.AddChild(smoke);

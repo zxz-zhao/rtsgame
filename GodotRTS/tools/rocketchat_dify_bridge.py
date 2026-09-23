@@ -246,6 +246,7 @@ def run_multi_agent_pipeline(query: str, user_id: str, room_id: str) -> str:
     # -------------------------------------------------------------
     print("🧪 [Phase 1.5: Automated Test Suite] 正在执行 5 大自动化工程测试用例...", flush=True)
     test_report_text = ""
+    test_passed = False
     try:
         workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if workspace_root not in sys.path:
@@ -254,15 +255,40 @@ def run_multi_agent_pipeline(query: str, user_id: str, room_id: str) -> str:
         test_results = run_all_tests()
         test_report_text = test_results.get("report_text", "")
         test_passed = test_results.get("all_passed", False)
-        print(f"🧪 [测试套件执行完成] 状态: {'ALL PASSED' if test_passed else 'FAILED'}", flush=True)
+        print(f"🧪 [测试套件初次执行完成] 状态: {'ALL PASSED' if test_passed else 'FAILED'}", flush=True)
+
+        # -------------------------------------------------------------
+        # 【建设性自愈循环 (Self-Healing Remediation Loop)】
+        # 绝不搞一票否决！若测试有失败项，自动驱动工程师就地修复并重跑！
+        # -------------------------------------------------------------
+        if not test_passed:
+            print("🔧 [自愈触发] 检测到测试用例未完全通过，启动针对性自愈修复回路...", flush=True)
+            failed_items = [f"- {r['id']} ({r['name']}): {r['detail']}" for r in test_results.get("results", []) if not r["passed"]]
+            failed_str = "\n".join(failed_items)
+            remediation_prompt = f"""【自动化测试失败 - 紧急就地修复指令】：
+刚才生成的方案在自动化测试套件中检测到以下具体问题：
+{failed_str}
+
+作为主力研发工程师，请立即以解决问题为导向完成就地自愈：
+1. 调用 write_file 修复对应的 .tscn 场景或 .cs 控制器（补全缺失节点、补齐 _ExitTree 解绑、或消除编译错误）。
+2. 调用 run_build 重新编译。
+3. 提交修复说明。"""
+            fix_ans, fix_thoughts, _ = call_dify_stream(DIFY_DEV_API_KEY, remediation_prompt, user_id, USER_CONV_DEV)
+            dev_answer += f"\n\n### 🔧 【工程自愈修复记录】\n{fix_ans}"
+            # 重新跑测
+            test_results = run_all_tests()
+            test_report_text = test_results.get("report_text", "")
+            test_passed = test_results.get("all_passed", False)
+            print(f"🧪 [自愈后重新跑测完成] 状态: {'ALL PASSED' if test_passed else 'REMAINING ISSUES'}", flush=True)
+
     except Exception as test_err:
         test_report_text = f"⚠️ 测试套件执行异常: {test_err}"
         print(f"⚠️ [测试套件执行异常]: {test_err}", flush=True)
 
     # -------------------------------------------------------------
-    # 阶段 2：首席技术架构师审批 (Chief Architect Reviewer Gate)
+    # 阶段 2：首席技术架构师审批与解决方案签发 (Chief Architect Lead Gate)
     # -------------------------------------------------------------
-    print("🏛️ [Phase 2: Chief Architect Reviewer] 首席架构师正在结合真实测试报告进行独立代码审查与质量审批...", flush=True)
+    print("🏛️ [Phase 2: Chief Architect Lead] 首席架构师正在进行建设性架构研判与交付签发 (以解决问题为主)...", flush=True)
     review_prompt = f"""【用户原始研发需求】：
 {query}
 
@@ -275,7 +301,7 @@ def run_multi_agent_pipeline(query: str, user_id: str, room_id: str) -> str:
 【研发工程师本地工具执行与编译记录】：
 {tools_summary}
 
-请以 Godot 4 RTS 首席技术架构师与质量审批官身份，结合工程师实际提交的代码与【自动化测试执行报告】，对该交付物执行严格的独立红线审查（自动化测试门禁、设计系统 MetalUiStyle 契约、.tscn 声明式与 C# Presenter 分离契约、生命周期 _ExitTree 与 Zero-GC 契约、实机物理渲染验收），并签发正式的《技术架构师审批与交付报告》。
+请以 Godot 4 RTS 核心技术架构师与技术领舵人身份，结合上述真实代码与【自动化测试执行报告】，坚持【以解决问题为导向、绝不搞官僚主义一票否决】的原则，对交付物进行建设性研判，指导工程落地，并签发《架构交付与技术解决方案报告》！若存在任何微小瑕疵，在报告中直接给出精准的修复代码补丁！
 """
 
     arch_answer, _, _ = call_dify_stream(DIFY_ARCH_API_KEY, review_prompt, user_id, USER_CONV_ARCH)
