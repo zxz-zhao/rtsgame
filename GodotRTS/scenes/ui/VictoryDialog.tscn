@@ -1,6 +1,70 @@
-[gd_scene load_steps=2 format=3 uid="uid://victory_dialog_scene"]
+[gd_scene load_steps=8 format=3 uid="uid://victory_dialog_architectural"]
 
 [ext_resource type="Script" path="res://scripts/ui/VictoryDialog.cs" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_card"]
+bg_color = Color(0.06, 0.09, 0.16, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.96, 0.79, 0.3, 0.85)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0.96, 0.75, 0.2, 0.25)
+shadow_size = 20
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_gold_normal"]
+bg_color = Color(0.3, 0.22, 0.06, 0.95)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.96, 0.79, 0.3, 0.9)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_gold_hover"]
+bg_color = Color(0.45, 0.33, 0.1, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(1, 0.92, 0.5, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+shadow_color = Color(1, 0.8, 0.2, 0.4)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_steel_normal"]
+bg_color = Color(0.15, 0.19, 0.25, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.6, 0.75, 0.9, 0.6)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_steel_hover"]
+bg_color = Color(0.22, 0.28, 0.38, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.8, 0.92, 1, 0.9)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
 
 [node name="VictoryDialog" type="Control"]
 layout_mode = 3
@@ -9,4 +73,151 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 0
 script = ExtResource("1_script")
+
+[node name="Dimmer" type="ColorRect" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.03, 0.05, 0.09, 0.82)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="DialogCard" type="PanelContainer" parent="Center"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(560, 0)
+layout_mode = 2
+pivot_offset = Vector2(280, 190)
+theme_override_styles/panel = SubResource("StyleBoxFlat_card")
+
+[node name="Margin" type="MarginContainer" parent="Center/DialogCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 32
+
+[node name="VBox" type="VBoxContainer" parent="Center/DialogCard/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="HeaderBox" type="VBoxContainer" parent="Center/DialogCard/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="TitleLabel" type="Label" parent="Center/DialogCard/Margin/VBox/HeaderBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.88, 0.35, 1)
+theme_override_colors/font_shadow_color = Color(0.8, 0.5, 0.1, 0.6)
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 32
+text = "⚡ 战 局 胜 利 (VICTORY) ⚡"
+horizontal_alignment = 1
+
+[node name="SubtitleLabel" type="Label" parent="Center/DialogCard/Margin/VBox/HeaderBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.78, 0.9, 0.85)
+theme_override_font_sizes/font_size = 12
+text = "战略作战目标全部达成 · 区域制空权与制地权已确立"
+horizontal_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="Center/DialogCard/Margin/VBox"]
+layout_mode = 2
+
+[node name="StatsBox" type="VBoxContainer" parent="Center/DialogCard/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="KillRow" type="HBoxContainer" parent="Center/DialogCard/Margin/VBox/StatsBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Center/DialogCard/Margin/VBox/StatsBox/KillRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 14
+text = "⚔ 敌军装甲及步兵歼灭总数"
+
+[node name="StatsKillLabel" type="Label" parent="Center/DialogCard/Margin/VBox/StatsBox/KillRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.45, 0.35, 1)
+theme_override_font_sizes/font_size = 18
+text = "48 目标"
+horizontal_alignment = 2
+
+[node name="GoldRow" type="HBoxContainer" parent="Center/DialogCard/Margin/VBox/StatsBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Center/DialogCard/Margin/VBox/StatsBox/GoldRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 14
+text = "💰 战略战利品折算 (金币/合金)"
+
+[node name="StatsGoldLabel" type="Label" parent="Center/DialogCard/Margin/VBox/StatsBox/GoldRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.25, 1)
+theme_override_font_sizes/font_size = 18
+text = "+3,500"
+horizontal_alignment = 2
+
+[node name="GradeRow" type="HBoxContainer" parent="Center/DialogCard/Margin/VBox/StatsBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Center/DialogCard/Margin/VBox/StatsBox/GradeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 14
+text = "🎖 战术指挥效率评估"
+
+[node name="GradeLabel" type="Label" parent="Center/DialogCard/Margin/VBox/StatsBox/GradeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.3, 0.95, 0.6, 1)
+theme_override_font_sizes/font_size = 16
+text = "RANK - S 卓越"
+horizontal_alignment = 2
+
+[node name="HSeparator2" type="HSeparator" parent="Center/DialogCard/Margin/VBox"]
+layout_mode = 2
+
+[node name="BtnBox" type="HBoxContainer" parent="Center/DialogCard/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="ReplayButton" type="Button" parent="Center/DialogCard/Margin/VBox/BtnBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 44)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.95, 0.8, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_gold_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_gold_hover")
+text = "重新部署挑战"
+
+[node name="MainMenuButton" type="Button" parent="Center/DialogCard/Margin/VBox/BtnBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 44)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.92, 1, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_steel_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_steel_hover")
+text = "返回作战中心"

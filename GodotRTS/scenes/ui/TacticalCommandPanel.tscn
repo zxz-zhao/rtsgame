@@ -1,0 +1,597 @@
+[gd_scene load_steps=15 format=3 uid="uid://tactical_command_panel_scifi"]
+
+[ext_resource type="Script" path="res://scripts/ui/TacticalCommandPanel.cs" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_main_panel"]
+bg_color = Color(0.04, 0.07, 0.12, 0.92)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0, 0.8, 1, 0.7)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+shadow_color = Color(0, 0.5, 0.8, 0.35)
+shadow_size = 14
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_sub_card"]
+bg_color = Color(0.06, 0.1, 0.18, 0.7)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0, 0.5, 0.8, 0.4)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_avatar"]
+bg_color = Color(0.08, 0.14, 0.24, 0.9)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0, 0.9, 1, 0.8)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bar_bg"]
+bg_color = Color(0.08, 0.12, 0.18, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hp_fill"]
+bg_color = Color(0.1, 0.85, 0.45, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_shield_fill"]
+bg_color = Color(0, 0.75, 1, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_plasma_fill"]
+bg_color = Color(1, 0.7, 0.1, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_normal"]
+bg_color = Color(0.08, 0.15, 0.26, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0, 0.6, 0.9, 0.5)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_hover"]
+bg_color = Color(0.12, 0.22, 0.38, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0, 0.9, 1, 0.9)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_pressed"]
+bg_color = Color(0.05, 0.35, 0.55, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.3, 1, 1, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_disabled"]
+bg_color = Color(0.05, 0.08, 0.12, 0.6)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.3, 0.4, 0.4)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="TacticalCommandPanel" type="Control"]
+custom_minimum_size = Vector2(880, 290)
+layout_mode = 3
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -440.0
+offset_top = -305.0
+offset_right = 440.0
+offset_bottom = -15.0
+grow_horizontal = 2
+grow_vertical = 0
+script = ExtResource("1_script")
+
+[node name="PanelContainer" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_main_panel")
+
+[node name="Margin" type="MarginContainer" parent="PanelContainer"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="MainHBox" type="HBoxContainer" parent="PanelContainer/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="LeftPortraitCard" type="PanelContainer" parent="PanelContainer/Margin/MainHBox"]
+custom_minimum_size = Vector2(170, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_sub_card")
+
+[node name="PortraitMargin" type="MarginContainer" parent="PanelContainer/Margin/MainHBox/LeftPortraitCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="PortraitVBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/LeftPortraitCard/PortraitMargin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="AvatarFrame" type="Panel" parent="PanelContainer/Margin/MainHBox/LeftPortraitCard/PortraitMargin/PortraitVBox"]
+custom_minimum_size = Vector2(120, 120)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_styles/panel = SubResource("StyleBoxFlat_avatar")
+
+[node name="AvatarLabel" type="Label" parent="PanelContainer/Margin/MainHBox/LeftPortraitCard/PortraitMargin/PortraitVBox/AvatarFrame"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -45.0
+offset_top = -25.0
+offset_right = 45.0
+offset_bottom = 25.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 28
+text = "☵ M5"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="StatusBadge" type="Label" parent="PanelContainer/Margin/MainHBox/LeftPortraitCard/PortraitMargin/PortraitVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.9, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "● 状态: 战斗就绪"
+horizontal_alignment = 1
+
+[node name="KillCountLabel" type="Label" parent="PanelContainer/Margin/MainHBox/LeftPortraitCard/PortraitMargin/PortraitVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.75, 0.3, 1)
+theme_override_font_sizes/font_size = 12
+text = "击毁: 14 | VET ★★★★"
+horizontal_alignment = 1
+
+[node name="CenterVitalsCard" type="PanelContainer" parent="PanelContainer/Margin/MainHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_sub_card")
+
+[node name="CenterMargin" type="MarginContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="CenterVBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="UnitNameLabel" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/TitleBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.98, 1, 1)
+theme_override_font_sizes/font_size = 16
+text = "M5A2 泰坦重型攻城战车"
+
+[node name="UnitSubTitleLabel" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/TitleBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.75, 1, 0.85)
+theme_override_font_sizes/font_size = 11
+text = "联邦第七重装突击军团 · 战略攻城单位"
+
+[node name="ModeLabel" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/TitleBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "[ 巡航机动形态 (MOBILE) ]"
+
+[node name="HSeparator" type="HSeparator" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox"]
+layout_mode = 2
+
+[node name="BarsBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="HpRow" type="HBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox"]
+layout_mode = 2
+
+[node name="HpTitle" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/HpRow"]
+custom_minimum_size = Vector2(75, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.1, 0.85, 0.45, 1)
+theme_override_font_sizes/font_size = 11
+text = "装甲耐久"
+
+[node name="HpBar" type="ProgressBar" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/HpRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 14)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_styles/background = SubResource("StyleBoxFlat_bar_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_hp_fill")
+value = 97.0
+show_percentage = false
+
+[node name="HpText" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/HpRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.95, 0.9, 1)
+theme_override_font_sizes/font_size = 11
+text = "4850 / 5000"
+horizontal_alignment = 2
+
+[node name="ShieldRow" type="HBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox"]
+layout_mode = 2
+
+[node name="ShieldTitle" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/ShieldRow"]
+custom_minimum_size = Vector2(75, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0.75, 1, 1)
+theme_override_font_sizes/font_size = 11
+text = "偏转护盾"
+
+[node name="ShieldBar" type="ProgressBar" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/ShieldRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_styles/background = SubResource("StyleBoxFlat_bar_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_shield_fill")
+value = 100.0
+show_percentage = false
+
+[node name="ShieldText" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/ShieldRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.95, 1, 1)
+theme_override_font_sizes/font_size = 11
+text = "1200 / 1200"
+horizontal_alignment = 2
+
+[node name="PlasmaRow" type="HBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox"]
+layout_mode = 2
+
+[node name="PlasmaTitle" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/PlasmaRow"]
+custom_minimum_size = Vector2(75, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.7, 0.1, 1)
+theme_override_font_sizes/font_size = 11
+text = "等离子能"
+
+[node name="PlasmaBar" type="ProgressBar" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/PlasmaRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_styles/background = SubResource("StyleBoxFlat_bar_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_plasma_fill")
+value = 76.0
+show_percentage = false
+
+[node name="PlasmaText" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/BarsBox/PlasmaRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.7, 1)
+theme_override_font_sizes/font_size = 11
+text = "380 / 500"
+horizontal_alignment = 2
+
+[node name="StatsGrid" type="GridContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox"]
+layout_mode = 2
+columns = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 4
+
+[node name="DpsBox" type="HBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid/DpsBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 11
+text = "火力DPS: "
+
+[node name="DpsValue" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid/DpsBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.4, 0.3, 1)
+theme_override_font_sizes/font_size = 11
+text = "480/s"
+
+[node name="ArmorBox" type="HBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid/ArmorBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 11
+text = "装甲等级: "
+
+[node name="ArmorValue" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid/ArmorBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.3, 0.7, 1, 1)
+theme_override_font_sizes/font_size = 11
+text = "160 (重甲)"
+
+[node name="RangeBox" type="HBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid/RangeBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 11
+text = "射程锁定: "
+
+[node name="RangeValue" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid/RangeBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.8, 0.2, 1)
+theme_override_font_sizes/font_size = 11
+text = "850m"
+
+[node name="SpeedBox" type="HBoxContainer" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid/SpeedBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 11
+text = "巡航航速: "
+
+[node name="SpeedValue" type="Label" parent="PanelContainer/Margin/MainHBox/CenterVitalsCard/CenterMargin/CenterVBox/StatsGrid/SpeedBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.9, 0.5, 1)
+theme_override_font_sizes/font_size = 11
+text = "14.5 m/s"
+
+[node name="RightSkillsCard" type="PanelContainer" parent="PanelContainer/Margin/MainHBox"]
+custom_minimum_size = Vector2(330, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_sub_card")
+
+[node name="SkillsMargin" type="MarginContainer" parent="PanelContainer/Margin/MainHBox/RightSkillsCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="SkillsVBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HeaderHBox" type="HBoxContainer" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox"]
+layout_mode = 2
+
+[node name="SkillTitle" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/HeaderHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 13
+text = "⚡ 战术技能指令矩阵"
+
+[node name="CommandGrid" type="GridContainer" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+columns = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+
+[node name="SkillBtnQ" type="Button" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(145, 80)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_btn_disabled")
+
+[node name="VBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnQ"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 2
+alignment = 1
+
+[node name="Hotkey" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnQ/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.8, 0.2, 1)
+theme_override_font_sizes/font_size = 11
+text = "[ Q ] 超载推进"
+horizontal_alignment = 1
+
+[node name="Desc" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnQ/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.85, 1, 0.8)
+theme_override_font_sizes/font_size = 10
+text = "航速+75% 持续6s\n消耗 60等离子"
+horizontal_alignment = 1
+
+[node name="SkillBtnW" type="Button" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(145, 80)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_btn_disabled")
+
+[node name="VBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnW"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 2
+alignment = 1
+
+[node name="Hotkey" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnW/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.4, 0.3, 1)
+theme_override_font_sizes/font_size = 11
+text = "[ W ] 攻城重炮架设"
+horizontal_alignment = 1
+
+[node name="Desc" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnW/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.85, 1, 0.8)
+theme_override_font_sizes/font_size = 10
+text = "射程+150% 范围重炮\n锚定锁定底盘"
+horizontal_alignment = 1
+
+[node name="SkillBtnE" type="Button" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(145, 80)
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_btn_disabled")
+
+[node name="VBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnE"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 2
+alignment = 1
+
+[node name="Hotkey" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnE/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 11
+text = "[ E ] 电磁脉冲齐射"
+horizontal_alignment = 1
+
+[node name="SkillCooldownE" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnE/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.3, 0.3, 1)
+theme_override_font_sizes/font_size = 13
+text = "冷却 8.4s"
+horizontal_alignment = 1
+
+[node name="Desc" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnE/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 0.7)
+theme_override_font_sizes/font_size = 10
+text = "瘫痪区域护盾与雷达"
+horizontal_alignment = 1
+
+[node name="SkillBtnR" type="Button" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(145, 80)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_btn_disabled")
+
+[node name="VBox" type="VBoxContainer" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnR"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 2
+alignment = 1
+
+[node name="Hotkey" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnR/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.9, 0.4, 1)
+theme_override_font_sizes/font_size = 11
+text = "[ R ] 纳米紧急损管"
+horizontal_alignment = 1
+
+[node name="Desc" type="Label" parent="PanelContainer/Margin/MainHBox/RightSkillsCard/SkillsMargin/SkillsVBox/CommandGrid/SkillBtnR/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.85, 1, 0.8)
+theme_override_font_sizes/font_size = 10
+text = "立即恢复 1000 装甲\n满载能量护盾"
+horizontal_alignment = 1

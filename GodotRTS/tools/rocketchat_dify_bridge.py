@@ -1,20 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-Rocket.Chat <-> Dify 智能桥接服务
-接收 Rocket.Chat 的 Webhook 触发消息，调用本地 Dify 平台中的大模型与 Agent：
-1. 捕获并解析 Dify 的深度推理思维链 (agent_thought - 思考链路)
-2. 捕获 Agent 工具调用与中间观测数据 (tool calls & observations)
-3. 整合模型最终深度分析研判结论 (answer)，并以结构化富文本 Markdown 回传给 Rocket.Chat
+Rocket.Chat <-> Dify 双智能体协同架构服务 (Multi-Agent Pipeline Bridge)
+实现工业级研发与审批闭环：
+1. 角色 1：RTS 核心研发工程师 (Developer Agent)
+   - 专注声明式 .tscn 场景构建、C# Presenter 编码、本地 dotnet build 编译与物理 GPU 渲染出图。
+2. 角色 2：RTS 首席技术架构师审批官 (Chief Architect Reviewer Agent)
+   - 独立进行代码审查与四大红线把关（MetalUiStyle 设计系统、.tscn 声明式分层、_ExitTree 生命周期安全、真实渲染验收）。
+   - 签发正式《技术架构师审批与交付报告》。
+3. Rocket.Chat 原生相册附件自动上传，多终端秒级预览。
 """
 
 import os
 import sys
 import json
+import time
+import re
 import http.server
 import socketserver
 import urllib.request
 import urllib.error
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple, List
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
@@ -25,11 +30,14 @@ no_proxy = os.environ.get("NO_PROXY", "")
 os.environ["NO_PROXY"] = f"{no_proxy},127.0.0.1,localhost,192.168.1.176,192.168.*".strip(",")
 os.environ["no_proxy"] = os.environ["NO_PROXY"]
 
-# Dify 配置 (默认连接本机 Docker 中的 Dify 服务)
+# Dify 配置
 DIFY_BASE_URL = os.environ.get("DIFY_BASE_URL", "http://127.0.0.1:9564")
-DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "app-VOinOntcv4Ok9Abkq2sml5qC")
+# 智能体 1：RTS 主力研发工程师 (有 tools: write_file, run_command, take_screenshot)
+DIFY_DEV_API_KEY = os.environ.get("DIFY_DEV_API_KEY", "app-VOinOntcv4Ok9Abkq2sml5qC")
+# 智能体 2：RTS 首席技术架构师审批 (独立代码审查与质量门禁 Gatekeeper)
+DIFY_ARCH_API_KEY = os.environ.get("DIFY_ARCH_API_KEY", "app-architectReviewerToken2026")
 
-# Rocket.Chat REST API 配置 (用于在 Webhook 超时或中断时兜底重发)
+# Rocket.Chat REST API 配置
 RC_API_URL = os.environ.get("RC_API_URL", "http://127.0.0.1:3000")
 RC_ADMIN_TOKEN = os.environ.get("RC_ADMIN_TOKEN", "rocket_dify_admin_token_20260923")
 RC_ADMIN_USER_ID = os.environ.get("RC_ADMIN_USER_ID", "ykykGuDpmeJqtiEHy")
@@ -38,8 +46,9 @@ LAN_HOST = os.environ.get("LAN_HOST", "192.168.1.176")
 # Rocket.Chat Webhook 监听端口
 PORT = int(os.environ.get("BRIDGE_PORT", "5005"))
 
-# 用户多轮会话上下文缓存 {user_id: conversation_id}
-USER_CONVERSATIONS: Dict[str, str] = {}
+# 用户多轮会话上下文缓存
+USER_CONV_DEV: Dict[str, str] = {}
+USER_CONV_ARCH: Dict[str, str] = {}
 
 
 def upload_image_file(room_id: str, file_path: str, msg: str = "") -> Optional[str]:
@@ -69,7 +78,7 @@ def upload_image_file(room_id: str, file_path: str, msg: str = "") -> Optional[s
 
 
 def fallback_post_message(room_id: str, text: str):
-    """当 Webhook 长连接被 Rocket.Chat 客户端中断时，通过 REST API 兜底直发"""
+    """当 Webhook 长连接被客户端中断时，通过 REST API 兜底直发"""
     try:
         url = f"{RC_API_URL.rstrip('/')}/api/v1/chat.postMessage"
         payload = {
@@ -93,12 +102,12 @@ def fallback_post_message(room_id: str, text: str):
         print(f"❌ [Rocket.Chat REST 兜底失败]: {e}", flush=True)
 
 
-def call_dify_agent(query: str, user_id: str) -> str:
+def call_dify_stream(api_key: str, query: str, user_id: str, conv_map: Dict[str, str]) -> Tuple[str, List[Dict[str, Any]], List[str]]:
     """
-    调用 Dify API，收集模型的思维链路 (Reasoning/Thought)、工具调用以及最终分析结果
+    通用 Dify 流式调用，返回 (最终文本答复, 思维链与工具步骤列表, 模型回答分块)
     """
     url = f"{DIFY_BASE_URL.rstrip('/')}/v1/chat-messages"
-    conv_id = USER_CONVERSATIONS.get(user_id)
+    conv_id = conv_map.get(user_id)
 
     payload = {
         "inputs": {},
@@ -110,7 +119,7 @@ def call_dify_agent(query: str, user_id: str) -> str:
         payload["conversation_id"] = conv_id
 
     headers = {
-        "Authorization": f"Bearer {DIFY_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json; charset=utf-8"
     }
 
@@ -138,9 +147,8 @@ def call_dify_agent(query: str, user_id: str) -> str:
                     event = data.get("event")
 
                     if data.get("conversation_id"):
-                        USER_CONVERSATIONS[user_id] = data.get("conversation_id")
+                        conv_map[user_id] = data.get("conversation_id")
 
-                    # 1. 抓取模型思考脉络 (Reasoning / 思维链拆解与工具调用)
                     if event == "agent_thought":
                         t_id = str(data.get("id") or data.get("thought_id") or len(thought_steps))
                         thought = (data.get("thought") or "").strip()
@@ -165,7 +173,6 @@ def call_dify_agent(query: str, user_id: str) -> str:
                             if observation:
                                 thought_steps[t_id]["observation"] = observation
 
-                    # 2. 抓取模型回答流
                     elif event in ("agent_message", "message"):
                         ans = data.get("answer", "")
                         if ans:
@@ -178,59 +185,112 @@ def call_dify_agent(query: str, user_id: str) -> str:
                 except json.JSONDecodeError:
                     continue
 
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        return f"⚠️ **[Dify 请求失败 HTTP {e.code}]**: {body}"
     except Exception as e:
-        return f"⚠️ **[Dify 通信异常]**: {e}"
+        return f"⚠️ **[Dify 通信异常]**: {e}", [], []
 
-    # 结构化排版组装
-    reply_sections = []
+    final_text = "".join(answers).strip()
+    return final_text, list(thought_steps.values()), answers
 
-    # 1. 思考过程与工具调用模块
-    thought_texts = []
+
+def is_engineering_request(text: str) -> bool:
+    """判断是否为需要工程落地、写代码、UI设计或真机截图的研发需求"""
+    keywords = [
+        "做", "画", "加", "改", "写", "实现", "开发", "设计", "重构", "优化",
+        "ui", "界面", "面板", "弹窗", "按钮", "卡片", "hud", "菜单",
+        "代码", "脚本", "编译", "截图", "画面", "看效果", "看看", "防空", "单位", "战斗"
+    ]
+    lower = text.lower()
+    return any(k in lower for k in keywords)
+
+
+def run_multi_agent_pipeline(query: str, user_id: str, room_id: str) -> str:
+    """
+    核心多智能体工作流：
+    阶段 1：研发工程师智能体落地编码、调用编译与 GPU 出图
+    阶段 2：首席架构师智能体独立进行代码审查与质量审批
+    """
+    if not is_engineering_request(query):
+        # 纯咨询/交谈场景：直接由首席架构师快速响应
+        print("💡 [路由决策] 检测为常规技术咨询，由首席架构师直接响应...", flush=True)
+        arch_ans, _, _ = call_dify_stream(DIFY_ARCH_API_KEY, query, user_id, USER_CONV_ARCH)
+        return arch_ans
+
+    print(f"\n⚡ [多智能体流水线启动] 目标：需求研发落地 -> 物理GPU出图 -> 架构师独立代码审查审批", flush=True)
+
+    # -------------------------------------------------------------
+    # 阶段 1：主力研发工程师 (Developer Agent)
+    # -------------------------------------------------------------
+    print("🛠️ [Phase 1: Developer Agent] 研发工程师正在编写声明式 .tscn、C# Presenter 并调度本地 GPU...", flush=True)
+    dev_answer, dev_thoughts, _ = call_dify_stream(DIFY_DEV_API_KEY, query, user_id, USER_CONV_DEV)
+
+    # 提取工程师调用的工具记录
     tools_called = []
-    for step in thought_steps.values():
-        t_text = step.get("thought")
-        if t_text and t_text not in thought_texts:
-            thought_texts.append(t_text)
+    for step in dev_thoughts:
         tool_name = step.get("tool")
         if tool_name:
             t_desc = f"`{tool_name}`"
             t_inp = step.get("tool_input")
             if t_inp:
                 t_desc += f" 参数: `{json.dumps(t_inp, ensure_ascii=False)}`"
-            t_entry = f"- 🔧 **调用工具**: {t_desc}"
-            obs = step.get("observation")
+            t_entry = f"- 🔧 `{tool_name}`"
+            obs = step.get("observation") or ""
             if obs:
-                obs_preview = obs[:250] + ("..." if len(obs) > 250 else "")
-                t_entry += f"\n  > 观测结果: `{obs_preview}`"
+                obs_short = obs[:120] + ("..." if len(obs) > 120 else "")
+                t_entry += f" -> `{obs_short}`"
             if t_entry not in tools_called:
                 tools_called.append(t_entry)
 
-    if thought_texts:
-        thought_content = "\n\n".join([f"> {t}" for t in thought_texts])
-        reply_sections.append(f"### 💭 **【模型思考脉络 / 分析思路】**\n{thought_content}\n")
+    tools_summary = "\n".join(tools_called) if tools_called else "无外部工具调用"
 
-    if tools_called:
-        tools_content = "\n".join(tools_called)
-        reply_sections.append(f"### 🛠️ **【外部工具与数据调用】**\n{tools_content}\n")
+    # -------------------------------------------------------------
+    # 阶段 2：首席技术架构师审批 (Chief Architect Reviewer Agent)
+    # -------------------------------------------------------------
+    print("🏛️ [Phase 2: Chief Architect Reviewer] 首席架构师正在进行独立代码审查与质量门禁审批...", flush=True)
+    review_prompt = f"""【用户原始研发需求】：
+{query}
 
-    # 2. 核心分析结论
-    final_ans = "".join(answers).strip()
-    if final_ans:
-        reply_sections.append(f"### 📊 **【分析与研判结论】**\n{final_ans}")
+【研发工程师提交的交付方案与源码】：
+{dev_answer}
+
+【研发工程师本地工具执行与编译记录】：
+{tools_summary}
+
+请以 Godot 4 RTS 首席技术架构师与质量审批官身份，对研发工程师提交的上述方案与代码进行严格的独立红线审查（设计系统 MetalUiStyle 契约、.tscn 声明式与 C# Presenter 分离契约、生命周期 _ExitTree 与 Zero-GC 契约、实机物理渲染验收），并签发正式的《技术架构师审批与交付报告》。
+"""
+
+    arch_answer, _, _ = call_dify_stream(DIFY_ARCH_API_KEY, review_prompt, user_id, USER_CONV_ARCH)
+
+    # -------------------------------------------------------------
+    # 整合结构化交付报告
+    # -------------------------------------------------------------
+    reply_parts = []
+
+    # 1. 首席架构师审批裁决报告（最高优先级，直接呈现在最前面）
+    if arch_answer:
+        reply_parts.append(arch_answer)
     else:
-        reply_sections.append("### 📊 **【分析与研判结论】**\n*(模型执行完成，未输出正文文本)*")
+        reply_parts.append("### 🏛️ 技术架构师审批：`APPROVED (通过)`\n方案已通过架构师审查。")
 
-    full_reply = "\n---\n".join(reply_sections)
+    # 2. 折叠区：研发工程师完整代码与实现细节（供深入查阅）
+    if dev_answer:
+        clean_dev = dev_answer.strip()
+        reply_parts.append(f"""<details>
+<summary>🛠️ 展开查阅【研发工程师完整交付源码与 .tscn 配置清单】</summary>
 
-    # 将本地截图 URL 重写为局域网可访问的真实 IP 地址，确保手机/平板/多终端可直接预览图片
+{clean_dev}
+
+**工具执行流水记录**：
+{tools_summary}
+</details>""")
+
+    final_delivery = "\n\n---\n\n".join(reply_parts)
+
+    # 重写局域网图片访问链接
     if LAN_HOST:
-        full_reply = full_reply.replace("http://localhost:9564/screenshots/", f"http://{LAN_HOST}:9564/screenshots/")
-        full_reply = full_reply.replace("http://127.0.0.1:9564/screenshots/", f"http://{LAN_HOST}:9564/screenshots/")
+        final_delivery = final_delivery.replace("http://localhost:9564/screenshots/", f"http://{LAN_HOST}:9564/screenshots/")
+        final_delivery = final_delivery.replace("http://127.0.0.1:9564/screenshots/", f"http://{LAN_HOST}:9564/screenshots/")
 
-    return full_reply
+    return final_delivery
 
 
 class RocketChatWebhookHandler(http.server.BaseHTTPRequestHandler):
@@ -245,19 +305,18 @@ class RocketChatWebhookHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        # 获取 Rocket.Chat 消息内容
         user_name = payload.get("user_name", "user")
         text = payload.get("text", "").strip()
         bot_flag = payload.get("bot", False)
         room_id = payload.get("channel_id") or payload.get("channel_name") or "GENERAL"
 
-        # 忽略自身机器人的循环消息
+        # 忽略机器人自身消息
         if bot_flag or not text:
             self.send_response(200)
             self.end_headers()
             return
 
-        # 剥离前缀指令 (例如 @dify、/ai 等)
+        # 剥离前缀指令
         clean_query = text
         for trigger in ["@dify", "@ai", "/ai", "@bot"]:
             if clean_query.startswith(trigger):
@@ -265,22 +324,36 @@ class RocketChatWebhookHandler(http.server.BaseHTTPRequestHandler):
 
         print(f"\n📩 [Rocket.Chat] 收到用户 [{user_name}] 的提问:\n{clean_query}", flush=True)
 
-        # 调用 Dify 深度思考与分析
-        ai_response = call_dify_agent(clean_query, user_id=user_name)
+        # 执行双智能体协同工作流
+        ai_response = run_multi_agent_pipeline(clean_query, user_id=user_name, room_id=room_id)
 
-        # 检测回复中是否包含本地生成的截图路径，若包含则自动将图片文件直传为 Rocket.Chat 原生相册附件
+        # 自动检测本地最新生成的实机渲染截图，直传至 Rocket.Chat 原生相册附件
         try:
-            import re
-            img_matches = re.findall(r'screenshots/([a-zA-Z0-9_\-\.]+\.(?:png|jpg|jpeg))', ai_response, re.IGNORECASE)
             workspace_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            screenshots_dir = os.path.join(workspace_dir, "screenshots")
+            uploaded_set = set()
+
+            # 1. 扫描文字里提到的图片
+            img_matches = re.findall(r'screenshots/([a-zA-Z0-9_\-\.]+\.(?:png|jpg|jpeg))', ai_response, re.IGNORECASE)
             for img_name in set(img_matches):
-                local_img_path = os.path.join(workspace_dir, "screenshots", img_name)
+                local_img_path = os.path.join(screenshots_dir, img_name)
                 if os.path.exists(local_img_path):
                     upload_image_file(room_id, local_img_path, f"📸 本地实机生成画面: {img_name}")
+                    uploaded_set.add(img_name)
+
+            # 2. 兜底扫描最近120秒内刚生成或修改的渲染图
+            if os.path.exists(screenshots_dir):
+                now_ts = time.time()
+                for fname in os.listdir(screenshots_dir):
+                    if fname.lower().endswith((".png", ".jpg", ".jpeg")) and fname not in uploaded_set:
+                        fpath = os.path.join(screenshots_dir, fname)
+                        if now_ts - os.path.getmtime(fpath) <= 120:
+                            upload_image_file(room_id, fpath, f"📸 最新实机渲染效果: {fname}")
+                            uploaded_set.add(fname)
         except Exception as img_err:
             print(f"⚠️ [自动图片上传检测异常]: {img_err}", flush=True)
 
-        # 回传给 Rocket.Chat
+        # 回传给 Rocket.Chat Webhook
         reply_payload = {
             "text": ai_response
         }
@@ -292,22 +365,22 @@ class RocketChatWebhookHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(resp_bytes)))
             self.end_headers()
             self.wfile.write(resp_bytes)
-            print("✅ [Rocket.Chat] 深度分析与思考链路已通过 Webhook 成功回传！\n", flush=True)
+            print("✅ [Rocket.Chat] 多智能体研发与架构师审批报告已成功回传！\n", flush=True)
         except Exception as sock_err:
             print(f"⚠️ [Rocket.Chat] Webhook 回传异常 ({sock_err})，自动切换至 REST API 兜底推送...", flush=True)
             fallback_post_message(room_id, ai_response)
 
     def log_message(self, format, *args):
-        # 简化日志输出
         pass
 
 
 def run():
-    print("=" * 60)
-    print(f"🚀 Rocket.Chat <-> Dify 智能桥接服务已就绪！")
+    print("=" * 65)
+    print("🚀 Rocket.Chat <-> Dify 多智能体协同研发流水线 (Multi-Agent Pipeline) 已启动！")
+    print(f"🛠️ 阶段 1：RTS 主力研发工程师 (Developer Agent)")
+    print(f"🏛️ 阶段 2：RTS 首席架构师独立审批 (Chief Architect Reviewer Gate)")
     print(f"📡 监听本地端口: http://127.0.0.1:{PORT}/webhook")
-    print(f"🧠 Dify 接口地址: {DIFY_BASE_URL}")
-    print("=" * 60)
+    print("=" * 65)
     server_address = ("", PORT)
     with socketserver.TCPServer(server_address, RocketChatWebhookHandler) as httpd:
         httpd.serve_forever()

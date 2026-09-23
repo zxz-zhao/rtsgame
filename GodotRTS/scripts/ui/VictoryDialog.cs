@@ -3,6 +3,13 @@ using System;
 
 namespace GodotRTS.Scripts.UI
 {
+    /// <summary>
+    /// RTS 战斗胜利结算弹窗控制器 (VictoryDialog Presenter)
+    /// 架构原则：
+    /// 1. 严格分离视图与逻辑：视图布局与样式全部归属于 .tscn 声明式场景。
+    /// 2. 动效驱动：内置 Tween 弹窗入场缓动与战绩数值滚动计数器。
+    /// 3. 强类型解耦：通过 [Signal] 向外部上层管理器分发用户决策，不持有任何外部硬引用。
+    /// </summary>
     public partial class VictoryDialog : Control
     {
         [Signal]
@@ -11,156 +18,134 @@ namespace GodotRTS.Scripts.UI
         [Signal]
         public delegate void MainMenuPressedEventHandler();
 
-        private Label _titleLabel;
-        private Label _statsKillLabel;
-        private Label _statsGoldLabel;
-        private Button _replayButton;
-        private Button _menuButton;
+        // 场景节点绑定
+        [Export] private Control _dialogCard;
+        [Export] private ColorRect _dimmer;
+        [Export] private Label _titleLabel;
+        [Export] private Label _statsKillLabel;
+        [Export] private Label _statsGoldLabel;
+        [Export] private Label _gradeLabel;
+        [Export] private Button _replayButton;
+        [Export] private Button _mainMenuButton;
+
+        // 动画数值暂存
+        private int _targetKills = 48;
+        private int _targetGold = 3500;
+        private float _displayKills = 0f;
+        private float _displayGold = 0f;
 
         public override void _Ready()
         {
-            SetupUI();
+            BindNodes();
+            ConnectEvents();
+            PlayEntranceAnimation();
         }
 
-        private void SetupUI()
+        private void BindNodes()
         {
-            SetAnchorsPreset(LayoutPreset.FullRect);
-            MouseFilter = MouseFilterEnum.Stop;
-
-            // 背景半透明遮罩
-            var bgPanel = new Panel();
-            bgPanel.SetAnchorsPreset(LayoutPreset.FullRect);
-            var bgStyle = new StyleBoxFlat
-            {
-                BgColor = new Color(0.05f, 0.08f, 0.15f, 0.85f)
-            };
-            bgPanel.AddThemeStyleboxOverride("panel", bgStyle);
-            AddChild(bgPanel);
-
-            // 中心弹窗容器
-            var centerContainer = new CenterContainer();
-            centerContainer.SetAnchorsPreset(LayoutPreset.FullRect);
-            AddChild(centerContainer);
-
-            // 主面板卡片
-            var mainPanel = new PanelContainer();
-            var panelStyle = new StyleBoxFlat
-            {
-                BgColor = new Color(0.08f, 0.12f, 0.22f, 0.95f),
-                BorderColor = new Color(0f, 0.8f, 1f, 0.8f),
-                BorderWidthLeft = 2,
-                BorderWidthRight = 2,
-                BorderWidthTop = 2,
-                BorderWidthBottom = 2,
-                CornerRadiusTopLeft = 12,
-                CornerRadiusTopRight = 12,
-                CornerRadiusBottomLeft = 12,
-                CornerRadiusBottomRight = 12,
-                ContentMarginLeft = 40,
-                ContentMarginRight = 40,
-                ContentMarginTop = 30,
-                ContentMarginBottom = 30
-            };
-            mainPanel.AddThemeStyleboxOverride("panel", panelStyle);
-            centerContainer.AddChild(mainPanel);
-
-            // 垂直布局
-            var vbox = new VBoxContainer();
-            vbox.AddThemeConstantOverride("separation", 20);
-            mainPanel.AddChild(vbox);
-
-            // 标题
-            _titleLabel = new Label();
-            _titleLabel.Text = "⚡ 战斗胜利 (VICTORY) ⚡";
-            _titleLabel.HorizontalAlignment = HorizontalAlignment.Center;
-            _titleLabel.AddThemeFontSizeOverride("font_size", 36);
-            _titleLabel.AddThemeColorOverride("font_color", new Color(1f, 0.85f, 0.2f));
-            vbox.AddChild(_titleLabel);
-
-            // 分割线
-            var hSeparator = new HSeparator();
-            vbox.AddChild(hSeparator);
-
-            // 数据统计区域
-            var statsVBox = new VBoxContainer();
-            statsVBox.AddThemeConstantOverride("separation", 10);
-            vbox.AddChild(statsVBox);
-
-            _statsKillLabel = new Label();
-            _statsKillLabel.Text = "⚔ 敌军歼灭数: 48";
-            _statsKillLabel.AddThemeFontSizeOverride("font_size", 18);
-            _statsKillLabel.AddThemeColorOverride("font_color", new Color(0.8f, 0.9f, 1f));
-            statsVBox.AddChild(_statsKillLabel);
-
-            _statsGoldLabel = new Label();
-            _statsGoldLabel.Text = "💰 战利品奖励: +3,500 金币";
-            _statsGoldLabel.AddThemeFontSizeOverride("font_size", 18);
-            _statsGoldLabel.AddThemeColorOverride("font_color", new Color(1f, 0.9f, 0.3f));
-            statsVBox.AddChild(_statsGoldLabel);
-
-            // 按钮水平布局
-            var hbox = new HBoxContainer();
-            hbox.Alignment = BoxContainer.AlignmentMode.Center;
-            hbox.AddThemeConstantOverride("separation", 20);
-            vbox.AddChild(hbox);
-
-            // 重玩按钮
-            _replayButton = new Button();
-            _replayButton.Text = "重新挑战";
-            _replayButton.CustomMinimumSize = new Vector2(140, 45);
-            _replayButton.Pressed += OnReplayPressed;
-            StyleButtonStyle(_replayButton, new Color(0.1f, 0.5f, 0.9f), new Color(0.2f, 0.7f, 1f));
-            hbox.AddChild(_replayButton);
-
-            // 返回主菜单按钮
-            _menuButton = new Button();
-            _menuButton.Text = "返回大厅";
-            _menuButton.CustomMinimumSize = new Vector2(140, 45);
-            _menuButton.Pressed += OnMenuPressed;
-            StyleButtonStyle(_menuButton, new Color(0.3f, 0.35f, 0.45f), new Color(0.45f, 0.52f, 0.65f));
-            hbox.AddChild(_menuButton);
+            _dialogCard ??= GetNodeOrNull<Control>("%DialogCard");
+            _dimmer ??= GetNodeOrNull<ColorRect>("%Dimmer");
+            _titleLabel ??= GetNodeOrNull<Label>("%TitleLabel");
+            _statsKillLabel ??= GetNodeOrNull<Label>("%StatsKillLabel");
+            _statsGoldLabel ??= GetNodeOrNull<Label>("%StatsGoldLabel");
+            _gradeLabel ??= GetNodeOrNull<Label>("%GradeLabel");
+            _replayButton ??= GetNodeOrNull<Button>("%ReplayButton");
+            _mainMenuButton ??= GetNodeOrNull<Button>("%MainMenuButton");
         }
 
-        private void StyleButtonStyle(Button btn, Color normalColor, Color hoverColor)
+        private void ConnectEvents()
         {
-            var normalStyle = new StyleBoxFlat
-            {
-                BgColor = normalColor,
-                CornerRadiusTopLeft = 6,
-                CornerRadiusTopRight = 6,
-                CornerRadiusBottomLeft = 6,
-                CornerRadiusBottomRight = 6
-            };
-            var hoverStyle = new StyleBoxFlat
-            {
-                BgColor = hoverColor,
-                CornerRadiusTopLeft = 6,
-                CornerRadiusTopRight = 6,
-                CornerRadiusBottomLeft = 6,
-                CornerRadiusBottomRight = 6
-            };
-            btn.AddThemeStyleboxOverride("normal", normalStyle);
-            btn.AddThemeStyleboxOverride("hover", hoverStyle);
-            btn.AddThemeColorOverride("font_color", Colors.White);
-            btn.AddThemeFontSizeOverride("font_size", 16);
+            if (_replayButton != null)
+                _replayButton.Pressed += OnReplayClicked;
+            if (_mainMenuButton != null)
+                _mainMenuButton.Pressed += OnMainMenuClicked;
         }
 
-        public void SetStats(int kills, int gold)
+        /// <summary>
+        /// 外部数据注入接口（供 BattleManager / GameOverHandler 调用）
+        /// </summary>
+        public void SetStats(int totalKills, int totalGold, string grade = "RANK - S 卓越")
         {
-            if (_statsKillLabel != null)
-                _statsKillLabel.Text = $"⚔ 敌军歼灭数: {kills}";
-            if (_statsGoldLabel != null)
-                _statsGoldLabel.Text = $"💰 战利品奖励: +{gold:N0} 金币";
+            _targetKills = totalKills;
+            _targetGold = totalGold;
+            if (_gradeLabel != null)
+                _gradeLabel.Text = grade;
+
+            AnimateNumbers();
         }
 
-        private void OnReplayPressed()
+        /// <summary>
+        /// 弹性缩放弹窗入场动效
+        /// </summary>
+        private void PlayEntranceAnimation()
         {
+            if (_dimmer != null)
+            {
+                var dimmerColor = _dimmer.Color;
+                _dimmer.Color = new Color(dimmerColor.R, dimmerColor.G, dimmerColor.B, 0f);
+                var dimmerTween = CreateTween();
+                dimmerTween.TweenProperty(_dimmer, "color:a", dimmerColor.A, 0.35f);
+            }
+
+            if (_dialogCard != null)
+            {
+                _dialogCard.Scale = new Vector2(0.8f, 0.8f);
+                _dialogCard.Modulate = new Color(1f, 1f, 1f, 0f);
+
+                var cardTween = CreateTween();
+                cardTween.SetParallel(true);
+                cardTween.TweenProperty(_dialogCard, "scale", Vector2.One, 0.45f)
+                    .SetTrans(Tween.TransitionType.Back)
+                    .SetEase(Tween.EaseType.Out);
+                cardTween.TweenProperty(_dialogCard, "modulate:a", 1.0f, 0.25f);
+            }
+
+            AnimateNumbers();
+        }
+
+        /// <summary>
+        /// 数值平滑滚动展现，模拟街机/RTS战果结算爽感
+        /// </summary>
+        private void AnimateNumbers()
+        {
+            _displayKills = 0f;
+            _displayGold = 0f;
+
+            var numTween = CreateTween();
+            numTween.SetParallel(true);
+            numTween.TweenMethod(Callable.From<float>(v =>
+            {
+                _displayKills = v;
+                if (_statsKillLabel != null)
+                    _statsKillLabel.Text = $"{(int)v} 目标";
+            }), 0f, (float)_targetKills, 0.6f).SetEase(Tween.EaseType.Out);
+
+            numTween.TweenMethod(Callable.From<float>(v =>
+            {
+                _displayGold = v;
+                if (_statsGoldLabel != null)
+                    _statsGoldLabel.Text = $"+{(int)v:N0}";
+            }), 0f, (float)_targetGold, 0.8f).SetEase(Tween.EaseType.Out);
+        }
+
+        private void OnReplayClicked()
+        {
+            GD.Print("[VictoryDialog] 用户选择重新挑战对局。");
             EmitSignal(SignalName.ReplayPressed);
         }
 
-        private void OnMenuPressed()
+        private void OnMainMenuClicked()
         {
+            GD.Print("[VictoryDialog] 用户选择返回指挥中心。");
             EmitSignal(SignalName.MainMenuPressed);
+        }
+
+        public override void _ExitTree()
+        {
+            if (_replayButton != null)
+                _replayButton.Pressed -= OnReplayClicked;
+            if (_mainMenuButton != null)
+                _mainMenuButton.Pressed -= OnMainMenuClicked;
         }
     }
 }

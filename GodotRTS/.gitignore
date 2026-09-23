@@ -33,3 +33,11 @@ __pycache__/
 .godot /
 NuGet/
 node_modules/
+FreshMeatMall/
+GodotMahjong/
+.claude/
+skills/
+assets/external_raw_assets/
+assets/models/
+assets/unity_migrated/Assets/External/PolyHaven/EnvironmentModels/
+*.bak

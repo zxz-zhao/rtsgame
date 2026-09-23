@@ -94,3 +94,10 @@ tools/chatos_config.json
 Tools/Downloads/
 7.10.15
 node_modules/
+
+Tools/Blender/
+Tools/VllmWindows/
+Assets/External/PolyHaven/
+ServerCpp/bin/
+ServerCpp/data/
+ImageLayerExtractorTool/bin/
