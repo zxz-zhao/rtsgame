@@ -37,15 +37,15 @@ public static class BattleUnitCatalog
         new Color(0.42f, 0.31f, 0.24f));
 
     public static readonly BattleUnitDefinition LightTank = new(
-        "light_tank", "轻型坦克", 260, 2, 360f, 7.6f, 60f, 11.5f, 1.2f, 7f, 0.78f,
+        "light_tank", "轻型坦克", 260, 2, 360f, 7.6f, 60f, 11.5f, 1.2f, 7f, 0.85f,
         new Color(0.52f, 0.54f, 0.36f));
 
     public static readonly BattleUnitDefinition Tank = new(
-        "tank", "中型坦克", 420, 3, 520f, 6.9f, 92f, 13f, 1.45f, 8f, 0.95f,
+        "tank", "中型坦克", 420, 3, 520f, 6.9f, 92f, 13f, 1.45f, 8f, 1.00f,
         new Color(0.45f, 0.48f, 0.32f));
 
     public static readonly BattleUnitDefinition HeavyTank = new(
-        "heavy_tank", "重型坦克", 620, 4, 780f, 5.7f, 140f, 15.5f, 1.8f, 13f, 1.12f,
+        "heavy_tank", "重型坦克", 620, 4, 780f, 5.7f, 140f, 15.5f, 1.8f, 13f, 1.18f,
         new Color(0.38f, 0.40f, 0.28f));
 
     public static readonly BattleUnitDefinition Artillery = new(
@@ -90,7 +90,7 @@ public static class BattleUnitCatalog
 
     public static readonly BattleUnitDefinition Submarine = new(
         "submarine", "攻击潜艇", 500, 3, 380f, 6.2f, 75f, 22f, 1.2f, 11f, 1.05f,
-        new Color(0.18f, 0.28f, 0.35f));
+        new Color(0.08f, 0.08f, 0.09f));
 
     public static readonly BattleUnitDefinition Battleship = new(
         "battleship", "战列舰", 850, 4, 1150f, 3.6f, 135f, 28f, 1.8f, 16f, 1.35f,
@@ -101,7 +101,7 @@ public static class BattleUnitCatalog
         Infantry, InfantryArtillery, InfantryFlamethrower,
         LightTank, Tank, HeavyTank, Artillery, AntiAirGun,
         ScoutPlane, Fighter, Bomber,
-        PatrolBoat, DestroyerShip, Battleship, TransportShip, AircraftCarrier, Submarine
+        DestroyerShip, Submarine, Battleship, AircraftCarrier
     };
 
     public static BattleUnitDefinition[] GlobalConquestStarterRoster { get; } =
@@ -351,7 +351,7 @@ public static class BattleUnitCatalog
         };
 
     public static float SpawnHeight(string key)
-        => IsAirUnit(key) ? 9.5f : key == "submarine" ? -1.45f : IsNavalUnit(key) ? 0.25f : 0f;
+        => IsAirUnit(key) ? 9.5f : key == "submarine" ? -0.15f : IsNavalUnit(key) ? 0.0f : 0f;
 
     public static BattleUnitDefinition PickAi(float gameTime, RandomNumberGenerator rng)
     {

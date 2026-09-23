@@ -24,7 +24,7 @@ public partial class BattleHud : CanvasLayer
     const float BattleHudMinimapWidth = 260f;
     const float BattleHudMinimapHeight = 195f;
     const float BattleHudActionGap = 10f;
-    const float BattleHudActionButtonWidth = 136f;
+    const float BattleHudActionButtonWidth = 42f;
     const float BattleHudActionButtonHeight = 42f;
     const float BattleHudTopBarHeight = 58f;
     const float BattleHudTechButtonBottom = BattleHudMinimapBottom + BattleHudMinimapHeight + BattleHudActionGap;
@@ -364,7 +364,15 @@ public partial class BattleHud : CanvasLayer
         topPanel.AddChild(economyLabel);
 
         selectionLabel = HudLabel("当前选择：未选择单位", 15, new Color(0.94f, 0.96f, 0.88f));
-        selectionLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        selectionLabel.MouseFilter = Control.MouseFilterEnum.Stop;
+        selectionLabel.TooltipText = "点击立即聚焦镜头到当前单位/部队 (快捷键: 空格键 Space)";
+        selectionLabel.GuiInput += evt =>
+        {
+            if (evt is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
+            {
+                BattleGameManager.Instance?.FocusCameraOnPlayerForces();
+            }
+        };
         selectionLabel.HorizontalAlignment = HorizontalAlignment.Right;
         selectionLabel.Position = new Vector2(800, 14);
         selectionLabel.Size = new Vector2(360, 30);
@@ -404,7 +412,7 @@ public partial class BattleHud : CanvasLayer
     void BuildCommandPanel(Control root)
     {
         AddBottomCommandBar(root);
-        buildActionButton = AddLeftActionButton(root, "建造", "建", BattleHudBuildButtonBottom, new Color(0.20f, 0.34f, 0.14f, 0.96f), () =>
+        buildActionButton = AddLeftActionButton(root, "建造", "res://assets/unity_migrated/Assets/Resources/icons_final/tools.png", BattleHudBuildButtonBottom, new Color(0.20f, 0.34f, 0.14f, 0.96f), () =>
         {
             buildMenuOpen = true;
             techMenuOpen = false;
@@ -412,7 +420,7 @@ public partial class BattleHud : CanvasLayer
             ShowAlert("打开建造面板");
             RefreshCommandPanel();
         });
-        techActionButton = AddLeftActionButton(root, "科技", "技", BattleHudTechButtonBottom, new Color(0.16f, 0.30f, 0.54f, 0.96f), () =>
+        techActionButton = AddLeftActionButton(root, "科技", "res://assets/unity_migrated/Assets/Resources/icons_final/gear.png", BattleHudTechButtonBottom, new Color(0.16f, 0.30f, 0.54f, 0.96f), () =>
         {
             buildMenuOpen = false;
             techMenuOpen = true;
@@ -3204,16 +3212,19 @@ public partial class BattleHud : CanvasLayer
 
         foreach (var state in techButtons)
         {
+            if (state.Button is null || !GodotObject.IsInstanceValid(state.Button))
+                continue;
+
             var tech = BattleTechCatalog.Get(state.Key);
             var remain = manager.GetBattleTechCooldownRemaining(state.Key);
             var isTargeting = activeTechTargetKey == state.Key;
             state.Button.Disabled = remain > 0f || (IsTechTargetingActive && !isTargeting);
-            if (state.CooldownFill is not null)
+            if (state.CooldownFill is not null && GodotObject.IsInstanceValid(state.CooldownFill))
                 state.CooldownFill.Value = tech.Cooldown > 0.01f ? remain / tech.Cooldown * 100f : 0f;
-            if (state.CooldownLabel is not null)
+            if (state.CooldownLabel is not null && GodotObject.IsInstanceValid(state.CooldownLabel))
                 state.CooldownLabel.Text = remain > 0f ? Mathf.CeilToInt(remain).ToString() : "";
 
-            if (state.Card.GetThemeStylebox("panel") is StyleBoxFlat box)
+            if (state.Card is not null && GodotObject.IsInstanceValid(state.Card) && state.Card.GetThemeStylebox("panel") is StyleBoxFlat box)
                 box.BorderColor = isTargeting ? Colors.White : tech.Tint;
         }
     }
@@ -6211,14 +6222,16 @@ public partial class BattleHud : CanvasLayer
         ApplyButtonStyle(button, fill, accent, 12);
     }
 
-    Button AddLeftActionButton(Control root, string label, string glyph, float bottom, Color bg, System.Action onPressed)
+    Button AddLeftActionButton(Control root, string label, string iconPath, float bottom, Color bg, System.Action onPressed)
     {
         var button = new Button
         {
-            Text = $"{glyph}  {label}",
             Position = new Vector2(BattleHudMinimapLeft, HudHeight - bottom - BattleHudActionButtonHeight),
             Size = new Vector2(BattleHudActionButtonWidth, BattleHudActionButtonHeight),
-            TooltipText = label
+            TooltipText = label,
+            Icon = LoadHudTexture(iconPath),
+            ExpandIcon = true,
+            FocusMode = Control.FocusModeEnum.None
         };
         ApplyButtonStyle(button, bg, new Color(1f, 0.84f, 0.30f, 0.82f), 15);
         button.Pressed += onPressed;
@@ -6257,6 +6270,10 @@ public partial class BattleHud : CanvasLayer
             .ToArray() ?? System.Array.Empty<Node>();
         GameState.Instance?.SetSelection(units);
         ShowAlert(units.Length == 0 ? "当前没有可选单位" : $"已选择全部单位：{units.Length}");
+        if (units.Length > 0)
+        {
+            BattleGameManager.Instance?.FocusCameraOnPlayerForces();
+        }
     }
 
     void StopSelectedUnits()
@@ -6414,34 +6431,74 @@ public partial class BattleHud : CanvasLayer
             ContentMarginBottom = 5
         };
 
+    static readonly System.Collections.Generic.Dictionary<string, Texture2D> hudTextureCache = new();
+    static readonly System.Collections.Generic.Dictionary<string, Texture2D> trimmedTextureCache = new();
+
     static Texture2D LoadHudTexture(string resourcePath)
     {
+        if (hudTextureCache.TryGetValue(resourcePath, out var cached) && cached is not null)
+            return cached;
+
+        Texture2D resultTexture;
+
         if (ResourceLoader.Exists(resourcePath))
         {
             var texture = GD.Load<Texture2D>(resourcePath);
             if (texture is not null)
+            {
+                hudTextureCache[resourcePath] = texture;
                 return texture;
+            }
         }
 
-        var image = Image.LoadFromFile(ProjectSettings.GlobalizePath(resourcePath));
-        if (image is not null && !image.IsEmpty())
-            return ImageTexture.CreateFromImage(image);
+        var globalPath = ProjectSettings.GlobalizePath(resourcePath);
+        if (Godot.FileAccess.FileExists(globalPath))
+        {
+            var image = Image.LoadFromFile(globalPath);
+            if (image is not null && !image.IsEmpty())
+            {
+                resultTexture = ImageTexture.CreateFromImage(image);
+                hudTextureCache[resourcePath] = resultTexture;
+                return resultTexture;
+            }
+        }
 
-        GD.PushError($"Failed to load HUD image: {resourcePath}");
         var fallback = Image.CreateEmpty(4, 4, false, Image.Format.Rgba8);
         fallback.Fill(new Color(1f, 0f, 1f, 1f));
-        return ImageTexture.CreateFromImage(fallback);
+        resultTexture = ImageTexture.CreateFromImage(fallback);
+        hudTextureCache[resourcePath] = resultTexture;
+        return resultTexture;
     }
 
     static Texture2D LoadTrimmedHudTexture(string resourcePath, int padding)
     {
-        var image = Image.LoadFromFile(ProjectSettings.GlobalizePath(resourcePath));
+        var cacheKey = $"{resourcePath}_{padding}";
+        if (trimmedTextureCache.TryGetValue(cacheKey, out var cached) && cached is not null)
+            return cached;
+
+        var globalPath = ProjectSettings.GlobalizePath(resourcePath);
+        if (!Godot.FileAccess.FileExists(globalPath))
+        {
+            var fallback = LoadHudTexture(resourcePath);
+            trimmedTextureCache[cacheKey] = fallback;
+            return fallback;
+        }
+
+        var image = Image.LoadFromFile(globalPath);
         if (image is null || image.IsEmpty())
-            return LoadHudTexture(resourcePath);
+        {
+            var fallback = LoadHudTexture(resourcePath);
+            trimmedTextureCache[cacheKey] = fallback;
+            return fallback;
+        }
 
         var bounds = FindOpaqueBounds(image);
         if (bounds.Size.X <= 0 || bounds.Size.Y <= 0)
-            return ImageTexture.CreateFromImage(image);
+        {
+            var tex = ImageTexture.CreateFromImage(image);
+            trimmedTextureCache[cacheKey] = tex;
+            return tex;
+        }
 
         var left = Math.Max(0, bounds.Position.X - padding);
         var top = Math.Max(0, bounds.Position.Y - padding);
@@ -6643,7 +6700,7 @@ public partial class BattleHud : CanvasLayer
     Control CreateObjectiveRowWidget(string key, string text, bool completed, string reward, int goldReward, bool isDialog)
     {
         var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 10);
+        row.AddThemeConstantOverride("separation", isDialog ? 12 : 8);
 
         // 1. Status Indicator / Claim Button
         if (completed)
@@ -6653,11 +6710,12 @@ public partial class BattleHud : CanvasLayer
                 var statusIcon = new TextureRect
                 {
                     Texture = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/checkmark.png"),
-                    CustomMinimumSize = new Vector2(isDialog ? 18f : 14f, isDialog ? 18f : 14f),
+                    CustomMinimumSize = new Vector2(isDialog ? 20f : 14f, isDialog ? 20f : 14f),
                     ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                    StretchMode = TextureRect.StretchModeEnum.KeepCentered,
+                    StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
                     SelfModulate = new Color(0.2f, 0.85f, 0.3f), // Bright green
-                    SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin
+                    SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+                    SizeFlagsVertical = Control.SizeFlags.ShrinkCenter
                 };
                 row.AddChild(statusIcon);
             }
@@ -6667,8 +6725,9 @@ public partial class BattleHud : CanvasLayer
                 {
                     Name = "ClaimBtn_" + key,
                     Text = "领取",
-                    CustomMinimumSize = new Vector2(isDialog ? 56f : 40f, isDialog ? 26f : 22f),
+                    CustomMinimumSize = new Vector2(isDialog ? 58f : 40f, isDialog ? 28f : 22f),
                     SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+                    SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
                     FocusMode = Control.FocusModeEnum.None
                 };
                 MetalUiStyle.ApplyMetalButton(claimBtn, MetalUiStyle.Steel, isDialog ? 12 : 10, false);
@@ -6692,7 +6751,8 @@ public partial class BattleHud : CanvasLayer
             var statusIcon = new Panel
             {
                 CustomMinimumSize = new Vector2(isDialog ? 18f : 14f, isDialog ? 18f : 14f),
-                SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin
+                SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter
             };
             var outline = new StyleBoxFlat
             {
@@ -6716,6 +6776,7 @@ public partial class BattleHud : CanvasLayer
         var textColor = isClaimed ? new Color(0.6f, 0.6f, 0.6f) : new Color(0.92f, 0.94f, 0.96f);
         var descLabel = HudLabel(text, isDialog ? 14 : 12, textColor);
         descLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        descLabel.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
         descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         descLabel.ClipText = false;
         row.AddChild(descLabel);
@@ -6726,16 +6787,18 @@ public partial class BattleHud : CanvasLayer
             var rewardContainer = new HBoxContainer
             {
                 SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd,
+                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
                 Alignment = BoxContainer.AlignmentMode.End
             };
-            rewardContainer.AddThemeConstantOverride("separation", 4);
+            rewardContainer.AddThemeConstantOverride("separation", 5);
 
             var coinIcon = new TextureRect
             {
                 Texture = LoadHudTexture("res://assets/unity_migrated/Assets/Resources/UI/CurrencyIcons/currency_gold_coin.png"),
-                CustomMinimumSize = new Vector2(isDialog ? 18f : 14f, isDialog ? 18f : 14f),
+                CustomMinimumSize = new Vector2(isDialog ? 20f : 14f, isDialog ? 20f : 14f),
                 ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                StretchMode = TextureRect.StretchModeEnum.KeepCentered
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter
             };
             if (isClaimed)
             {
@@ -6746,12 +6809,44 @@ public partial class BattleHud : CanvasLayer
             string cleanReward = reward.Replace("金币", "").Trim();
             var rewardLabel = HudLabel(
                 isClaimed ? $"{cleanReward} (已领)" : cleanReward,
-                isDialog ? 13 : 11,
-                isClaimed ? new Color(0.6f, 0.6f, 0.6f) : new Color(0.95f, 0.76f, 0.24f)
+                isDialog ? 14 : 11,
+                isClaimed ? new Color(0.6f, 0.6f, 0.6f) : new Color(1f, 0.84f, 0.28f)
             );
+            rewardLabel.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
             rewardContainer.AddChild(rewardLabel);
 
             row.AddChild(rewardContainer);
+        }
+
+        if (isDialog)
+        {
+            var card = new PanelContainer
+            {
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+            };
+            var cardStyle = new StyleBoxFlat
+            {
+                BgColor = isClaimed ? new Color(0.04f, 0.06f, 0.08f, 0.65f) : new Color(0.06f, 0.09f, 0.12f, 0.82f),
+                BorderColor = isClaimed ? new Color(0.3f, 0.35f, 0.4f, 0.35f) : new Color(0.85f, 0.70f, 0.35f, 0.45f),
+                BorderWidthLeft = 1,
+                BorderWidthTop = 1,
+                BorderWidthRight = 1,
+                BorderWidthBottom = 1,
+                CornerRadiusTopLeft = 5,
+                CornerRadiusTopRight = 5,
+                CornerRadiusBottomLeft = 5,
+                CornerRadiusBottomRight = 5
+            };
+            card.AddThemeStyleboxOverride("panel", cardStyle);
+
+            var margin = new MarginContainer();
+            margin.AddThemeConstantOverride("margin_left", 14);
+            margin.AddThemeConstantOverride("margin_right", 14);
+            margin.AddThemeConstantOverride("margin_top", 10);
+            margin.AddThemeConstantOverride("margin_bottom", 10);
+            margin.AddChild(row);
+            card.AddChild(margin);
+            return card;
         }
 
         return row;
@@ -6775,14 +6870,30 @@ public partial class BattleHud : CanvasLayer
             LayoutMode = 3,
             AnchorRight = 1f,
             AnchorBottom = 1f,
-            Color = new Color(0f, 0f, 0f, 0.45f),
+            Color = new Color(0f, 0f, 0f, 0.55f),
             MouseFilter = Control.MouseFilterEnum.Stop
         };
         objectiveDialogRoot.AddChild(dim);
 
         objectiveDialogPanel = Panel(new Vector2(320, 120), new Vector2(640, 480), new Color(0.030f, 0.046f, 0.058f, 0.96f));
         objectiveDialogRoot.AddChild(objectiveDialogPanel);
-        AddTextureFrame(objectiveDialogPanel, UnityFrameRoot + "panel_task_frame.png", new Color(1f, 1f, 1f, 0.16f));
+
+        // Task Panel Tactical Background Image
+        var bgTexture = new TextureRect
+        {
+            Name = "TaskPanelBackground",
+            LayoutMode = 1,
+            AnchorRight = 1f,
+            AnchorBottom = 1f,
+            Texture = LoadHudTexture("res://assets/ui/task_panel_bg.png"),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.Scale,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            SelfModulate = new Color(1f, 1f, 1f, 0.85f)
+        };
+        objectiveDialogPanel.AddChild(bgTexture);
+
+        AddTextureFrame(objectiveDialogPanel, UnityFrameRoot + "panel_task_frame.png", new Color(1f, 0.88f, 0.45f, 0.55f));
 
         var titleContainer = new HBoxContainer
         {
@@ -6790,7 +6901,7 @@ public partial class BattleHud : CanvasLayer
             Size = new Vector2(600, 36),
             Alignment = BoxContainer.AlignmentMode.Center
         };
-        titleContainer.AddThemeConstantOverride("separation", 8);
+        titleContainer.AddThemeConstantOverride("separation", 10);
         objectiveDialogPanel.AddChild(titleContainer);
 
         var titleIcon = new TextureRect
@@ -6798,7 +6909,7 @@ public partial class BattleHud : CanvasLayer
             Texture = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/target.png"),
             CustomMinimumSize = new Vector2(24, 24),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.KeepCentered,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             SelfModulate = new Color(1f, 0.90f, 0.62f),
             SizeFlagsVertical = Control.SizeFlags.ShrinkCenter
         };

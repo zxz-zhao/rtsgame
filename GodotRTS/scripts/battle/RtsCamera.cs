@@ -23,13 +23,61 @@ public partial class RtsCamera : Node3D
 
     public override void _Ready()
     {
+        EnsureCameraConfigured();
+    }
+
+    public void EnsureCameraConfigured()
+    {
         var cam = camera;
         cam.Near = 1f;
         cam.Far = 800f;
 
+        if (Mathf.Abs(cam.Position.X) > 0.1f || cam.Position.Y < 5f)
+        {
+            cam.Position = new Vector3(0f, 32f, -38f);
+            cam.Rotation = new Vector3(Mathf.DegToRad(-37.7f), Mathf.DegToRad(180f), 0f);
+            cam.ForceUpdateTransform();
+        }
+
         if (cam.Position.Y > 0.01f)
         {
             initialRatio = cam.Position.Z / cam.Position.Y;
+        }
+    }
+
+    /// <summary>
+    /// 将镜头立即定位对齐到玩家当前的选定部队或主力部队集结处
+    /// </summary>
+    public void FocusOnPlayerForces()
+    {
+        if (BattleGameManager.Instance is { } manager)
+        {
+            manager.FocusCameraOnPlayerForces();
+            return;
+        }
+
+        var units = GetTree().GetNodesInGroup("player_owned")
+            .OfType<RtsUnit>()
+            .Where(u => GodotObject.IsInstanceValid(u) && !u.IsDead)
+            .ToList();
+
+        if (units.Count > 0)
+        {
+            var center = Vector3.Zero;
+            foreach (var u in units) center += u.GlobalPosition;
+            center /= units.Count;
+            JumpTo(center);
+            return;
+        }
+
+        var buildings = GetTree().GetNodesInGroup("player_owned")
+            .OfType<RtsBuilding>()
+            .Where(b => GodotObject.IsInstanceValid(b) && !b.IsRuined)
+            .ToList();
+        var mainBase = buildings.FirstOrDefault(b => b.IsMainBase) ?? buildings.FirstOrDefault();
+        if (mainBase is not null)
+        {
+            JumpTo(mainBase.GlobalPosition);
         }
     }
 
@@ -134,6 +182,16 @@ public partial class RtsCamera : Node3D
 
         if (Time.GetTicksMsec() < suppressMouseUntilMs)
             return;
+
+        if (evt is InputEventKey { Pressed: true, Echo: false } key)
+        {
+            if (key.Keycode is Key.Space or Key.Home)
+            {
+                FocusOnPlayerForces();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+        }
 
         if (evt is InputEventMouseButton button)
         {
@@ -256,8 +314,19 @@ public partial class RtsCamera : Node3D
             && hud.IsPointerOverBlockingHud(screenPosition);
     }
 
+    public void SetHeight(float height)
+    {
+        var p = camera.Position;
+        p.Y = Mathf.Clamp(height, MinHeight, MaxHeight);
+        p.Z = p.Y * initialRatio;
+        camera.Position = p;
+        camera.ForceUpdateTransform();
+        ClampVisibleAreaToMap();
+    }
+
     public void JumpTo(Vector3 worldPosition)
     {
+        EnsureCameraConfigured();
         var center = GetGroundCenter();
         var delta = worldPosition - center;
         GlobalPosition += new Vector3(delta.X, 0f, delta.Z);
@@ -266,6 +335,7 @@ public partial class RtsCamera : Node3D
 
     public Vector3 GetGroundCenter()
     {
+        EnsureCameraConfigured();
         var viewport = camera.GetViewport();
         if (viewport is not null)
         {
@@ -279,6 +349,7 @@ public partial class RtsCamera : Node3D
 
     public bool TryGetViewportGroundPolygon(out Vector3[] polygon)
     {
+        EnsureCameraConfigured();
         var viewport = camera.GetViewport();
         if (viewport is null)
         {
@@ -333,11 +404,22 @@ public partial class RtsCamera : Node3D
         if (CommandLineArgs.Get().Any(arg => arg.Contains("capture")))
             return;
 
-        if (!TryGetViewportGroundPolygon(out var polygon) || polygon.Length == 0)
-            return;
-
         var map = BattleMapCatalog.Get(BattleMapCatalog.RequestedMapName(GameState.Instance?.SelectedMapName));
-        var limit = BattleMapCatalog.GetMapHalfSize(map);
+        var halfSize = BattleMapCatalog.GetMapHalfSize(map);
+        var limit = halfSize + 55f;
+
+        if (!TryGetViewportGroundPolygon(out var polygon) || polygon.Length == 0)
+        {
+            var center = GetGroundCenter();
+            var clampedX = Mathf.Clamp(center.X, -limit, limit);
+            var clampedZ = Mathf.Clamp(center.Z, -limit, limit);
+            var sX = clampedX - center.X;
+            var sZ = clampedZ - center.Z;
+            if (Mathf.Abs(sX) > 0.01f || Mathf.Abs(sZ) > 0.01f)
+                GlobalPosition += new Vector3(sX, 0f, sZ);
+            return;
+        }
+
         var minX = polygon.Min(point => point.X);
         var maxX = polygon.Max(point => point.X);
         var minZ = polygon.Min(point => point.Z);

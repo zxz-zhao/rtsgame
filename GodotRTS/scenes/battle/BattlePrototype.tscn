@@ -19,22 +19,21 @@
 [ext_resource type="PackedScene" uid="uid://dmsusf4ooq180" path="res://assets/units/converted/artillery.glb" id="17_artillery"]
 [ext_resource type="PackedScene" uid="uid://d2vmvjklypn2" path="res://assets/units/converted/scout_helicopter.glb" id="18_scoutheli"]
 [ext_resource type="PackedScene" uid="uid://dyy4x3gmrgt7n" path="res://assets/unity_migrated/Assets/External/Mixamo/BasicShooter/X Bot.fbx" id="19_infantry"]
-[ext_resource type="PackedScene" uid="uid://cukf6hgq1udf7" path="res://assets/units/aircraft/fighter_speeder.fbx" id="20_fighter"]
-[ext_resource type="PackedScene" uid="uid://b376otk7b763r" path="res://assets/units/aircraft/bomber_cargo.fbx" id="21_bomber"]
+[ext_resource type="PackedScene" uid="uid://wnbs51mpbhps" path="res://assets/units/fa18_fighter.glb" id="20_fighter"]
+[ext_resource type="PackedScene" uid="uid://b3uj4ikjnb6un" path="res://assets/models/bomber.glb" id="21_bomber"]
 [ext_resource type="PackedScene" uid="uid://clmt7drbfmlqp" path="res://assets/units/nimitz.glb" id="22_carrier"]
+[ext_resource type="PackedScene" uid="uid://dcqlkfg7o8u1w" path="res://assets/unity_migrated/Assets/External/Downloads/city-industrial/Models/FBX format/building-c.fbx" id="23_bldg_a"]
+[ext_resource type="PackedScene" uid="uid://bqufjhhsqb3bt" path="res://assets/unity_migrated/Assets/External/Downloads/city-industrial/Models/FBX format/building-m.fbx" id="24_bldg_m"]
+[ext_resource type="PackedScene" uid="uid://cv3k8hrl4tcqc" path="res://assets/models/submarine.fbx" id="27_sub"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_unit"]
 size = Vector3(1.4, 1, 2)
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_sub"]
+size = Vector3(2, 2.5, 7.5)
+
 [sub_resource type="BoxShape3D" id="BoxShape3D_base"]
 size = Vector3(5, 4, 5)
-
-[sub_resource type="BoxMesh" id="BoxMesh_base"]
-size = Vector3(5, 4, 5)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_base"]
-albedo_color = Color(0.22, 0.24, 0.27, 1)
-roughness = 0.8
 
 [node name="BattlePrototype" type="Node3D" unique_id=344287376]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.1640935, 0, 2.675558)
@@ -89,7 +88,7 @@ light_energy = 2.35
 script = ExtResource("2_cam")
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig" unique_id=199449206]
-transform = Transform3D(-1, 5.3454436e-08, -6.917634e-08, 0, 0.79128504, 0.61144745, 8.742278e-08, 0.61144745, -0.79128504, -116.04, 35.2, -160.04001)
+transform = Transform3D(-1, 0, 0, 0, 0.79128504, 0.61144745, 0, 0.61144745, -0.79128504, 0, 32, -38)
 current = true
 fov = 42.0
 near = 1.0
@@ -102,7 +101,7 @@ CameraPath = NodePath("../CameraRig/Camera3D")
 [node name="Units" type="Node3D" parent="." unique_id=1274065532]
 
 [node name="PlayerTank" type="CharacterBody3D" parent="Units" unique_id=724569046 groups=["player_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(0.70710677, 0, 0.70710677, 0, 1, 0, -0.70710677, 0, 0.70710677, -98, 0, -98)
+transform = Transform3D(0.7071067, 0, 0.7071067, 0, 1, 0, -0.7071067, 0, 0.7071067, -93.83591, 0, -100.67556)
 script = ExtResource("4_unit")
 DisplayName = "中型坦克"
 MaxHealth = 160.0
@@ -120,7 +119,7 @@ shape = SubResource("BoxShape3D_unit")
 transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, 0, 0, 0)
 
 [node name="PlayerInfantry" type="CharacterBody3D" parent="Units" unique_id=1324000673 groups=["player_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0, -8)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -88, 0, -96)
 script = ExtResource("4_unit")
 UnitKey = "infantry_flamethrower"
 DisplayName = "喷火兵"
@@ -135,7 +134,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
 shape = SubResource("BoxShape3D_unit")
 
 [node name="EnemyTank" type="CharacterBody3D" parent="Units" unique_id=1534916166 groups=["enemy_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(-0.70710677, 0, -0.70710677, 0, 1, 0, 0.70710677, 0, -0.70710677, 98, 0, 98)
+transform = Transform3D(-0.7071067, 0, -0.7071067, 0, 1, 0, 0.7071067, 0, -0.7071067, 102.16409, 0, 95.32444)
 script = ExtResource("4_unit")
 DisplayName = "敌方中型坦克"
 PlayerOwned = false
@@ -153,8 +152,77 @@ shape = SubResource("BoxShape3D_unit")
 [node name="PanzerIV" parent="Units/EnemyTank" unique_id=1058251966 instance=ExtResource("10_pziv")]
 transform = Transform3D(-0.9, 0, 0, 0, 0.9, 0, 0, 0, -0.9, 0, 0, 0)
 
+[node name="PlayerSubmarine" type="CharacterBody3D" parent="Units" unique_id=2085731940 groups=["player_owned", "rts_selectable", "rts_units"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.21157742, 0, 1.640387)
+script = ExtResource("4_unit")
+UnitKey = "submarine"
+DisplayName = "攻击核潜艇"
+MaxHealth = 350.0
+MoveSpeed = 8.0
+AttackDamage = 65.0
+AttackRange = 12.0
+GoldCost = 650
+PopCost = 4
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerSubmarine" unique_id=2085731941]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+shape = SubResource("BoxShape3D_sub")
+
+[node name="SubmarineVisual" parent="Units/PlayerSubmarine" unique_id=2085731942 instance=ExtResource("27_sub")]
+transform = Transform3D(-0.00372378, 0, -0.000757273, 0, 0.0038, 0, 0.000757273, 0, -0.00372378, 0, 0, 0)
+
+[node name="PlayerCarrier" type="CharacterBody3D" parent="Units" unique_id=2085731943 groups=["player_owned", "rts_selectable", "rts_units"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 0, 10)
+script = ExtResource("4_unit")
+UnitKey = "aircraft_carrier"
+DisplayName = "尼米兹级航空母舰"
+MaxHealth = 1400.0
+MoveSpeed = 7.0
+AttackDamage = 0.0
+AttackRange = 0.0
+GoldCost = 1400
+PopCost = 5
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerCarrier" unique_id=2085731944]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+shape = SubResource("BoxShape3D_unit")
+
+[node name="PlayerDestroyer" type="CharacterBody3D" parent="Units" unique_id=2085731946 groups=["player_owned", "rts_selectable", "rts_units"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 0)
+script = ExtResource("4_unit")
+UnitKey = "destroyer_ship"
+DisplayName = "勇敢级导弹驱逐舰"
+MaxHealth = 700.0
+MoveSpeed = 9.5
+AttackDamage = 45.0
+AttackRange = 14.0
+GoldCost = 750
+PopCost = 3
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerDestroyer" unique_id=2085731947]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+shape = SubResource("BoxShape3D_unit")
+
+[node name="PlayerFighter" type="CharacterBody3D" parent="Units" unique_id=2085731950 groups=["player_owned", "rts_selectable", "rts_units"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 13.5, -5)
+script = ExtResource("4_unit")
+UnitKey = "fighter"
+DisplayName = "F/A-18 大黄蜂舰载机"
+MaxHealth = 250.0
+MoveSpeed = 16.0
+TurnSpeed = 7.5
+AttackDamage = 55.0
+AttackRange = 14.0
+GoldCost = 300
+PopCost = 2
+CruiseHeight = 13.5
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerFighter" unique_id=2085731951]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+shape = SubResource("BoxShape3D_unit")
+
 [node name="EnemyInfantry" type="CharacterBody3D" parent="Units" unique_id=930073747 groups=["enemy_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0, 7)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 96, 0, 90)
 script = ExtResource("4_unit")
 UnitKey = "infantry"
 DisplayName = "敌方步兵"
@@ -171,7 +239,7 @@ shape = SubResource("BoxShape3D_unit")
 [node name="Buildings" type="Node3D" parent="." unique_id=1160897122]
 
 [node name="MainBase" type="StaticBody3D" parent="Buildings" unique_id=500744975 groups=["player_owned", "rts_buildings", "rts_selectable"]]
-transform = Transform3D(0.70710677, 0, 0.70710677, 0, 1, 0, -0.70710677, 0, 0.70710677, -140, 0, -140)
+transform = Transform3D(0.7071067, 0, 0.7071067, 0, 1, 0, -0.7071067, 0, 0.7071067, -135.8359, 0, -142.67555)
 script = ExtResource("5_building")
 DisplayName = "主基地"
 MaxHealth = 1200.0
@@ -183,13 +251,14 @@ GoldIncomeAmount = 50
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
 shape = SubResource("BoxShape3D_base")
 
-[node name="Mesh" type="MeshInstance3D" parent="Buildings/MainBase" unique_id=2109952842]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
-mesh = SubResource("BoxMesh_base")
-surface_material_override/0 = SubResource("StandardMaterial3D_base")
+[node name="BuildingVisual" type="Node3D" parent="Buildings/MainBase" unique_id=461948787]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.82, 0)
+
+[node name="CommandHall" parent="Buildings/MainBase/BuildingVisual" unique_id=1872560357 instance=ExtResource("23_bldg_a")]
+transform = Transform3D(0.4, 0, 0, 0, 0.4, 0, 0, 0, 0.4, 0, 0, 0)
 
 [node name="EnemyBase" type="StaticBody3D" parent="Buildings" unique_id=1313337353 groups=["enemy_owned", "rts_buildings", "rts_selectable"]]
-transform = Transform3D(-0.70710677, 0, -0.70710677, 0, 1, 0, 0.70710677, 0, -0.70710677, 140, 0, 140)
+transform = Transform3D(-0.7071067, 0, -0.7071067, 0, 1, 0, 0.7071067, 0, -0.7071067, 144.1641, 0, 137.32445)
 script = ExtResource("5_building")
 DisplayName = "敌方主基地"
 PlayerOwned = false
@@ -202,10 +271,11 @@ GoldIncomeAmount = 50
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
 shape = SubResource("BoxShape3D_base")
 
-[node name="Mesh" type="MeshInstance3D" parent="Buildings/EnemyBase" unique_id=852452821]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
-mesh = SubResource("BoxMesh_base")
-surface_material_override/0 = SubResource("StandardMaterial3D_base")
+[node name="BuildingVisual" type="Node3D" parent="Buildings/EnemyBase" unique_id=531967941]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.82, 0)
+
+[node name="CommandHall" parent="Buildings/EnemyBase/BuildingVisual" unique_id=1307495541 instance=ExtResource("24_bldg_m")]
+transform = Transform3D(0.4, 0, 0, 0, 0.4, 0, 0, 0, 0.4, 0, 0, 0)
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=2046255948 groups=["debug_hide_for_capture"]]
 script = ExtResource("6_hud")

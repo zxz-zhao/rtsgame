@@ -46,6 +46,18 @@ public partial class GameState : Node
     public string RankTitle { get; private set; } = "列兵";
     public string GuildName { get; private set; } = "无工会";
     public int GuildLevel { get; private set; } = 1;
+    public string GuildRole { get; private set; } = "军团长";
+    public string GuildAnnouncement { get; private set; } = "全体指挥官注意：整军备战，协同推进！";
+    public string GuildActiveDirective { get; private set; } = "突击攻坚";
+    public int GuildWarFunds { get; private set; } = 350;
+    public int GuildContribution { get; private set; } = 120;
+    public Dictionary<string, int> GuildPerkLevels { get; } = new()
+    {
+        ["xp_boost"] = 1,
+        ["gold_boost"] = 1,
+        ["logistics"] = 1
+    };
+    public HashSet<string> ClaimedGuildTaskIds { get; } = new();
     public bool ShowMainBaseIdentity { get; private set; } = true;
     public string SelectedAvatarPath { get; private set; } = "res://assets/unity_migrated/Assets/Resources/LobbyGen/WW2Portraits/officer_avatar_01_field_commander.png";
     public string SelectedMapName { get; private set; } = BattleMapCatalog.DefaultMapName;
@@ -58,6 +70,84 @@ public partial class GameState : Node
     public string LastBattleMapName { get; private set; } = BattleMapCatalog.DefaultMapName;
     public List<Node> Selected { get; } = new();
     public HashSet<string> ClaimedLocalTaskIds { get; } = new();
+    public string LastGuildCheckInDate { get; private set; } = "";
+
+    public bool IsGuildCheckedInToday
+        => string.Equals(LastGuildCheckInDate, DateTime.Now.ToString("yyyy-MM-dd"), StringComparison.Ordinal);
+
+    public void MarkGuildCheckedInToday()
+    {
+        LastGuildCheckInDate = DateTime.Now.ToString("yyyy-MM-dd");
+        GuildWarFunds += 50;
+        GuildContribution += 30;
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+    }
+
+    public void SetGuildRole(string role)
+    {
+        GuildRole = string.IsNullOrWhiteSpace(role) ? "精锐成员" : role.Trim();
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+    }
+
+    public void UpdateGuildAnnouncement(string announcement)
+    {
+        GuildAnnouncement = string.IsNullOrWhiteSpace(announcement) ? "整军备战，协同推进！" : announcement.Trim();
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+    }
+
+    public void SetGuildActiveDirective(string directive)
+    {
+        GuildActiveDirective = directive;
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+    }
+
+    public bool DonateToGuild(int goldCost, int warFundsGain, int contributionGain)
+    {
+        if (Gold < goldCost) return false;
+        Gold -= goldCost;
+        GuildWarFunds += warFundsGain;
+        GuildContribution += contributionGain;
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+        return true;
+    }
+
+    public bool UpgradeGuildPerk(string perkKey, int fundCost)
+    {
+        if (GuildWarFunds < fundCost) return false;
+        GuildWarFunds -= fundCost;
+        if (!GuildPerkLevels.ContainsKey(perkKey))
+            GuildPerkLevels[perkKey] = 1;
+        GuildPerkLevels[perkKey] = Mathf.Min(5, GuildPerkLevels[perkKey] + 1);
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+        return true;
+    }
+
+    public bool ClaimGuildTask(string taskId, int rewardGold, int rewardContribution)
+    {
+        if (ClaimedGuildTaskIds.Contains(taskId)) return false;
+        ClaimedGuildTaskIds.Add(taskId);
+        Gold += rewardGold;
+        GuildContribution += rewardContribution;
+        GuildWarFunds += rewardContribution;
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+        return true;
+    }
+
+    public void AddGold(int amount)
+    {
+        Gold = Mathf.Max(0, Gold + amount);
+        if (amount > 0) Wins++;
+        else if (amount < 0) Losses++;
+        SaveSession();
+        EmitSignal(SignalName.SessionChanged);
+    }
 
     public bool IsLocalTaskClaimed(string taskId) => ClaimedLocalTaskIds.Contains(taskId);
 
@@ -493,6 +583,11 @@ public partial class GameState : Node
         RankTitle = cfg.GetValue("session", "rank_title", RankTitle).AsString();
         GuildName = NormalizeGuildName(cfg.GetValue("session", "guild_name", GuildName).AsString());
         GuildLevel = Mathf.Max(1, cfg.GetValue("session", "guild_level", GuildLevel).AsInt32());
+        GuildRole = cfg.GetValue("session", "guild_role", GuildRole).AsString();
+        GuildAnnouncement = cfg.GetValue("session", "guild_announcement", GuildAnnouncement).AsString();
+        GuildActiveDirective = cfg.GetValue("session", "guild_active_directive", GuildActiveDirective).AsString();
+        GuildWarFunds = cfg.GetValue("session", "guild_war_funds", GuildWarFunds).AsInt32();
+        GuildContribution = cfg.GetValue("session", "guild_contribution", GuildContribution).AsInt32();
         ShowMainBaseIdentity = true;
         SelectedAvatarPath = cfg.GetValue("session", "selected_avatar_path", SelectedAvatarPath).AsString();
         SelectedMapName = cfg.GetValue("battle", "selected_map", SelectedMapName).AsString();
@@ -509,6 +604,7 @@ public partial class GameState : Node
         LastBattleMapName = cfg.GetValue("battle", "last_battle_map", LastBattleMapName).AsString();
         if (!BattleMapCatalog.IsKnownMap(LastBattleMapName))
             LastBattleMapName = BattleMapCatalog.DefaultMapName;
+        LastGuildCheckInDate = cfg.GetValue("session", "last_guild_checkin_date", "").AsString();
 
         // 加载科技等级
         foreach (var key in new[] { "speed", "armor", "firepower", "repair", "radar", "rapid", "hold", "assault" })
@@ -525,6 +621,25 @@ public partial class GameState : Node
                 if (cfg.GetValue("claimed_tasks", key, false).AsBool())
                 {
                     ClaimedLocalTaskIds.Add(key);
+                }
+            }
+        }
+
+        // 加载军团科技特权等级
+        foreach (var key in new[] { "xp_boost", "gold_boost", "logistics" })
+        {
+            GuildPerkLevels[key] = cfg.GetValue("guild_perks", key, GuildPerkLevels.GetValueOrDefault(key, 1)).AsInt32();
+        }
+
+        // 加载已领取的军团任务
+        ClaimedGuildTaskIds.Clear();
+        if (cfg.HasSection("claimed_guild_tasks"))
+        {
+            foreach (var key in cfg.GetSectionKeys("claimed_guild_tasks"))
+            {
+                if (cfg.GetValue("claimed_guild_tasks", key, false).AsBool())
+                {
+                    ClaimedGuildTaskIds.Add(key);
                 }
             }
         }
@@ -564,6 +679,12 @@ public partial class GameState : Node
         cfg.SetValue("session", "rank_title", RankTitle);
         cfg.SetValue("session", "guild_name", GuildName);
         cfg.SetValue("session", "guild_level", GuildLevel);
+        cfg.SetValue("session", "guild_role", GuildRole);
+        cfg.SetValue("session", "guild_announcement", GuildAnnouncement);
+        cfg.SetValue("session", "guild_active_directive", GuildActiveDirective);
+        cfg.SetValue("session", "guild_war_funds", GuildWarFunds);
+        cfg.SetValue("session", "guild_contribution", GuildContribution);
+        cfg.SetValue("session", "last_guild_checkin_date", LastGuildCheckInDate);
         cfg.SetValue("session", "selected_avatar_path", SelectedAvatarPath);
         cfg.SetValue("settings", "show_main_base_identity", ShowMainBaseIdentity);
         cfg.SetValue("battle", "selected_map", SelectedMapName);
@@ -587,6 +708,18 @@ public partial class GameState : Node
             cfg.SetValue("claimed_tasks", taskId, true);
         }
 
+        // 保存军团科技特权
+        foreach (var kvp in GuildPerkLevels)
+        {
+            cfg.SetValue("guild_perks", kvp.Key, kvp.Value);
+        }
+
+        // 保存已领取的军团任务
+        foreach (var taskId in ClaimedGuildTaskIds)
+        {
+            cfg.SetValue("claimed_guild_tasks", taskId, true);
+        }
+
         // 保存已签到的天数
         foreach (var day in ClaimedRecruitDays)
         {
@@ -601,11 +734,24 @@ public partial class GameState : Node
         cfg.Save(SessionPath);
     }
 
-    public void UpdateGuild(string name, int level)
+    public void UpdateGuild(string name, int level, string role = "军团长")
     {
         GuildName = NormalizeGuildName(name);
         GuildLevel = Mathf.Max(1, level);
+        if (GuildName == "无工会")
+        {
+            GuildRole = "普通成员";
+            GuildWarFunds = 0;
+            GuildContribution = 0;
+            GuildActiveDirective = "无";
+        }
+        else
+        {
+            GuildRole = role;
+            if (GuildWarFunds == 0) GuildWarFunds = 200;
+        }
         SaveSession();
+        EmitSignal(SignalName.SessionChanged);
     }
 
     static string NormalizeGuildName(string value)

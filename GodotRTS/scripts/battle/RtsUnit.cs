@@ -5,2526 +5,3268 @@ using System.Linq;
 
 public partial class RtsUnit : CharacterBody3D
 {
-    public const float BomberMinBombingRunLength = 10f;
-    public const float BomberMaxBombingRunLength = 24f;
-    public const float BomberBombingRunLaneSpacing = 4f;
-    public const float DefaultBattleFuelSeconds = 40f;
-    public const float DefaultLowFuelReturnRatio = 0.10f;
-
-    sealed class RuntimeTechBuff
-    {
-        public string SourceId { get; set; } = "";
-        public float Remaining { get; set; }
-        public float MoveMultiplier { get; set; } = 1f;
-        public float DamageMultiplier { get; set; } = 1f;
-        public float AttackRangeBonus { get; set; }
-        public float AttackCooldownMultiplier { get; set; } = 1f;
-        public float DefenseReduction { get; set; }
-        public float VisionBonus { get; set; }
-        public float RegenPerSecond { get; set; }
-        public Color Tint { get; set; } = Colors.White;
-    }
-
-    enum InfantryVisualPartKind
-    {
-        Body,
-        LeftLeg,
-        RightLeg,
-        LeftArm,
-        RightArm
-    }
-
-    sealed class AnimatedVisualPart
-    {
-        public Node3D Node { get; init; } = null!;
-        public Vector3 RestPosition { get; init; }
-        public Vector3 RestRotation { get; init; }
-        public float Phase { get; init; }
-        public InfantryVisualPartKind Kind { get; init; }
-    }
-
-    [Signal]
-    public delegate void DiedEventHandler(RtsUnit unit);
-
-    public const uint ForestCollisionLayer = 4u;
-
-    public float Shield { get; private set; }
-    public float MaxShield { get; private set; }
-    float secondsSinceLastDamage = 99f;
-
-    [Export] public string UnitKey { get; set; } = "tank";
-    [Export] public string DisplayName { get; set; } = "Unit";
-    bool playerOwned = true;
-    [Export]
-    public bool PlayerOwned
-    {
-        get => playerOwned;
-        set
-        {
-            playerOwned = value;
-            FogRevealed = value;
-            FogExplored = value;
-        }
-    }
-    [Export] public float MaxHealth { get; set; } = 100f;
-    [Export] public float MoveSpeed { get; set; } = 6f;
-    [Export] public float TurnSpeed { get; set; } = 9f;
-    [Export] public float AttackDamage { get; set; } = 10f;
-    [Export] public float AttackRange { get; set; } = 6f;
-    [Export] public float AttackCooldown { get; set; } = 1f;
-    [Export] public float SplashRadius { get; set; }
-    [Export] public float SplashFalloff { get; set; } = 0.5f;
-    [Export] public int GoldCost { get; set; } = 100;
-    [Export] public int PopCost { get; set; } = 1;
-    [Export] public float CruiseHeight { get; set; }
-
-    public int NetId { get; set; }
-    public float Health { get; private set; }
-    public Vector3 TargetPosition { get; private set; }
-    public Node3D? AttackTarget { get; private set; }
-    public bool Selected { get; private set; }
-    public bool IsDead => Health <= 0f;
-    public bool AttackMoving { get; private set; }
-    public bool AttackGrounding { get; private set; }
-    public bool Patrolling { get; private set; }
-    public bool Guarding { get; private set; }
-    public bool CanAttackGroundPoint => !BattleUnitCatalog.IsAirUnit(UnitKey) && SplashRadius > 0.05f && AttackRange > 0.5f && AttackDamage > 0f;
-    public bool FogRevealed { get; private set; }
-    /// <summary>曾经被玩家视野探索过（战争迷雾记忆）。</summary>
-    public bool FogExplored { get; private set; }
-    public float VisionBonus { get; private set; }
-    public bool SupportsBombingRun => UnitKey == "bomber" && !IsDead;
-    public bool SupportsAirfieldParking => BattleUnitCatalog.RequiresAirfieldSlot(UnitKey) && !IsDead;
-    public float CurrentFuel { get; private set; }
-    public float FuelRatio => maxFuelSeconds <= 0.01f ? 1f : Mathf.Clamp(CurrentFuel / maxFuelSeconds, 0f, 1f);
-    public bool IsReturningToRefuel => parkingAtAirfield;
-    public bool IsReturningToPark => parkingAtAirfield;
-    public bool IsParkedAtAirfield => parkedAtAirfield;
-
-    const float BomberApproachLead = 9f;
-    const float BomberExitLead = 7f;
-    const float BomberArrivalThreshold = 1.25f;
-    const float BomberFinishThreshold = 1.5f;
-    const float BomberReleaseProgress = 0.58f;
-    const float BomberReleaseSpacingForward = 2.2f;
-    const float BomberReleaseSpacingSide = 2.0f;
-    const float BomberDamageMultiplier = 0.58f;
-    const float BomberImpactJitter = 0.55f;
-    const float AirfieldParkingHeight = 0.72f;
-    const float ReturnFuelReserveSeconds = 2f;
-    float cooldownLeft;
-    float acquireTimer;
-    float baseMaxHealth;
-    float baseMoveSpeed;
-    float baseAttackDamage;
-    float baseAttackRange;
-    float baseAttackCooldown;
-    float baseSplashRadius;
-    float baseSplashFalloff;
-    float techDamageReduction;
-    float techRegenPerSecond;
-    float techRegenCarry;
-    float maxFuelSeconds;
-    float lowFuelReturnRatio;
-    float refuelSeconds;
-    Vector3 attackGroundTarget;
-    Vector3 patrolA;
-    Vector3 patrolB;
-    bool patrolHeadingToB;
-    RtsUnit? guardTarget;
-    uint originalCollisionLayer;
-    uint originalCollisionMask;
-    MeshInstance3D? selectionRing;
-    MeshInstance3D? techRing;
-    Node3D? visualRoot;
-    Vector3 currentNormal = Vector3.Up;
-    Node3D? weaponYawNode;
-    Node3D? weaponPitchNode;
-    bool weaponPitchIsPivot;
-    Vector3 weaponYawLookOffset;
-    Vector3 weaponPitchLookOffset;
-    Vector3 weaponPitchPivotOffset;
-    AnimationPlayer? visualAnimationPlayer;
-    readonly List<AnimationPlayer> visualAnimationPlayers = new();
-    string walkAnimationName = "";
-    string idleAnimationName = "";
-    string fireAnimationName = "";
-    string currentVisualAnimationName = "";
-    float visualAnimationLockRemaining;
-    float crouchRatio;
-    float stationaryDuration; // 记录单位静止持续时间，用于平滑移动与站立动画的切换，防止频繁抖动
-    readonly List<AnimatedVisualPart> infantryVisualParts = new();
-    CpuParticles3D? bowWaveParticles; // 船头浪花（两侧下落水粒）
-    CpuParticles3D? sternWakeParticles; // 船尾水波纹（沿水面水平扩散）
-    readonly List<Node3D> propellerNodes = new();
-    bool holdPosition;
-    bool parkingAtAirfield;
-    bool parkedAtAirfield;
-    Vector3 parkedPosition;
-    bool warnedLowFuel;
-    bool warnedNoAirfield;
-    bool bombingRunActive;
-    bool bombingRunOnAttackLeg;
-    Vector3 bombingRunStart;
-    Vector3 bombingRunApproach;
-    Vector3 bombingRunExit;
-    Vector3 bombingRunDirection;
-    Vector3 bombingRunPerpendicular;
-    float bombingRunLength;
-    float bombingRunReleaseDistance;
-    bool bombingRunVolleyReleased;
-    string visualKey = "";
-    float bodyFacingYawOffset;
-    float visualMotionTime;
-    readonly Queue<Vector3> queuedMoveTargets = new();
-    readonly List<RuntimeTechBuff> techBuffs = new();
-
-    public override void _Ready()
-    {
-        FogRevealed = PlayerOwned;
-        FogExplored = PlayerOwned;
-        CaptureBaseStats();
-        Health = MaxHealth;
-        TargetPosition = GlobalPosition;
-        InitializeAirUnitState();
-        originalCollisionLayer = CollisionLayer;
-        originalCollisionMask = CollisionMask;
-        EnsureCombatOverlays();
-    }
-
-    public override void _PhysicsProcess(double delta)
-    {
-        var dt = (float)delta;
-        visualMotionTime += dt;
-        if (cooldownLeft > 0f)
-            cooldownLeft -= dt;
-        UpdateTechBuffs(dt);
-
-        if (UpdateAirUnitFuelState(dt))
-        {
-            MaintainMovementLayer();
-            UpdateVisualState(dt);
-            return;
-        }
-
-        if (parkedAtAirfield)
-        {
-            Velocity = Vector3.Zero;
-            MoveAndSlide();
-            MaintainMovementLayer();
-            UpdateVisualState(dt);
-            return;
-        }
-
-        if (bombingRunActive)
-        {
-            ProcessBombingRun(dt);
-            UpdateVisualState(dt);
-            return;
-        }
-
-        if (GodotObject.IsInstanceValid(AttackTarget))
-            ProcessAttack(dt);
-        else
-        {
-            if (AttackGrounding)
-                ProcessAttackGround(dt);
-            else if (Patrolling)
-                ProcessPatrol(dt);
-            else if (Guarding)
-                ProcessGuard(dt);
-            else if (AttackMoving)
-                AcquireAttackMoveTarget(dt);
-            else if (!holdPosition && IsIdle())
-                AcquireGuardTarget(dt);
-            ProcessMove(dt);
-        }
-
-        UpdateVisualState(dt);
-    }
-
-    public void MoveTo(Vector3 worldPos)
-    {
-        ClearSpecialOrders();
-        ClearQueuedMovement();
-        AttackTarget = null;
-        AttackMoving = false;
-        AttackGrounding = false;
-        Patrolling = false;
-        Guarding = false;
-        TargetPosition = NormalizeCommandPosition(worldPos);
-    }
-
-    public void AttackMoveTo(Vector3 worldPos)
-    {
-        ClearSpecialOrders();
-        ClearQueuedMovement();
-        AttackTarget = null;
-        AttackMoving = true;
-        AttackGrounding = false;
-        Patrolling = false;
-        Guarding = false;
-        TargetPosition = NormalizeCommandPosition(worldPos);
-        acquireTimer = 0f;
-    }
-
-    public void Attack(Node3D node)
-    {
-        ClearSpecialOrders();
-        ClearQueuedMovement();
-        AttackTarget = node;
-        AttackMoving = false;
-        AttackGrounding = false;
-        Patrolling = false;
-        Guarding = false;
-    }
-
-    public bool AttackGround(Vector3 worldPos)
-    {
-        if (!CanAttackGroundPoint)
-            return false;
-
-        ClearSpecialOrders();
-        ClearQueuedMovement();
-        AttackTarget = null;
-        AttackMoving = false;
-        AttackGrounding = true;
-        Patrolling = false;
-        Guarding = false;
-        guardTarget = null;
-        attackGroundTarget = NormalizeAttackGroundTarget(worldPos);
-        TargetPosition = NormalizeCommandPosition(attackGroundTarget);
-        return true;
-    }
-
-    public void PatrolTo(Vector3 worldPos)
-        => PatrolBetween(GlobalPosition, worldPos);
-
-    public void PatrolBetween(Vector3 pointA, Vector3 pointB)
-    {
-        ClearSpecialOrders();
-        ClearQueuedMovement();
-        AttackTarget = null;
-        AttackMoving = false;
-        AttackGrounding = false;
-        Guarding = false;
-        Patrolling = true;
-        guardTarget = null;
-        patrolA = NormalizeCommandPosition(pointA);
-        patrolB = NormalizeCommandPosition(pointB);
-        patrolHeadingToB = true;
-        TargetPosition = patrolB;
-        acquireTimer = 0f;
-    }
-
-    public void Guard(RtsUnit ally)
-    {
-        if (!GodotObject.IsInstanceValid(ally) || ally == this || ally.PlayerOwned != PlayerOwned)
-            return;
-
-        ClearSpecialOrders();
-        ClearQueuedMovement();
-        AttackTarget = null;
-        AttackMoving = false;
-        AttackGrounding = false;
-        Patrolling = false;
-        Guarding = true;
-        guardTarget = ally;
-        acquireTimer = 0f;
-        TargetPosition = NormalizeCommandPosition(GuardFollowPosition());
-    }
-
-    public void Stop()
-    {
-        CancelBombingRun();
-        if (!parkedAtAirfield)
-            parkingAtAirfield = false;
-        ClearQueuedMovement();
-        AttackTarget = null;
-        AttackMoving = false;
-        AttackGrounding = false;
-        Patrolling = false;
-        Guarding = false;
-        guardTarget = null;
-        TargetPosition = parkedAtAirfield
-            ? new Vector3(GlobalPosition.X, GlobalPosition.Y, GlobalPosition.Z)
-            : GlobalPosition;
-        Velocity = Vector3.Zero;
-    }
-
-    public void MoveAlongPath(IEnumerable<Vector3> worldPath, bool holdAtEnd = false)
-    {
-        ClearSpecialOrders();
-        ClearQueuedMovement();
-        var path = worldPath
-            .Select(NormalizeCommandPosition)
-            .Where(point => point.DistanceSquaredTo(GlobalPosition) > 0.04f)
-            .ToArray();
-        if (path.Length == 0)
-        {
-            holdPosition = holdAtEnd;
-            return;
-        }
-
-        TargetPosition = path[0];
-        for (var i = 1; i < path.Length; i++)
-            queuedMoveTargets.Enqueue(path[i]);
-        holdPosition = holdAtEnd;
-    }
-
-    public void BeginAirfieldParking(IEnumerable<Vector3> worldPath, Vector3 parkingTarget)
-    {
-        if (!SupportsAirfieldParking)
-            return;
-
-        CancelBombingRun();
-        ClearQueuedMovement();
-        parkingAtAirfield = true;
-        parkedAtAirfield = false;
-        parkedPosition = NormalizeCommandPosition(parkingTarget);
-        AttackTarget = null;
-        AttackMoving = false;
-        AttackGrounding = false;
-        Patrolling = false;
-        Guarding = false;
-        guardTarget = null;
-
-        var path = worldPath
-            .Select(NormalizeCommandPosition)
-            .Where(point => point.DistanceSquaredTo(GlobalPosition) > 0.04f)
-            .ToArray();
-        if (path.Length == 0)
-        {
-            TargetPosition = parkedPosition;
-            ParkAtAirfield();
-            return;
-        }
-
-        TargetPosition = path[0];
-        for (var i = 1; i < path.Length; i++)
-            queuedMoveTargets.Enqueue(path[i]);
-        holdPosition = true;
-    }
-
-    public void ApplyBombingRunCommand(Vector3 start, Vector3 end)
-    {
-        if (!SupportsBombingRun)
-            return;
-
-        ClearQueuedMovement();
-        parkingAtAirfield = false;
-        parkedAtAirfield = false;
-        AttackTarget = null;
-        AttackMoving = false;
-        AttackGrounding = false;
-        Patrolling = false;
-        Guarding = false;
-        guardTarget = null;
-        holdPosition = false;
-
-        var flatStart = new Vector3(start.X, 0f, start.Z);
-        var flatEnd = new Vector3(end.X, 0f, end.Z);
-        var flatDelta = flatEnd - flatStart;
-        if (flatDelta.LengthSquared() < 0.01f)
-        {
-            var fallback = -Basis.Z;
-            fallback.Y = 0f;
-            if (fallback.LengthSquared() < 0.01f)
-                fallback = Vector3.Forward;
-            flatDelta = fallback.Normalized() * BomberMinBombingRunLength;
-        }
-
-        bombingRunDirection = flatDelta.Normalized();
-        bombingRunLength = Mathf.Clamp(flatDelta.Length(), BomberMinBombingRunLength, BomberMaxBombingRunLength);
-        bombingRunPerpendicular = Vector3.Up.Cross(bombingRunDirection).Normalized();
-
-        var height = CruiseHeight > 0.1f ? CruiseHeight : BattleUnitCatalog.SpawnHeight(UnitKey);
-        bombingRunStart = new Vector3(flatStart.X, height, flatStart.Z);
-        bombingRunApproach = bombingRunStart - bombingRunDirection * BomberApproachLead;
-        var bombingRunEnd = bombingRunStart + bombingRunDirection * bombingRunLength;
-        bombingRunExit = bombingRunEnd + bombingRunDirection * BomberExitLead;
-        bombingRunReleaseDistance = Mathf.Clamp(
-            bombingRunLength * BomberReleaseProgress,
-            BomberReleaseSpacingForward,
-            Mathf.Max(BomberReleaseSpacingForward, bombingRunLength - BomberReleaseSpacingForward));
-        bombingRunVolleyReleased = false;
-        bombingRunOnAttackLeg = false;
-        bombingRunActive = true;
-        TargetPosition = NormalizeCommandPosition(bombingRunApproach);
-    }
-
-    public void ApplyCatalogCombatProfile()
-    {
-        if (SplashRadius <= 0.05f)
-            SplashRadius = BattleUnitCatalog.SplashRadius(UnitKey);
-        if (SplashFalloff <= 0f || SplashFalloff > 1f)
-            SplashFalloff = BattleUnitCatalog.SplashFalloff(UnitKey);
-        CaptureBaseStats();
-    }
-
-    public void ConfigureFromDefinition(BattleUnitDefinition def, bool playerOwned, string displayName)
-    {
-        var preserveHealthRatio = Health > 0f && MaxHealth > 0.01f;
-        var healthRatio = preserveHealthRatio
-            ? Mathf.Clamp(Health / MaxHealth, 0f, 1f)
-            : 1f;
-
-        UnitKey = def.Key;
-        DisplayName = string.IsNullOrWhiteSpace(displayName) ? def.DisplayName : displayName.Trim();
-        PlayerOwned = playerOwned;
-        MaxHealth = def.MaxHealth;
-        MoveSpeed = def.MoveSpeed;
-        AttackDamage = def.AttackDamage;
-        AttackRange = def.AttackRange;
-        AttackCooldown = def.AttackCooldown;
-        SplashRadius = BattleUnitCatalog.SplashRadius(def.Key);
-        SplashFalloff = BattleUnitCatalog.SplashFalloff(def.Key);
-        GoldCost = def.GoldCost;
-        PopCost = def.PopCost;
-        CruiseHeight = BattleUnitCatalog.SpawnHeight(def.Key);
-
-        ResetCapturedBaseStats();
-        if (techBuffs.Count > 0)
-            RecalculateTechBuffStats();
-        else
-            CaptureBaseStats();
-
-        Health = preserveHealthRatio
-            ? Mathf.Clamp(MaxHealth * healthRatio, 1f, MaxHealth)
-            : MaxHealth;
-
-        if (def.Key is "heavy_tank" or "anti_air_gun" or "fighter" or "bomber")
-        {
-            MaxShield = def.MaxHealth * 0.4f;
-            Shield = MaxShield;
-        }
-        else
-        {
-            MaxShield = 0f;
-            Shield = 0f;
-        }
-        secondsSinceLastDamage = 99f;
-
-        InitializeAirUnitState();
-        RefreshCombatOverlays();
-    }
-
-    void InitializeAirUnitState()
-    {
-        if (!BattleUnitCatalog.IsAirUnit(UnitKey))
-            return;
-
-        maxFuelSeconds = UnitKey switch
-        {
-            "bomber" => 120f,
-            _ => DefaultBattleFuelSeconds
-        };
-        lowFuelReturnRatio = DefaultLowFuelReturnRatio;
-        refuelSeconds = UnitKey switch
-        {
-            "bomber" => 8f,
-            "fighter" => 12f,
-            "scout_plane" => 10f,
-            _ => 14f
-        };
-        if (CurrentFuel <= 0f || CurrentFuel > maxFuelSeconds)
-            CurrentFuel = maxFuelSeconds;
-    }
-
-    bool UpdateAirUnitFuelState(float delta)
-    {
-        if (!BattleUnitCatalog.IsAirUnit(UnitKey))
-            return false;
-
-        if (!SupportsAirfieldParking)
-        {
-            CurrentFuel = maxFuelSeconds;
-            warnedLowFuel = false;
-            warnedNoAirfield = false;
-            return false;
-        }
-
-        if (parkedAtAirfield)
-        {
-            RefuelWhileParked(delta);
-            return true;
-        }
-
-        CurrentFuel = Mathf.Max(0f, CurrentFuel - delta);
-        if (CurrentFuel <= 0f)
-        {
-            CrashFromFuelLoss();
-            return true;
-        }
-
-        if (!parkingAtAirfield && ShouldReturnForFuel())
-        {
-            var manager = BattleGameManager.Instance;
-            var message = "";
-            if (manager is not null && manager.TryBeginAircraftRefuelReturn(this, true, out message))
-            {
-                if (PlayerOwned && !warnedLowFuel)
-                {
-                    FindHud()?.ShowAlert(message);
-                    warnedLowFuel = true;
-                }
-                warnedNoAirfield = false;
-                return false;
-            }
-
-            if (PlayerOwned && !warnedNoAirfield && !string.IsNullOrWhiteSpace(message))
-            {
-                FindHud()?.ShowAlert(message);
-                warnedNoAirfield = true;
-            }
-        }
-
-        return false;
-    }
-
-    bool ShouldReturnForFuel()
-    {
-        if (FuelRatio <= lowFuelReturnRatio)
-            return true;
-
-        if (BattleGameManager.Instance?.ResolveNearestAirfield(PlayerOwned, GlobalPosition) is not { } airfield)
-            return false;
-
-        var flatSelf = new Vector3(GlobalPosition.X, 0f, GlobalPosition.Z);
-        var flatTarget = new Vector3(airfield.GlobalPosition.X, 0f, airfield.GlobalPosition.Z);
-        var returnSpeed = Mathf.Max(0.1f, MoveSpeed * 1.08f);
-        var fuelNeededToReturn = flatSelf.DistanceTo(flatTarget) / returnSpeed + ReturnFuelReserveSeconds;
-        return CurrentFuel <= fuelNeededToReturn;
-    }
-
-    void RefuelWhileParked(float delta)
-    {
-        var rate = maxFuelSeconds / Mathf.Max(2f, refuelSeconds);
-        CurrentFuel = Mathf.Min(maxFuelSeconds, CurrentFuel + rate * delta);
-        if (CurrentFuel >= maxFuelSeconds * 0.98f)
-        {
-            warnedLowFuel = false;
-            warnedNoAirfield = false;
-        }
-    }
-
-    void CrashFromFuelLoss()
-    {
-        if (IsDead)
-            return;
-
-        if (PlayerOwned)
-            FindHud()?.ShowAlert($"{DisplayName} 燃油耗尽，已坠毁");
-        CurrentFuel = 0f;
-        ApplyDamage(Health + 9999f);
-    }
-
-    BattleHud? FindHud()
-        => GetTree().CurrentScene?.GetNodeOrNull<BattleHud>("HUD");
-
-    public void ApplyDamage(float amount)
-    {
-        if (IsDead)
-            return;
-
-        float beforeShield = Shield;
-
-        if (amount > 0f)
-        {
-            secondsSinceLastDamage = 0f;
-
-            // 1. 联盟阵地战减伤特技：如果是联盟核心兵种且在己方防御塔或基地 16 米内，伤害减少 15%
-            if (UnitKey is "tank" or "medium_tank" or "artillery" or "infantry")
-            {
-                if (BattleGameManager.Instance is { } manager)
-                {
-                    bool nearDefense = false;
-                    foreach (var building in manager.GetBuildings(PlayerOwned))
-                    {
-                        if (GodotObject.IsInstanceValid(building) && building.Health > 0f && (building.IsDefenseTurret || building.IsMainBase))
-                        {
-                            if (GlobalPosition.DistanceTo(building.GlobalPosition) <= 16f)
-                            {
-                                nearDefense = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (nearDefense)
-                    {
-                        amount *= 0.85f;
-                    }
-                }
-            }
-
-            // 2. 科技伤害减免（科技树升级加成）
-            if (techDamageReduction > 0f)
-                amount *= Mathf.Clamp(1f - techDamageReduction, 0.25f, 1f);
-
-            // 3. 智能军等离子护盾吸收
-            if (MaxShield > 0f && Shield > 0f)
-            {
-                if (Shield >= amount)
-                {
-                    Shield -= amount;
-                    amount = 0f;
-                }
-                else
-                {
-                    amount -= Shield;
-                    Shield = 0f;
-                }
-            }
-        }
-
-        var before = Health;
-        Health = Mathf.Max(0f, Health - amount);
-
-        var shieldDealt = beforeShield - Shield;
-        var totalDealt = (before - Health) + shieldDealt;
-
-        BattleFeedback.Damage(this, GlobalPosition, totalDealt, PlayerOwned, Health <= 0f);
-        if (Health <= 0f)
-        {
-            GameState.Instance?.DeselectNode(this);
-            BattleFeedback.Destroyed(this, GlobalPosition, !BattleUnitCatalog.IsInfantryLike(UnitKey));
-            EmitSignal(SignalName.Died, this);
-            QueueFree();
-        }
-    }
-
-    public float Repair(float amount, bool showFeedback = true)
-    {
-        if (IsDead || amount <= 0f)
-            return 0f;
-
-        var before = Health;
-        Health = Mathf.Min(MaxHealth, Health + amount);
-        var repaired = Health - before;
-        if (showFeedback)
-            BattleFeedback.Repair(this, GlobalPosition, repaired);
-        return repaired;
-    }
-
-    public void SetHealthFraction(float ratio)
-    {
-        if (IsDead)
-            return;
-
-        Health = Mathf.Clamp(MaxHealth * Mathf.Clamp(ratio, 0.01f, 1f), 1f, MaxHealth);
-        RefreshCombatOverlays();
-    }
-
-    public void ApplyTechBuff(
-        string sourceId,
-        float duration,
-        float moveMultiplier,
-        float damageMultiplier,
-        float attackRangeBonus,
-        float attackCooldownMultiplier,
-        float defenseReduction,
-        float visionBonus,
-        float regenPerSecond,
-        Color tint)
-    {
-        CaptureBaseStats();
-        techBuffs.RemoveAll(buff => buff.SourceId == sourceId);
-        techBuffs.Add(new RuntimeTechBuff
-        {
-            SourceId = sourceId,
-            Remaining = Mathf.Max(0.1f, duration),
-            MoveMultiplier = Mathf.Max(0.01f, moveMultiplier),
-            DamageMultiplier = Mathf.Max(0.01f, damageMultiplier),
-            AttackRangeBonus = attackRangeBonus,
-            AttackCooldownMultiplier = Mathf.Max(0.01f, attackCooldownMultiplier),
-            DefenseReduction = Mathf.Max(0f, defenseReduction),
-            VisionBonus = visionBonus,
-            RegenPerSecond = Mathf.Max(0f, regenPerSecond),
-            Tint = tint
-        });
-        RecalculateTechBuffStats();
-    }
-
-    public void ConfigureVisualRig(string unitKey, Node3D? root)
-    {
-        visualKey = unitKey ?? "";
-        bodyFacingYawOffset = 0f;
-        visualRoot = root;
-        weaponYawNode = null;
-        weaponPitchNode = null;
-        weaponPitchIsPivot = false;
-        weaponYawLookOffset = Vector3.Zero;
-        weaponPitchLookOffset = Vector3.Zero;
-        weaponPitchPivotOffset = Vector3.Zero;
-        visualAnimationPlayer = null;
-        visualAnimationPlayers.Clear();
-        walkAnimationName = "";
-        idleAnimationName = "";
-        fireAnimationName = "";
-        currentVisualAnimationName = "";
-        visualAnimationLockRemaining = 0f;
-        crouchRatio = 0f;
-        infantryVisualParts.Clear();
-        propellerNodes.Clear();
-
-        if (root is null)
-            return;
-
-        visualAnimationPlayers.AddRange(root.FindChildren("*", "AnimationPlayer", true, false)
-            .OfType<AnimationPlayer>()
-            .ToArray());
-        visualAnimationPlayer = visualAnimationPlayers.FirstOrDefault();
-        ResolveVisualAnimationNames();
-
-        switch (unitKey)
-        {
-            case "heavy_tank":
-                weaponYawNode = root.FindChild("misc_a", true, false) as Node3D
-                    ?? root.FindChild("mount2", true, false) as Node3D
-                    ?? root;
-                weaponPitchNode = root.FindChild("weapon", true, false) as Node3D
-                    ?? root.FindChild("mount2", true, false) as Node3D
-                    ?? root.FindChild("misc_b", true, false) as Node3D;
-                weaponYawLookOffset = Vector3.Zero;
-                weaponPitchLookOffset = Vector3.Zero;
-                break;
-            case "light_tank":
-                weaponYawNode = root.FindChild("base", true, false) as Node3D ?? root;
-                weaponPitchNode = root.FindChild("gun_elevate", true, false) as Node3D
-                    ?? root.FindChild("coax", true, false) as Node3D;
-                break;
-            case "tank":
-            case "medium_tank":
-                weaponYawNode = root.FindChild("turret_exterior", true, false) as Node3D
-                    ?? root.FindChild("mantlet_inner", true, false) as Node3D
-                    ?? root;
-                weaponPitchNode = root.FindChild("barrel", true, false) as Node3D
-                    ?? root.FindChild("gun", true, false) as Node3D;
-                weaponPitchIsPivot = false;
-                HidePanzerInteriorVisuals(root);
-                PreparePanzerTurretRig(root);
-                weaponYawNode = root.FindChild("TurretPivot", true, false) as Node3D ?? weaponYawNode;
-                weaponPitchNode = root.FindChild("GunPivot", true, false) as Node3D ?? weaponPitchNode;
-                if (weaponPitchNode == root || weaponPitchNode == weaponYawNode)
-                    weaponPitchNode = null;
-                weaponYawLookOffset = Vector3.Zero;
-                weaponPitchLookOffset = Vector3.Zero;
-                break;
-            case "artillery":
-                weaponYawNode = root;
-                PrepareArtilleryGunRig(root);
-                weaponPitchNode = root.GetNodeOrNull<Node3D>("GunPivot") ?? root;
-                weaponPitchIsPivot = weaponPitchNode.Name == "GunPivot";
-                weaponPitchPivotOffset = new Vector3(-Mathf.Pi * 0.5f, 0f, 0f);
-                break;
-            case "anti_air_gun":
-                weaponYawNode = root.FindChild("cannon", true, false) as Node3D
-                    ?? root.FindChild("weapon", true, false) as Node3D
-                    ?? root;
-                weaponPitchNode = root.FindChild("barrel", true, false) as Node3D
-                    ?? root.FindChild("gun", true, false) as Node3D
-                    ?? weaponYawNode;
-                weaponYawLookOffset = Vector3.Zero;
-                weaponPitchLookOffset = Vector3.Zero;
-                break;
-        }
-
-        CaptureInfantryVisualParts(root);
-        CapturePropellerNodes(root);
-    }
-
-    public void SetSelected(bool value)
-    {
-        Selected = value;
-    }
-
-    public void SetFogRevealed(bool revealed)
-    {
-        bool wasRevealed = FogRevealed;
-        FogRevealed = PlayerOwned || revealed;
-        if (FogRevealed)
-            FogExplored = true;
-
-        if (PlayerOwned)
-        {
-            // 己方单位始终全展
-            Visible = true;
-            CollisionLayer = originalCollisionLayer;
-            CollisionMask = originalCollisionMask;
-        }
-        else if (FogRevealed)
-        {
-            // 敌方单位在视野内：完全可见
-            Visible = true;
-            SetVisualModulate(Colors.White);
-            CollisionLayer = originalCollisionLayer;
-            CollisionMask = originalCollisionMask;
-        }
-        else if (FogExplored)
-        {
-            // 敌方单位已探索但当前不在视野：半透明幽灵
-            Visible = true;
-            SetVisualModulate(new Color(0.72f, 0.82f, 1f, 0.28f));
-            CollisionLayer = 0;
-            CollisionMask = 0;
-            SetSelected(false);
-        }
-        else
-        {
-            // 敌方单位未探索：完全隐藏
-            Visible = false;
-            SetVisualModulate(Colors.White);
-            CollisionLayer = 0;
-            CollisionMask = 0;
-            SetSelected(false);
-        }
-    }
-
-    void ProcessMove(float delta)
-    {
-        var flatDelta = TargetPosition - GlobalPosition;
-        flatDelta.Y = 0f;
-        if (flatDelta.Length() <= 0.52f)
-        {
-            if (queuedMoveTargets.Count > 0)
-            {
-                TargetPosition = queuedMoveTargets.Dequeue();
-                return;
-            }
-
-            AttackMoving = false;
-            Velocity = Vector3.Zero;
-            MoveAndSlide();
-            MaintainMovementLayer();
-            if (parkingAtAirfield)
-                ParkAtAirfield();
-            return;
-        }
-
-        var direction = flatDelta.Normalized();
-        Velocity = direction * MoveSpeed;
-        FaceDirection(direction, delta);
-        MoveAndSlide();
-        MaintainMovementLayer();
-    }
-
-    void ProcessAttack(float delta)
-    {
-        if (AttackTarget is null || !IsLiveEnemyTarget(AttackTarget))
-        {
-            AttackTarget = null;
-            if (Patrolling)
-                TargetPosition = patrolHeadingToB ? patrolB : patrolA;
-            else if (Guarding)
-                TargetPosition = NormalizeCommandPosition(GuardFollowPosition());
-            return;
-        }
-
-        var toTarget = AttackTarget.GlobalPosition - GlobalPosition;
-        toTarget.Y = 0f;
-        if (toTarget.Length() > AttackRange)
-        {
-            TargetPosition = NormalizeCommandPosition(AttackTarget.GlobalPosition);
-            ProcessMove(delta);
-            return;
-        }
-
-        Velocity = Vector3.Zero;
-        MoveAndSlide();
-        if (toTarget.Length() > 0.01f && ShouldBodyFaceAttackTarget())
-            FaceDirection(toTarget, delta);
-        UpdateWeaponAim(AttackTarget.GlobalPosition, false, delta);
-        if (!IsWeaponYawAligned(AttackTarget.GlobalPosition))
-            return;
-
-        if (cooldownLeft <= 0f)
-        {
-            cooldownLeft = AttackCooldown;
-            PlayFireVisualAnimation();
-            CombatProjectile.Spawn(this, this, AttackTarget, AttackDamage, PlayerOwned, AttackRange, SplashRadius, SplashFalloff);
-        }
-    }
-
-    void ProcessAttackGround(float delta)
-    {
-        if (!CanAttackGroundPoint)
-        {
-            AttackGrounding = false;
-            return;
-        }
-
-        var toTarget = attackGroundTarget - GlobalPosition;
-        toTarget.Y = 0f;
-        if (toTarget.Length() > AttackRange)
-        {
-            TargetPosition = NormalizeCommandPosition(attackGroundTarget);
-            ProcessMove(delta);
-            return;
-        }
-
-        Velocity = Vector3.Zero;
-        MoveAndSlide();
-        if (toTarget.LengthSquared() > 0.0001f && ShouldBodyFaceAttackTarget())
-            FaceDirection(toTarget, delta);
-        UpdateWeaponAim(attackGroundTarget, true, delta);
-        if (!IsWeaponYawAligned(attackGroundTarget))
-            return;
-
-        if (cooldownLeft <= 0f)
-        {
-            cooldownLeft = AttackCooldown;
-            PlayFireVisualAnimation();
-            CombatProjectile.SpawnGround(this, this, attackGroundTarget, AttackDamage, PlayerOwned, AttackRange, SplashRadius, SplashFalloff);
-        }
-    }
-
-    Vector3 NormalizeCommandPosition(Vector3 worldPos)
-    {
-        if (BattleGameManager.Instance is { } manager)
-            return manager.NormalizeUnitTarget(this, worldPos);
-        return BattleMapCatalog.ClampToMap(worldPos, 4f);
-    }
-
-    static Vector3 NormalizeAttackGroundTarget(Vector3 worldPos)
-    {
-        if (BattleGameManager.Instance is { } manager)
-        {
-            var target = manager.ClampToPlayableMap(worldPos);
-            return new Vector3(target.X, 0f, target.Z);
-        }
-
-        var clamped = BattleMapCatalog.ClampToMap(worldPos, 4f);
-        return new Vector3(clamped.X, 0f, clamped.Z);
-    }
-
-    void MaintainMovementLayer()
-    {
-        if (BattleUnitCatalog.IsAirUnit(UnitKey))
-        {
-            var height = parkedAtAirfield
-                ? AirfieldParkingHeight
-                : CruiseHeight > 0.1f ? CruiseHeight : BattleUnitCatalog.SpawnHeight(UnitKey);
-            GlobalPosition = new Vector3(GlobalPosition.X, height, GlobalPosition.Z);
-        }
-        else if (BattleUnitCatalog.IsNavalUnit(UnitKey))
-        {
-            UpdateNavalWaveBuoyancy();
-        }
-        else
-        {
-            GlobalPosition = new Vector3(GlobalPosition.X, 0f, GlobalPosition.Z);
-        }
-    }
-
-    void UpdateNavalWaveBuoyancy()
-    {
-        float t = (float)(Time.GetTicksMsec() / 1000.0);
-        float seed = (float)(GetInstanceId() % 1000) * 0.173f;
-        bool isSubmarine = UnitKey == "submarine";
-        bool isMoving = Velocity.LengthSquared() > 0.05f;
-
-        if (isSubmarine)
-        {
-            // 潜艇完全隐蔽深潜于海平面下方 (Y = -1.45m)，无过大上浮或浪面露头，仅在深海暗流中做微厘米级暗潜漂移
-            float subHeave = Mathf.Sin(t * 0.85f + seed) * 0.02f + Mathf.Cos(t * 1.35f + seed * 1.2f) * 0.008f;
-            float subPitch = Mathf.Sin(t * 0.75f + seed * 1.1f) * 0.010f;
-            float subRoll = Mathf.Cos(t * 0.60f + seed * 0.8f) * 0.012f;
-
-            GlobalPosition = new Vector3(GlobalPosition.X, -1.45f + subHeave, GlobalPosition.Z);
-            if (GetNodeOrNull("SubmarineVisual") is Node3D subVisual)
-            {
-                subVisual.Rotation = new Vector3(subPitch, 0f, subRoll);
-            }
-            return;
-        }
-
-        // 水面舰艇 (战列舰/驱逐舰/航母/巡逻艇/运输船) 破浪沉浮与倾斜
-        float speedMult = isMoving ? 1.45f : 1.0f;
-        float heaveFreq = 1.75f;
-        float heaveAmp = (UnitKey == "battleship" || UnitKey == "aircraft_carrier") ? 0.12f : 0.16f;
-        float heave = Mathf.Sin(t * heaveFreq * speedMult + seed) * heaveAmp +
-                      Mathf.Cos(t * heaveFreq * 1.8f * speedMult + seed * 1.3f) * (heaveAmp * 0.4f);
-
-        float pitchAmp = isMoving ? 0.065f : 0.045f;
-        float pitch = Mathf.Sin(t * 1.35f * speedMult + seed * 1.1f) * pitchAmp;
-        if (isMoving)
-            pitch -= 0.028f; // 航行时船头受水流冲击自然微微上仰
-
-        float rollAmp = isMoving ? 0.085f : 0.055f;
-        float roll = Mathf.Cos(t * 0.95f * speedMult + seed * 0.8f) * rollAmp;
-
-        GlobalPosition = new Vector3(GlobalPosition.X, BattleUnitCatalog.SpawnHeight(UnitKey) + heave, GlobalPosition.Z);
-
-        if (GetNodeOrNull("BattleshipVisual") is Node3D bsVisual)
-        {
-            bsVisual.Rotation = new Vector3(pitch, 0f, roll);
-        }
-        else if (GetNodeOrNull("NimitzCarrier") is Node3D carrierVisual)
-        {
-            carrierVisual.Rotation = new Vector3(pitch, (PlayerOwned ? Mathf.Pi : 0f), roll);
-        }
-        else if (GetNodeOrNull("DestroyerVisual") is Node3D desVisual)
-        {
-            desVisual.Rotation = new Vector3(pitch, 0f, roll);
-        }
-        else if (GetNodeOrNull("PatrolBoatVisual") is Node3D pbVisual)
-        {
-            pbVisual.Rotation = new Vector3(pitch, 0f, roll);
-        }
-        else if (GetNodeOrNull("TransportVisual") is Node3D transVisual)
-        {
-            transVisual.Rotation = new Vector3(pitch, 0f, roll);
-        }
-        else if (GetNodeOrNull("ImportedShip") is Node3D importedVisual)
-        {
-            importedVisual.Rotation = new Vector3(pitch, (PlayerOwned ? Mathf.Pi : 0f), roll);
-        }
-    }
-
-    void ProcessBombingRun(float delta)
-    {
-        var target = bombingRunOnAttackLeg ? bombingRunExit : bombingRunApproach;
-        TargetPosition = NormalizeCommandPosition(target);
-        ProcessMove(delta);
-
-        var flatSelf = new Vector3(GlobalPosition.X, 0f, GlobalPosition.Z);
-        if (!bombingRunOnAttackLeg)
-        {
-            var flatApproach = new Vector3(bombingRunApproach.X, 0f, bombingRunApproach.Z);
-            if (flatSelf.DistanceTo(flatApproach) <= BomberArrivalThreshold)
-                bombingRunOnAttackLeg = true;
-            return;
-        }
-
-        var runOffset = flatSelf - new Vector3(bombingRunStart.X, 0f, bombingRunStart.Z);
-        var runProgress = runOffset.Dot(bombingRunDirection);
-        if (!bombingRunVolleyReleased && runProgress + 0.3f >= bombingRunReleaseDistance)
-            ReleaseBombingRunVolley();
-
-        var flatExit = new Vector3(bombingRunExit.X, 0f, bombingRunExit.Z);
-        if (flatSelf.DistanceTo(flatExit) <= BomberFinishThreshold)
-        {
-            CancelBombingRun();
-            Stop();
-        }
-    }
-
-    void AcquireAttackMoveTarget(float delta)
-    {
-        acquireTimer -= delta;
-        if (acquireTimer > 0f || BattleGameManager.Instance is not { } manager)
-            return;
-
-        acquireTimer = 0.35f;
-        var target = FindBestTarget(manager, AttackRange);
-        if (target is not null)
-            AttackTarget = target;
-    }
-
-    void AcquireGuardTarget(float delta)
-    {
-        acquireTimer -= delta;
-        if (acquireTimer > 0f || BattleGameManager.Instance is not { } manager)
-            return;
-
-        acquireTimer = 0.45f;
-        AttackTarget = FindBestTarget(manager, AttackRange);
-    }
-
-    void ProcessPatrol(float delta)
-    {
-        if (BattleGameManager.Instance is not { } manager)
-            return;
-
-        acquireTimer -= delta;
-        if (acquireTimer <= 0f)
-        {
-            acquireTimer = 0.35f;
-            var target = FindBestTarget(manager, AttackRange * 1.45f);
-            if (target is not null)
-            {
-                AttackTarget = target;
-                return;
-            }
-        }
-
-        if (IsIdle())
-        {
-            patrolHeadingToB = !patrolHeadingToB;
-            TargetPosition = patrolHeadingToB ? patrolB : patrolA;
-        }
-    }
-
-    void ProcessGuard(float delta)
-    {
-        if (guardTarget is null || !GodotObject.IsInstanceValid(guardTarget) || guardTarget.IsDead)
-        {
-            Stop();
-            return;
-        }
-
-        if (BattleGameManager.Instance is not { } manager)
-            return;
-
-        acquireTimer -= delta;
-        if (acquireTimer <= 0f)
-        {
-            acquireTimer = 0.35f;
-            var target = FindBestTarget(manager, AttackRange * 1.8f);
-            if (target is not null && target.GlobalPosition.DistanceTo(guardTarget.GlobalPosition) <= 22f)
-            {
-                AttackTarget = target;
-                return;
-            }
-        }
-
-        if (GlobalPosition.DistanceTo(guardTarget.GlobalPosition) > 6f || IsIdle())
-            TargetPosition = NormalizeCommandPosition(GuardFollowPosition());
-    }
-
-    Vector3 GuardFollowPosition()
-    {
-        if (guardTarget is null || !GodotObject.IsInstanceValid(guardTarget))
-            return GlobalPosition;
-
-        var toSelf = GlobalPosition - guardTarget.GlobalPosition;
-        toSelf.Y = 0f;
-        var direction = toSelf.LengthSquared() > 0.1f ? toSelf.Normalized() : Vector3.Right;
-        return guardTarget.GlobalPosition + direction * 4f;
-    }
-
-    Node3D? FindBestTarget(BattleGameManager manager, float maxRange)
-    {
-        Node3D? target = null;
-        var maxDistanceSquared = maxRange * maxRange;
-        var bestScore = float.NegativeInfinity;
-
-        foreach (var unit in manager.GetUnits(!PlayerOwned))
-        {
-            if (!GodotObject.IsInstanceValid(unit) || unit.IsDead)
-                continue;
-            if (!BattleUnitCatalog.CanAttackTargetType(UnitKey, unit.UnitKey))
-                continue;
-            var distanceSquared = unit.GlobalPosition.DistanceSquaredTo(GlobalPosition);
-            if (distanceSquared > maxDistanceSquared)
-                continue;
-            var score = TargetPriorityScore(unit, distanceSquared);
-            if (score <= bestScore)
-                continue;
-            bestScore = score;
-            target = unit;
-        }
-
-        foreach (var building in manager.GetBuildings(!PlayerOwned))
-        {
-            if (!GodotObject.IsInstanceValid(building) || building.Health <= 0f)
-                continue;
-            var distanceSquared = building.GlobalPosition.DistanceSquaredTo(GlobalPosition);
-            if (distanceSquared > maxDistanceSquared)
-                continue;
-            var score = TargetPriorityScore(building, distanceSquared);
-            if (score <= bestScore)
-                continue;
-            bestScore = score;
-            target = building;
-        }
-
-        return target;
-    }
-
-    float TargetPriorityScore(Node3D target, float distanceSquared)
-    {
-        var score = 1000f - Mathf.Sqrt(distanceSquared) * 6f;
-        if (target is RtsUnit unit)
-        {
-            score += 260f; // 优先攻击所有能反击的敌方移动单位
-
-            var targetIsAir = BattleUnitCatalog.IsAirUnit(unit.UnitKey);
-            var targetIsInfantry = BattleUnitCatalog.IsInfantryLike(unit.UnitKey);
-            var targetIsNaval = BattleUnitCatalog.IsNavalUnit(unit.UnitKey);
-
-            if (targetIsAir)
-                score += UnitKey is "anti_air_gun" or "fighter" ? 520f : -380f;
-            if (UnitKey is "infantry_flamethrower" or "flamethrower" && targetIsInfantry)
-                score += 430f;
-            if (BattleUnitCatalog.IsInfantryLike(UnitKey) && targetIsInfantry)
-                score += 120f;
-            if (BattleUnitCatalog.IsNavalUnit(UnitKey) && targetIsNaval)
-                score += 300f;
-            if (UnitKey == "fighter" && targetIsAir)
-                score += 220f;
-        }
-        else if (target is RtsBuilding building)
-        {
-            score += -120f; // 大幅降低对非防御性建筑的默认攻击权重
-            if (UnitKey is "artillery" or "bomber" or "destroyer_ship" or "transport_ship")
-                score += 550f; // 攻城和轰炸单位依然优先轰炸建筑
-            if (UnitKey is "anti_air_gun" or "fighter")
-                score -= 360f;
-            if (building.IsDefenseTurret)
-                score += 280f; // 具有反击能力的炮塔，权重高一些
-        }
-
-        return score;
-    }
-
-    bool IsIdle()
-    {
-        var flatDelta = TargetPosition - GlobalPosition;
-        flatDelta.Y = 0f;
-        return flatDelta.LengthSquared() <= 0.05f;
-    }
-
-    bool ShouldBodyFaceAttackTarget()
-        => BattleUnitCatalog.IsAirUnit(UnitKey)
-            || BattleUnitCatalog.IsInfantryLike(UnitKey)
-            || BattleUnitCatalog.IsNavalUnit(UnitKey)
-            || weaponYawNode is null;
-
-    public void FaceDirectionImmediate(Vector3 direction)
-    {
-        direction.Y = 0f;
-        if (direction.LengthSquared() <= 0.0001f)
-            return;
-
-        Rotation = new Vector3(Rotation.X, ResolveFacingYaw(direction), Rotation.Z);
-    }
-
-    public void DebugForceRotateTurret(float degrees)
-    {
-        if (weaponYawNode is not null && GodotObject.IsInstanceValid(weaponYawNode))
-        {
-            weaponYawNode.Rotation = new Vector3(weaponYawNode.Rotation.X, Mathf.DegToRad(degrees), weaponYawNode.Rotation.Z);
-        }
-    }
-
-    float ResolveFacingYaw(Vector3 direction)
-        => Mathf.Atan2(direction.X, direction.Z) + bodyFacingYawOffset;
-
-    void FaceDirection(Vector3 direction, float delta)
-    {
-        direction.Y = 0f;
-        if (direction.LengthSquared() <= 0.0001f)
-            return;
-
-        var targetYaw = ResolveFacingYaw(direction);
-        var currentYaw = Rotation.Y;
-        var turnStep = Mathf.Clamp(TurnSpeed * delta, 0f, 1f);
-        Rotation = new Vector3(Rotation.X, Mathf.LerpAngle(currentYaw, targetYaw, turnStep), Rotation.Z);
-    }
-
-    void UpdateWeaponAim(Vector3 target, bool groundAttack, float delta)
-    {
-        if (weaponYawNode is null && weaponPitchNode is null)
-            return;
-
-        if (!IsNodeReadyForWorldAim(weaponYawNode) || !IsNodeReadyForWorldAim(weaponPitchNode))
-            return;
-
-        var aimTarget = target;
-        aimTarget.Y = GlobalPosition.Y + (BattleUnitCatalog.IsArtilleryLike(visualKey) ? 2.3f : 0.65f);
-
-        if (weaponYawNode is not null)
-        {
-            var yawTarget = aimTarget;
-            yawTarget.Y = weaponYawNode.GlobalPosition.Y;
-            ApplySmoothLookAt(weaponYawNode, yawTarget, weaponYawLookOffset, delta, 8.5f);
-        }
-
-        if (weaponPitchNode is not null)
-        {
-            var pitchTarget = aimTarget;
-            if (BattleUnitCatalog.IsArtilleryLike(visualKey) || groundAttack)
-                pitchTarget.Y += Mathf.Clamp(AttackRange * 0.08f, 0.85f, 2.8f);
-            if (weaponPitchIsPivot)
-            {
-                var localTarget = weaponPitchNode.ToLocal(pitchTarget);
-                var desired = new Vector3(Mathf.Atan2(localTarget.Y, -localTarget.Z), 0f, 0f) + weaponPitchPivotOffset;
-                weaponPitchNode.Rotation = SmoothEuler(weaponPitchNode.Rotation, desired, delta, 7.5f);
-            }
-            else
-            {
-                ApplySmoothLookAt(weaponPitchNode, pitchTarget, weaponPitchLookOffset, delta, 7.5f);
-            }
-        }
-    }
-
-    bool IsWeaponYawAligned(Vector3 target)
-    {
-        // 如果没有独立的武器旋转炮塔（如普通步兵），身体在射程内即允许随时攻击，避免拥挤摩擦导致卡住无法开火
-        if (weaponYawNode is null)
-            return true;
-
-        var yawNode = weaponYawNode;
-        if (!IsNodeReadyForWorldAim(yawNode))
-            return false;
-
-        var toTarget = target - yawNode.GlobalPosition;
-        toTarget.Y = 0f;
-        if (toTarget.LengthSquared() <= 0.0001f)
-            return true;
-
-        var forward = ResolveAimForward(yawNode, weaponYawLookOffset);
-        forward.Y = 0f;
-        if (forward.LengthSquared() <= 0.0001f)
-            return true;
-
-        // 放宽旋转对齐容差（点积从 0.965f 降到 0.82f，即夹角约 35 度以内均可开火）
-        return forward.Normalized().Dot(toTarget.Normalized()) >= 0.82f;
-    }
-
-    static Vector3 ResolveAimForward(Node3D node, Vector3 lookOffset)
-    {
-        var localForward = Basis.FromEuler(lookOffset) * new Vector3(0f, 0f, -1f);
-        return node.GlobalTransform.Basis * localForward;
-    }
-
-    static void ApplySmoothLookAt(Node3D node, Vector3 target, Vector3 offset, float delta, float speed)
-    {
-        if (!IsNodeReadyForWorldAim(node))
-            return;
-
-        var previous = node.GlobalTransform;
-        node.LookAt(target, Vector3.Up, true);
-        var desiredRotation = node.Rotation + offset;
-        node.GlobalTransform = previous;
-        node.Rotation = SmoothEuler(node.Rotation, desiredRotation, delta, speed);
-    }
-
-    static bool IsNodeReadyForWorldAim(Node3D? node)
-        => node is not null && GodotObject.IsInstanceValid(node) && node.IsInsideTree();
-
-    static Vector3 SmoothEuler(Vector3 current, Vector3 desired, float delta, float speed)
-    {
-        var t = 1f - Mathf.Exp(-Mathf.Max(0.01f, speed) * delta);
-        return new Vector3(
-            Mathf.LerpAngle(current.X, desired.X, t),
-            Mathf.LerpAngle(current.Y, desired.Y, t),
-            Mathf.LerpAngle(current.Z, desired.Z, t));
-    }
-
-    void ResolveVisualAnimationNames()
-    {
-        if (visualAnimationPlayers.Count == 0)
-            return;
-
-        foreach (var player in visualAnimationPlayers)
-        {
-            // 为所有动画播放器设置默认融合时间为 0.2 秒，使 idle, walk, fire 状态平滑过渡，消除生硬的关节跳转
-            player.PlaybackDefaultBlendTime = 0.2f;
-            foreach (var animation in player.GetAnimationList())
-            {
-                var name = animation.ToString();
-                var lower = name.ToLowerInvariant();
-                if (string.IsNullOrEmpty(walkAnimationName)
-                    && (lower.Contains("walk") || lower.Contains("run") || lower.Contains("move")))
-                    walkAnimationName = name;
-                if (string.IsNullOrEmpty(idleAnimationName) && lower.Contains("idle"))
-                    idleAnimationName = name;
-                if (string.IsNullOrEmpty(fireAnimationName)
-                    && (lower.Contains("fire") || lower.Contains("shoot") || lower.Contains("attack")))
-                    fireAnimationName = name;
-            }
-        }
-    }
-
-    void CaptureInfantryVisualParts(Node3D root)
-    {
-        if (!BattleUnitCatalog.IsInfantryLike(visualKey))
-            return;
-
-        // 如果模型拥有标准的骨骼动画播放器，就不应捕获骨骼进行手脚摆动的纯逻辑二次覆盖，避免冲突导致频繁抖动/闪烁
-        if (visualAnimationPlayers.Count > 0)
-            return;
-
-        var allNodes = root.FindChildren("*", "Node3D", true, false)
-            .OfType<Node3D>()
-            .ToArray();
-        var bodyNodes = allNodes
-            .Where(node => IsInfantryBodyNode(node, root))
-            .Where(node => !HasInfantryBodyAncestor(node, root))
-            .ToList();
-        if (bodyNodes.Count == 0)
-            bodyNodes.Add(root);
-
-        for (var i = 0; i < bodyNodes.Count; i++)
-            AddAnimatedInfantryPart(bodyNodes[i], InfantryVisualPartKind.Body, i * 1.7f);
-
-        foreach (var node in allNodes)
-        {
-            if (!TryResolveInfantryPartKind(node.Name.ToString(), out var kind))
-                continue;
-            var bodyIndex = FindInfantryBodyIndex(node, bodyNodes);
-            AddAnimatedInfantryPart(node, kind, bodyIndex * 1.7f);
-        }
-    }
-
-    void AddAnimatedInfantryPart(Node3D node, InfantryVisualPartKind kind, float phase)
-    {
-        if (infantryVisualParts.Any(part => part.Node == node))
-            return;
-
-        infantryVisualParts.Add(new AnimatedVisualPart
-        {
-            Node = node,
-            RestPosition = node.Position,
-            RestRotation = node.Rotation,
-            Phase = phase,
-            Kind = kind
-        });
-    }
-
-    static bool IsInfantryBodyNode(Node3D node, Node3D root)
-    {
-        if (node == root)
-            return false;
-
-        var lower = node.Name.ToString().ToLowerInvariant();
-        return !lower.Contains("squad")
-            && (lower.StartsWith("infantry_")
-                || lower.StartsWith("soldier")
-                || lower.StartsWith("rifleman")
-                || lower.StartsWith("trooper"));
-    }
-
-    static bool HasInfantryBodyAncestor(Node3D node, Node3D root)
-    {
-        var parent = node.GetParent();
-        while (parent is Node3D parent3D && parent3D != root)
-        {
-            if (IsInfantryBodyNode(parent3D, root))
-                return true;
-            parent = parent.GetParent();
-        }
-        return false;
-    }
-
-    static bool TryResolveInfantryPartKind(string name, out InfantryVisualPartKind kind)
-    {
-        var lower = name.ToLowerInvariant().Replace("_", "").Replace("-", "");
-        if (lower.Contains("strideleftleg") || lower.Contains("leftleg"))
-        {
-            kind = InfantryVisualPartKind.LeftLeg;
-            return true;
-        }
-
-        if (lower.Contains("striderightleg") || lower.Contains("rightleg"))
-        {
-            kind = InfantryVisualPartKind.RightLeg;
-            return true;
-        }
-
-        if (lower.Contains("strideleftarm") || lower.Contains("leftarm"))
-        {
-            kind = InfantryVisualPartKind.LeftArm;
-            return true;
-        }
-
-        if (lower.Contains("striderightarm") || lower.Contains("rightarm"))
-        {
-            kind = InfantryVisualPartKind.RightArm;
-            return true;
-        }
-
-        kind = InfantryVisualPartKind.Body;
-        return false;
-    }
-
-    static int FindInfantryBodyIndex(Node3D node, IReadOnlyList<Node3D> bodyNodes)
-    {
-        var parent = node.GetParent();
-        while (parent is Node3D parent3D)
-        {
-            for (var i = 0; i < bodyNodes.Count; i++)
-            {
-                if (bodyNodes[i] == parent3D)
-                    return i;
-            }
-            parent = parent.GetParent();
-        }
-        return Mathf.Max(0, bodyNodes.Count - 1);
-    }
-
-    void CapturePropellerNodes(Node3D root)
-    {
-        if (!BattleUnitCatalog.IsAirUnit(visualKey))
-            return;
-
-        var allNodes = root.FindChildren("*", "Node3D", true, false)
-            .OfType<Node3D>()
-            .ToArray();
-        var primaryNodes = allNodes.Where(IsPrimaryPropellerNode).ToArray();
-        foreach (var node in primaryNodes)
-        {
-            if (!HasCapturedPropellerAncestor(node))
-                propellerNodes.Add(node);
-        }
-
-        if (propellerNodes.Count > 0)
-            return;
-
-        foreach (var node in allNodes.Where(IsFallbackPropellerNode))
-        {
-            if (!HasCapturedPropellerAncestor(node))
-                propellerNodes.Add(node);
-        }
-    }
-
-    bool HasCapturedPropellerAncestor(Node3D node)
-    {
-        var parent = node.GetParent();
-        while (parent is Node3D parent3D)
-        {
-            if (propellerNodes.Contains(parent3D))
-                return true;
-            parent = parent.GetParent();
-        }
-        return false;
-    }
-
-    static bool IsPrimaryPropellerNode(Node3D node)
-    {
-        var lower = node.Name.ToString().ToLowerInvariant();
-        return !lower.Contains("blade")
-            && !lower.Contains("hub")
-            && !lower.Contains("blur")
-            && (lower.Contains("propeller")
-                || lower.Contains("rotor")
-                || lower == "prop"
-                || lower.StartsWith("prop_")
-                || lower.StartsWith("prop-"));
-    }
-
-    static bool IsFallbackPropellerNode(Node3D node)
-    {
-        var lower = node.Name.ToString().ToLowerInvariant();
-        return lower.Contains("propeller")
-            || lower.Contains("prop")
-            || lower.Contains("rotor")
-            || lower.Contains("blade");
-    }
-
-    void UpdateVisualState(float delta)
-    {
-        var actuallyMoving = Velocity.LengthSquared() > 0.08f || bombingRunActive || parkingAtAirfield;
-        if (actuallyMoving)
-        {
-            stationaryDuration = 0f;
-        }
-        else
-        {
-            stationaryDuration += delta;
-        }
-
-        // 采用非对称移动状态过滤（滞后滤波器）：起步瞬时判定为走，但停止动画延迟 0.22 秒触发。
-        // 这避免了单位在寻路、绕路时因单帧速度骤减为 0 而频繁在 walk/idle 间来回闪烁闪现。
-        var moving = actuallyMoving || (stationaryDuration < 0.22f);
-        UpdateAnimationPlayback(moving, delta);
-        UpdateInfantryStride(moving);
-        UpdatePropellers(delta, moving);
-
-        // 迫击炮兵射击时蹲下姿势逻辑
-        if (visualKey == "infantry_artillery")
-        {
-            bool isFiring = visualAnimationLockRemaining > 0f && currentVisualAnimationName == fireAnimationName;
-            float targetCrouch = isFiring ? 1f : 0f;
-            crouchRatio = Mathf.Lerp(crouchRatio, targetCrouch, delta * 12f); // 平滑过渡
-
-            if (visualRoot is not null)
-            {
-                foreach (var child in visualRoot.GetChildren())
-                {
-                    if (child is Node3D soldierNode)
-                    {
-                        var modelNode = soldierNode.GetNodeOrNull<Node3D>("Model") ?? soldierNode.GetNodeOrNull<Node3D>("Body");
-                        if (modelNode is not null)
-                        {
-                            if (!modelNode.HasMeta("original_pos"))
-                            {
-                                modelNode.SetMeta("original_pos", modelNode.Position);
-                                modelNode.SetMeta("original_rot", modelNode.Rotation);
-                            }
-
-                            Vector3 origPos = modelNode.GetMeta("original_pos").AsVector3();
-                            Vector3 origRot = modelNode.GetMeta("original_rot").AsVector3();
-
-                            // 蹲姿参数：下沉 0.36m，前倾 22.5 度 (-0.39 rad)，并微调前移 0.15m 保持重心
-                            float crouchHeight = 0.36f;
-                            float tiltAngle = -0.39f;
-                            float forwardOffset = -0.15f;
-
-                            modelNode.Position = origPos + new Vector3(0f, -crouchHeight * crouchRatio, forwardOffset * crouchRatio);
-                            modelNode.Rotation = origRot + new Vector3(tiltAngle * crouchRatio, 0f, 0f);
-                        }
-                    }
-                }
-            }
-        }
-
-        // 如果是舰船单位，在真实行驶状态下更新水面浪花和波纹粒子
-        if (BattleUnitCatalog.IsNavalUnit(UnitKey))
-        {
-            UpdateNavalWaves(actuallyMoving, delta);
-        }
-
-        // 地形坡度贴合：使陆地单位（战车、士兵）的 3D 模型旋转方向与地面法线对齐，防止穿模或悬空
-        if (visualRoot is not null && !BattleUnitCatalog.IsAirUnit(UnitKey) && !BattleUnitCatalog.IsNavalUnit(UnitKey))
-        {
-            var targetNormal = IsOnFloor() ? GetFloorNormal() : Vector3.Up;
-            currentNormal = currentNormal.Lerp(targetNormal, 10f * delta).Normalized();
-
-            var parentForward = -GlobalTransform.Basis.Z;
-            var right = currentNormal.Cross(parentForward).Normalized();
-            var forward = right.Cross(currentNormal).Normalized();
-
-            var targetBasis = new Basis(right, currentNormal, forward);
-            var visualScale = visualRoot.Scale;
-            visualRoot.GlobalBasis = targetBasis;
-            visualRoot.Scale = visualScale;
-        }
-    }
-
-    void UpdateAnimationPlayback(bool moving, float delta)
-    {
-        if (visualAnimationPlayers.Count == 0)
-            return;
-
-        if (visualAnimationLockRemaining > 0f)
-        {
-            visualAnimationLockRemaining = Mathf.Max(0f, visualAnimationLockRemaining - delta);
-            return;
-        }
-
-        var next = moving && !string.IsNullOrEmpty(walkAnimationName)
-            ? walkAnimationName
-            : idleAnimationName;
-
-        // Dynamically scale animation speed based on actual movement speed with smooth interpolation to prevent feet sliding or abrupt jumps
-        foreach (var player in visualAnimationPlayers)
-        {
-            float targetSpeed = moving && next == walkAnimationName
-                ? Mathf.Max(0.2f, MoveSpeed / 4.0f)
-                : 1.0f;
-            player.SpeedScale = Mathf.Lerp((float)player.SpeedScale, targetSpeed, (float)delta * 12.0f);
-        }
-
-        if (string.IsNullOrEmpty(next) || next == currentVisualAnimationName)
-            return;
-
-        foreach (var player in visualAnimationPlayers)
-        {
-            if (player.HasAnimation(next))
-                player.Play(next, customBlend: 0.25f);
-        }
-        currentVisualAnimationName = next;
-    }
-
-    void PlayFireVisualAnimation()
-    {
-        if (visualAnimationPlayers.Count == 0 || string.IsNullOrEmpty(fireAnimationName))
-            return;
-
-        foreach (var player in visualAnimationPlayers)
-        {
-            if (player.HasAnimation(fireAnimationName))
-                player.Play(fireAnimationName);
-        }
-        currentVisualAnimationName = fireAnimationName;
-        var animation = visualAnimationPlayers
-            .Select(player => player.HasAnimation(fireAnimationName) ? player.GetAnimation(fireAnimationName) : null)
-            .FirstOrDefault(candidate => candidate is not null);
-        visualAnimationLockRemaining = animation is null
-            ? 0.18f
-            : Mathf.Max(0.12f, (float)animation.Length * 0.92f);
-    }
-
-    void UpdateInfantryStride(bool moving)
-    {
-        if (infantryVisualParts.Count == 0)
-            return;
-
-        // 根据实际运动速度按比例调节步伐周期
-        float speedRatio = Velocity.Length() / Mathf.Max(0.1f, MoveSpeed);
-        var stride = moving ? visualMotionTime * (6.5f + 4.0f * speedRatio) : 0f;
-
-        foreach (var part in infantryVisualParts)
-        {
-            var wave = Mathf.Sin(stride + part.Phase);
-            var counterWave = Mathf.Sin(stride + part.Phase + Mathf.Pi);
-            switch (part.Kind)
-            {
-                case InfantryVisualPartKind.LeftLeg:
-                    ApplyInfantryLimbStride(part, moving, wave, 0.42f);
-                    break;
-                case InfantryVisualPartKind.RightLeg:
-                    ApplyInfantryLimbStride(part, moving, counterWave, 0.42f);
-                    break;
-                case InfantryVisualPartKind.LeftArm:
-                    ApplyInfantryLimbStride(part, moving, counterWave, 0.30f);
-                    break;
-                case InfantryVisualPartKind.RightArm:
-                    ApplyInfantryLimbStride(part, moving, wave, 0.30f);
-                    break;
-                default:
-                    // 躯干上下起伏与偏航/侧倾 - 适当改小以防止士兵产生夸张的“弹簧震动”
-                    var bob = moving ? Mathf.Abs(wave) * 0.022f : 0f;
-                    var forwardStep = moving ? Mathf.Cos(stride + part.Phase) * 0.012f : 0f;
-                    var sideSway = moving ? Mathf.Sin(stride * 0.5f + part.Phase) * 0.006f : 0f;
-                    var lean = moving ? wave * 0.022f : 0f;
-                    part.Node.Position = part.RestPosition + new Vector3(sideSway, bob, forwardStep);
-                    part.Node.Rotation = part.RestRotation + new Vector3(lean * 0.45f, lean * 0.65f, lean);
-                    break;
-            }
-        }
-    }
-
-    static void ApplyInfantryLimbStride(AnimatedVisualPart part, bool moving, float wave, float swing)
-    {
-        if (!moving)
-        {
-            part.Node.Position = part.RestPosition;
-            part.Node.Rotation = part.RestRotation;
-            return;
-        }
-
-        // 仅在 Y 轴做极小的提足抬升（最大 0.015m），移除 Z 轴前后平移以防肢体关节脱臼分离
-        float yOffset = (part.Kind == InfantryVisualPartKind.LeftLeg || part.Kind == InfantryVisualPartKind.RightLeg)
-            ? Mathf.Abs(wave) * 0.015f
-            : 0f;
-
-        part.Node.Position = part.RestPosition + new Vector3(0f, yOffset, 0f);
-        // 主轴在 X 轴前后摆动，并提供微小的 Z 轴 Roll 偏角以保持身形协调而不再外八字外翻
-        part.Node.Rotation = part.RestRotation + new Vector3(wave * swing, 0f, wave * swing * 0.04f);
-    }
-
-    void UpdatePropellers(float delta, bool moving)
-    {
-        if (propellerNodes.Count == 0)
-            return;
-
-        var speed = parkedAtAirfield ? 11f : moving ? 58f : 36f;
-        foreach (var propeller in propellerNodes)
-            propeller.RotateObjectLocal(Vector3.Forward, speed * delta);
-    }
-
-    void ClearQueuedMovement()
-    {
-        queuedMoveTargets.Clear();
-        holdPosition = false;
-    }
-
-    void ClearSpecialOrders()
-    {
-        CancelBombingRun();
-        parkingAtAirfield = false;
-        parkedAtAirfield = false;
-    }
-
-    void CancelBombingRun()
-    {
-        bombingRunActive = false;
-        bombingRunOnAttackLeg = false;
-        bombingRunVolleyReleased = false;
-        bombingRunReleaseDistance = 0f;
-    }
-
-    void ParkAtAirfield()
-    {
-        parkingAtAirfield = false;
-        parkedAtAirfield = true;
-        TargetPosition = parkedPosition;
-        Velocity = Vector3.Zero;
-        GlobalPosition = new Vector3(parkedPosition.X, AirfieldParkingHeight, parkedPosition.Z);
-    }
-
-    void ReleaseBombingRunVolley()
-    {
-        bombingRunVolleyReleased = true;
-        var releaseCenter = bombingRunStart + bombingRunDirection * bombingRunReleaseDistance;
-        var bombDamage = Mathf.Max(1f, AttackDamage * BomberDamageMultiplier);
-        var splashRadius = Mathf.Max(1.5f, SplashRadius);
-
-        var bombIndex = 0;
-        for (var row = 0; row < 2; row++)
-        {
-            var forwardOffset = row == 0 ? -BomberReleaseSpacingForward * 0.5f : BomberReleaseSpacingForward * 0.5f;
-            for (var col = 0; col < 2; col++)
-            {
-                var sideOffset = col == 0 ? -BomberReleaseSpacingSide * 0.5f : BomberReleaseSpacingSide * 0.5f;
-                var impactPoint = releaseCenter
-                    + bombingRunDirection * forwardOffset
-                    + bombingRunPerpendicular * sideOffset
-                    + ComputeBombingRunJitter(bombIndex);
-                impactPoint.Y = 0f;
-                CombatProjectile.SpawnGround(this, this, impactPoint, bombDamage, PlayerOwned, AttackRange, splashRadius, SplashFalloff);
-                bombIndex++;
-            }
-        }
-    }
-
-    Vector3 ComputeBombingRunJitter(int bombIndex)
-    {
-        var seed = NetId != 0 ? NetId : (int)(GetInstanceId() & 0x7fffffff);
-        var noiseA = Mathf.Sin((seed * 0.731f + bombIndex * 1.913f + 0.37f) * 12.9898f);
-        var noiseB = Mathf.Sin((seed * 1.117f + bombIndex * 2.357f + 1.19f) * 78.233f);
-        return bombingRunDirection * (noiseA * BomberImpactJitter)
-             + bombingRunPerpendicular * (noiseB * BomberImpactJitter);
-    }
-
-    void PreparePanzerTurretRig(Node3D root)
-    {
-        if (root.FindChild("TurretPivot", true, false) is not null)
-            return;
-
-        var turretAnchor = root.FindChild("turret_exterior", true, false) as Node3D
-            ?? root.FindChild("mantlet_inner", true, false) as Node3D;
-        if (turretAnchor is null)
-            return;
-
-        var rigRoot = turretAnchor.GetParent() as Node3D;
-        if (rigRoot is null)
-            return;
-
-        var gunPivotAnchor = root.FindChild("mantlet_inner", true, false) as Node3D
-            ?? root.FindChild("barrel", true, false) as Node3D;
-        var gunAnchor = root.FindChild("barrel", true, false) as Node3D;
-        if (gunPivotAnchor is null || gunAnchor is null)
-            return;
-
-        var turretAnchorPos = turretAnchor.Position;
-
-        var turretPivot = new Node3D
-        {
-            Name = "TurretPivot",
-            Position = turretAnchorPos
-        };
-        rigRoot.AddChild(turretPivot);
-
-        var gunPivot = new Node3D
-        {
-            Name = "GunPivot",
-            Position = gunPivotAnchor.Position - turretAnchorPos
-        };
-        turretPivot.AddChild(gunPivot);
-
-        var candidates = rigRoot.GetChildren().OfType<Node3D>().ToArray();
-        foreach (var child in candidates)
-        {
-            if (child == turretPivot)
-                continue;
-            if (!BelongsToPanzerTurret(child.Name))
-                continue;
-
-            var originalPosition = child.Position;
-            rigRoot.RemoveChild(child);
-            if (BelongsToPanzerGun(child.Name))
-            {
-                gunPivot.AddChild(child);
-                child.Position = originalPosition - turretAnchorPos - gunPivot.Position;
-            }
-            else
-            {
-                turretPivot.AddChild(child);
-                child.Position = originalPosition - turretAnchorPos;
-            }
-        }
-    }
-
-    static void HidePanzerInteriorVisuals(Node3D root)
-    {
-        foreach (var mesh in root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>())
-        {
-            if (IsPanzerInteriorVisual(mesh.Name))
-                mesh.Visible = false;
-        }
-    }
-
-    static bool IsPanzerExteriorTurretDetail(string lower)
-    {
-        return lower is "turret_exterior"
-            || lower.Contains("turret_door")
-            || lower.Contains("turret_sideslit")
-            || (lower.Contains("hatch") && !lower.Contains("driver") && !lower.Contains("radioman"))
-            || lower.Contains("cmdr_hatch")
-            || lower.Contains("cupola")
-            || lower.Contains("lever_gunner_door")
-            || lower.Contains("lever_loader_door")
-            || lower.StartsWith("mantlet")
-            || lower.StartsWith("barrel");
-    }
-
-    static bool IsPanzerInteriorVisual(string name)
-    {
-        var lower = name.ToLowerInvariant();
-        if (IsPanzerExteriorTurretDetail(lower))
-            return false;
-
-        return lower is "gun"
-            or "floor"
-            or "floor_circle"
-            or "recoil_guard"
-            or "electricals"
-            or "gyro"
-            or "trigger"
-            or "wires"
-            or "driver_panel"
-            or "cupola_details"
-            or "gunner_sight"
-            or "driver_block"
-            or "driver_slit"
-            or "radioman_hatch"
-            or "driver_hatch"
-            or "hull_sideport_driver"
-            or "cupola_exterior"
-            or "cupola_rim"
-            or "gunner_front_port"
-            or "loader_front_port"
-            || lower.StartsWith("turret_interior")
-            || lower.StartsWith("turret_details")
-            || lower.StartsWith("cmdr_hatch_")
-            || lower.StartsWith("turret_door_")
-            || lower.StartsWith("turret_sideslit_")
-            || lower.StartsWith("breech")
-            || lower.StartsWith("ammo_bin_")
-            || lower.StartsWith("shell.")
-            || lower.StartsWith("mg_ammo_")
-            || lower.StartsWith("lever_")
-            || lower.StartsWith("switch_")
-            || lower.StartsWith("gunner_")
-            || lower.StartsWith("loader_");
-    }
-
-    void PrepareArtilleryGunRig(Node3D root)
-    {
-        if (root.GetNodeOrNull<Node3D>("GunPivot") is not null)
-            return;
-
-        MeshInstance3D? barrelCandidate = root.GetNodeOrNull<MeshInstance3D>("object_6");
-        var bestScore = 0f;
-        foreach (var mesh in root.GetChildren().OfType<MeshInstance3D>())
-        {
-            if (mesh.Mesh is null)
-                continue;
-
-            var size = mesh.Mesh.GetAabb().Size.Abs();
-            var dims = new[] { size.X, size.Y, size.Z }.OrderByDescending(value => value).ToArray();
-            if (dims[1] <= 0.0001f)
-                continue;
-
-            var score = dims[0] / dims[1];
-            if (dims[0] < 2f || score <= bestScore || (barrelCandidate is not null && mesh != barrelCandidate))
-                continue;
-
-            bestScore = score;
-            barrelCandidate = mesh;
-        }
-
-        if (barrelCandidate is null)
-            return;
-
-        var pivot = new Node3D
-        {
-            Name = "GunPivot",
-            Position = barrelCandidate.Position
-        };
-        root.AddChild(pivot);
-        root.RemoveChild(barrelCandidate);
-        pivot.AddChild(barrelCandidate);
-        barrelCandidate.Position = Vector3.Zero;
-    }
-
-    static bool BelongsToPanzerTurret(string name)
-    {
-        var lower = name.ToLowerInvariant();
-        return !IsPanzerInteriorVisual(lower) && IsPanzerExteriorTurretDetail(lower);
-    }
-
-    static bool BelongsToPanzerGun(string name)
-    {
-        var lower = name.ToLowerInvariant();
-        return lower.StartsWith("barrel")
-            || lower.StartsWith("mantlet");
-    }
-
-    public void DebugDumpPanzerVisibleNodes()
-    {
-        if (visualRoot is not Node3D root)
-            return;
-
-        if (visualKey is not "tank" and not "medium_tank")
-            return;
-
-        foreach (var node in EnumerateDebugNodes(root))
-        {
-            if (node is not VisualInstance3D visual || !visual.Visible)
-                continue;
-
-            var lower = node.Name.ToString().ToLowerInvariant();
-            if (!lower.Contains("turret")
-                && !lower.Contains("cupola")
-                && !lower.Contains("hatch")
-                && !lower.Contains("door")
-                && !lower.Contains("barrel")
-                && !lower.Contains("mantlet")
-                && !lower.Contains("floor")
-                && !lower.Contains("breech")
-                && !lower.Contains("gunner")
-                && !lower.Contains("loader")
-                && !lower.Contains("driver"))
-                continue;
-
-            GD.Print($"PANZER_VISIBLE {Name} :: {node.Name} class={node.GetClass()} parent={node.GetParent()?.Name} pos={node.Position} gpos={node.GlobalPosition}");
-        }
-
-        static IEnumerable<Node3D> EnumerateDebugNodes(Node3D parent)
-        {
-            foreach (var child in parent.GetChildren().OfType<Node3D>())
-            {
-                yield return child;
-                foreach (var descendant in EnumerateDebugNodes(child))
-                    yield return descendant;
-            }
-        }
-    }
-
-    bool IsLiveEnemyTarget(Node3D target)
-        => target switch
-        {
-            RtsUnit unit => unit.PlayerOwned != PlayerOwned && !unit.IsDead && unit.FogRevealed,
-            RtsBuilding building => building.PlayerOwned != PlayerOwned && building.Health > 0f && building.FogRevealed,
-            _ => GodotObject.IsInstanceValid(target)
-        };
-
-    float GetUnitHealthBarHeight()
-    {
-        if (BattleUnitCatalog.IsAirUnit(UnitKey))
-            return 2.95f;
-        if (UnitKey.StartsWith("infantry"))
-            return 2.05f; // 步兵血条位于 2.05m 高度，精准悬浮于步兵头顶上方
-        if (UnitKey.Contains("light_tank"))
-            return 1.65f;
-        return 2.05f; // 战车血条 2.05m 高度
-    }
-
-    float GetUnitHealthBarWidth()
-    {
-        if (BattleUnitCatalog.IsAirUnit(UnitKey))
-            return 2.8f;
-        if (UnitKey.StartsWith("infantry"))
-            return 0.9f; // 步兵血条缩窄为0.9m宽，匹配身形
-        return 2.2f;
-    }
-
-    void EnsureCombatOverlays()
-    {
-        if (GetNodeOrNull<WorldHealthBar3D>("WorldHealthBar") is null)
-        {
-            var isAir = BattleUnitCatalog.IsAirUnit(UnitKey);
-            var bar = new WorldHealthBar3D
-            {
-                Name = "WorldHealthBar",
-                Width = GetUnitHealthBarWidth(),
-                HeightOffset = GetUnitHealthBarHeight(),
-                Depth = isAir ? 0.20f : 0.18f
-            };
-            AddChild(bar);
-        }
-
-        selectionRing = GetNodeOrNull<MeshInstance3D>("SelectionRing");
-        if (selectionRing is null)
-        {
-            selectionRing = new MeshInstance3D
-            {
-                Name = "SelectionRing",
-                Position = SelectionRingPosition(),
-                Mesh = new TorusMesh
-                {
-                    InnerRadius = SelectionRingRadius(),
-                    OuterRadius = SelectionRingRadius() + 0.10f,
-                    RingSegments = 48
-                },
-                MaterialOverride = new StandardMaterial3D
-                {
-                    AlbedoColor = PlayerOwned
-                        ? new Color(0.20f, 0.82f, 1f, 0.86f)
-                        : new Color(1f, 0.34f, 0.20f, 0.86f),
-                    Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
-                    ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
-                },
-                Visible = false
-            };
-            AddChild(selectionRing);
-        }
-
-        techRing = GetNodeOrNull<MeshInstance3D>("TechRing");
-        if (techRing is null)
-        {
-            techRing = new MeshInstance3D
-            {
-                Name = "TechRing",
-                Position = TechRingPosition(),
-                Mesh = new TorusMesh
-                {
-                    InnerRadius = SelectionRingRadius() + 0.18f,
-                    OuterRadius = SelectionRingRadius() + 0.28f,
-                    RingSegments = 48
-                },
-                MaterialOverride = new StandardMaterial3D
-                {
-                    AlbedoColor = new Color(0.38f, 1f, 0.50f, 0.54f),
-                    Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
-                    ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
-                },
-                Visible = false
-            };
-            AddChild(techRing);
-        }
-    }
-
-    void RefreshCombatOverlays()
-    {
-        if (GetNodeOrNull<WorldHealthBar3D>("WorldHealthBar") is { } worldHealthBar)
-            worldHealthBar.Position = new Vector3(0f, GetUnitHealthBarHeight(), 0f);
-
-        selectionRing ??= GetNodeOrNull<MeshInstance3D>("SelectionRing");
-        if (selectionRing?.Mesh is TorusMesh selectionMesh)
-        {
-            selectionRing.Position = SelectionRingPosition();
-            selectionMesh.InnerRadius = SelectionRingRadius();
-            selectionMesh.OuterRadius = SelectionRingRadius() + 0.10f;
-        }
-
-        techRing ??= GetNodeOrNull<MeshInstance3D>("TechRing");
-        if (techRing?.Mesh is TorusMesh techMesh)
-        {
-            techRing.Position = TechRingPosition();
-            techMesh.InnerRadius = SelectionRingRadius() + 0.18f;
-            techMesh.OuterRadius = SelectionRingRadius() + 0.28f;
-        }
-    }
-
-    void ResetCapturedBaseStats()
-    {
-        baseMaxHealth = 0f;
-        baseMoveSpeed = 0f;
-        baseAttackDamage = 0f;
-        baseAttackRange = 0f;
-        baseAttackCooldown = 0f;
-        baseSplashRadius = 0f;
-        baseSplashFalloff = 0f;
-    }
-
-    void CaptureBaseStats()
-    {
-        if (baseMaxHealth > 0f)
-            return;
-
-        baseMaxHealth = MaxHealth;
-        baseMoveSpeed = MoveSpeed;
-        baseAttackDamage = AttackDamage;
-        baseAttackRange = AttackRange;
-        baseAttackCooldown = AttackCooldown;
-        if (SplashRadius <= 0.05f)
-            SplashRadius = BattleUnitCatalog.SplashRadius(UnitKey);
-        if (SplashFalloff <= 0f || SplashFalloff > 1f)
-            SplashFalloff = BattleUnitCatalog.SplashFalloff(UnitKey);
-        baseSplashRadius = SplashRadius;
-        baseSplashFalloff = SplashFalloff;
-    }
-
-    void UpdateTechBuffs(float delta)
-    {
-        if (techBuffs.Count == 0)
-            return;
-
-        var changed = false;
-        for (var i = techBuffs.Count - 1; i >= 0; i--)
-        {
-            techBuffs[i].Remaining -= delta;
-            if (techBuffs[i].Remaining > 0f)
-                continue;
-            techBuffs.RemoveAt(i);
-            changed = true;
-        }
-
-        if (techRegenPerSecond > 0f && Health < MaxHealth)
-        {
-            techRegenCarry += techRegenPerSecond * delta;
-            if (techRegenCarry >= 1f)
-            {
-                var repair = Mathf.Floor(techRegenCarry);
-                techRegenCarry -= repair;
-                Repair(repair, false);
-            }
-        }
-        else
-        {
-            techRegenCarry = 0f;
-        }
-
-        if (changed)
-            RecalculateTechBuffStats();
-    }
-
-    void RecalculateTechBuffStats()
-    {
-        CaptureBaseStats();
-        var healthRatio = MaxHealth > 0f ? Mathf.Clamp(Health / MaxHealth, 0f, 1f) : 1f;
-        var moveMultiplier = 1f;
-        var damageMultiplier = 1f;
-        var attackRangeBonus = 0f;
-        var attackCooldownMultiplier = 1f;
-        var defenseReduction = 0f;
-        var visionBonus = 0f;
-        var regenPerSecond = 0f;
-
-        for (var i = 0; i < techBuffs.Count; i++)
-        {
-            var buff = techBuffs[i];
-            moveMultiplier *= buff.MoveMultiplier;
-            damageMultiplier *= buff.DamageMultiplier;
-            attackRangeBonus += buff.AttackRangeBonus;
-            attackCooldownMultiplier *= buff.AttackCooldownMultiplier;
-            defenseReduction += buff.DefenseReduction;
-            visionBonus += buff.VisionBonus;
-            regenPerSecond += buff.RegenPerSecond;
-        }
-
-        MaxHealth = baseMaxHealth;
-        MoveSpeed = baseMoveSpeed * moveMultiplier;
-        AttackDamage = Mathf.Round(baseAttackDamage * damageMultiplier);
-        AttackRange = baseAttackRange + attackRangeBonus;
-        AttackCooldown = Mathf.Max(0.12f, baseAttackCooldown * attackCooldownMultiplier);
-        SplashRadius = baseSplashRadius;
-        SplashFalloff = baseSplashFalloff;
-        VisionBonus = visionBonus;
-        techDamageReduction = Mathf.Clamp(defenseReduction, 0f, 0.75f);
-        techRegenPerSecond = regenPerSecond;
-        Health = Mathf.Clamp(MaxHealth * healthRatio, 1f, MaxHealth);
-
-        if (techBuffs.Count > 0 && techRing?.MaterialOverride is StandardMaterial3D ringMaterial)
-            ringMaterial.AlbedoColor = techBuffs[^1].Tint;
-        SetTechRingVisible(techBuffs.Count > 0);
-    }
-
-    void SetTechRingVisible(bool visible)
-    {
-        if (techRing is not null)
-            techRing.Visible = visible;
-    }
-
-    Vector3 TechRingPosition()
-    {
-        if (BattleUnitCatalog.IsAirUnit(UnitKey))
-            return new Vector3(0f, -1.54f, 0f);
-        return new Vector3(0f, 0.055f, 0f);
-    }
-
-    Vector3 SelectionRingPosition()
-    {
-        if (BattleUnitCatalog.IsAirUnit(UnitKey))
-            return new Vector3(0f, -1.55f, 0f);
-        return new Vector3(0f, 0.04f, 0f);
-    }
-
-    float SelectionRingRadius()
-    {
-        if (BattleUnitCatalog.IsAirUnit(UnitKey))
-            return 1.55f;
-        if (BattleUnitCatalog.IsNavalUnit(UnitKey))
-            return 1.45f;
-        return 1.18f;
-    }
-
-    public override void _Process(double delta)
-    {
-        if (selectionRing is not null)
-            selectionRing.Visible = Selected;
-
-        if (MaxShield > 0f && Shield < MaxShield && !IsDead)
-        {
-            secondsSinceLastDamage += (float)delta;
-            if (secondsSinceLastDamage >= 5.0f)
-            {
-                Shield = Mathf.Min(MaxShield, Shield + MaxShield * 0.1f * (float)delta);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 通过对 visualRoot 下的所有 GeometryInstance3D 子节点临时叠加材质，
-    /// 模拟战争迷雾的颜色调制效果（3D 节点不支持 Modulate）。
-    /// </summary>
-    void SetVisualModulate(Color color)
-    {
-        var root = visualRoot ?? this as Node3D;
-        if (root is null)
-            return;
-        SetNodeModulateRecursive(root, color);
-    }
-
-    static void SetNodeModulateRecursive(Node3D node, Color color)
-    {
-        foreach (var child in node.GetChildren())
-        {
-            if (child is GeometryInstance3D geom)
-            {
-                if (color == Colors.White)
-                {
-                    // 恢复正常：移除覆盖材质
-                    geom.MaterialOverlay = null;
-                }
-                else
-                {
-                    // 叠加半透明幽灵材质
-                    if (geom.MaterialOverlay is not StandardMaterial3D overlay
-                        || overlay.ResourceName != "_fog_ghost_overlay")
-                    {
-                        overlay = new StandardMaterial3D
-                        {
-                            ResourceName = "_fog_ghost_overlay",
-                            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
-                            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                            BlendMode = BaseMaterial3D.BlendModeEnum.Mix,
-                            NoDepthTest = false
-                        };
-                        geom.MaterialOverlay = overlay;
-                    }
-                    overlay.AlbedoColor = color;
-                }
-            }
-            if (child is Node3D child3d)
-                SetNodeModulateRecursive(child3d, color);
-        }
-    }
-
-    /// <summary>
-    /// 确保舰船行驶的两种水面动态特效（船头浪花和船尾水平扩散波纹）已被初始化并添加为子节点
-    /// </summary>
-    void EnsureNavalWaveParticles()
-    {
-        if (bowWaveParticles is null)
-        {
-            var splashMesh = new SphereMesh
-            {
-                Radius = 0.22f,
-                Height = 0.44f,
-                RadialSegments = 6,
-                Rings = 3
-            };
-
-            var splashMat = new StandardMaterial3D
-            {
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                AlbedoColor = new Color(0.9f, 0.95f, 1f, 0.72f),
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            };
-
-            var splashScale = new Curve();
-            splashScale.AddPoint(new Vector2(0f, 0.5f));
-            splashScale.AddPoint(new Vector2(1f, 1.5f));
-
-            var splashColor = new Gradient();
-            splashColor.AddPoint(0f, new Color(0.9f, 0.95f, 1f, 0.78f));
-            splashColor.AddPoint(0.7f, new Color(0.85f, 0.92f, 0.96f, 0.35f));
-            splashColor.AddPoint(1f, new Color(0.8f, 0.9f, 0.95f, 0f));
-
-            var halfLength = 1.1f;
-            if (UnitKey == "destroyer_ship")
-                halfLength = 1.6f;
-            else if (UnitKey == "transport_ship")
-                halfLength = 1.9f;
-
-            bowWaveParticles = new CpuParticles3D
-            {
-                Name = "BowWaveParticles",
-                Amount = 14,
-                Lifetime = 0.55f,
-                OneShot = false,
-                Direction = new Vector3(0f, 0.2f, 0.8f),
-                Spread = 35f,
-                Gravity = new Vector3(0f, -2.5f, 0f),
-                InitialVelocityMin = 1.8f,
-                InitialVelocityMax = 3.2f,
-                ScaleAmountMin = 0.4f,
-                ScaleAmountMax = 1.0f,
-                Mesh = splashMesh,
-                MaterialOverride = splashMat,
-                ScaleAmountCurve = splashScale,
-                ColorRamp = splashColor,
-                Position = new Vector3(0f, 0.05f, -halfLength),
-                Emitting = false
-            };
-            AddChild(bowWaveParticles);
-        }
-
-        if (sternWakeParticles is null)
-        {
-            var rippleMesh = new QuadMesh
-            {
-                Size = new Vector2(1f, 1f),
-                Orientation = PlaneMesh.OrientationEnum.Y
-            };
-
-            var rippleMat = new StandardMaterial3D
-            {
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                AlbedoColor = new Color(0.8f, 0.92f, 0.98f, 0.42f),
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            };
-
-            var rippleScale = new Curve();
-            rippleScale.AddPoint(new Vector2(0f, 0.8f));
-            rippleScale.AddPoint(new Vector2(1f, 3.4f));
-
-            var rippleColor = new Gradient();
-            rippleColor.AddPoint(0f, new Color(0.85f, 0.95f, 1f, 0.52f));
-            rippleColor.AddPoint(0.5f, new Color(0.8f, 0.9f, 0.96f, 0.22f));
-            rippleColor.AddPoint(1f, new Color(0.75f, 0.85f, 0.9f, 0f));
-
-            var halfLength = 1.1f;
-            if (UnitKey == "destroyer_ship")
-                halfLength = 1.6f;
-            else if (UnitKey == "transport_ship")
-                halfLength = 1.9f;
-
-            sternWakeParticles = new CpuParticles3D
-            {
-                Name = "SternWakeParticles",
-                Amount = 10,
-                Lifetime = 0.92f,
-                OneShot = false,
-                Direction = new Vector3(0f, 0f, 1f),
-                Spread = 12f,
-                Gravity = Vector3.Zero,
-                InitialVelocityMin = 1.0f,
-                InitialVelocityMax = 2.0f,
-                ScaleAmountMin = 0.8f,
-                ScaleAmountMax = 1.4f,
-                Mesh = rippleMesh,
-                MaterialOverride = rippleMat,
-                ScaleAmountCurve = rippleScale,
-                ColorRamp = rippleColor,
-                Position = new Vector3(0f, 0.03f, halfLength),
-                Emitting = false
-            };
-            AddChild(sternWakeParticles);
-        }
-    }
-
-    /// <summary>
-    /// 根据舰船的实时运动状态，开启或关闭船头和船尾粒子发射
-    /// </summary>
-    void UpdateNavalWaves(bool moving, float delta)
-    {
-        EnsureNavalWaveParticles();
-        if (bowWaveParticles is not null && bowWaveParticles.Emitting != moving)
-        {
-            bowWaveParticles.Emitting = moving;
-        }
-        if (sternWakeParticles is not null && sternWakeParticles.Emitting != moving)
-        {
-            sternWakeParticles.Emitting = moving;
-        }
-    }
+	public const float BomberMinBombingRunLength = 10f;
+	public const float BomberMaxBombingRunLength = 24f;
+	public const float BomberBombingRunLaneSpacing = 4f;
+	public const float DefaultBattleFuelSeconds = 40f;
+	public const float DefaultLowFuelReturnRatio = 0.10f;
+
+	sealed class RuntimeTechBuff
+	{
+		public string SourceId { get; set; } = "";
+		public float Remaining { get; set; }
+		public float MoveMultiplier { get; set; } = 1f;
+		public float DamageMultiplier { get; set; } = 1f;
+		public float AttackRangeBonus { get; set; }
+		public float AttackCooldownMultiplier { get; set; } = 1f;
+		public float DefenseReduction { get; set; }
+		public float VisionBonus { get; set; }
+		public float RegenPerSecond { get; set; }
+		public Color Tint { get; set; } = Colors.White;
+	}
+
+	enum InfantryVisualPartKind
+	{
+		Body,
+		LeftLeg,
+		RightLeg,
+		LeftArm,
+		RightArm
+	}
+
+	sealed class AnimatedVisualPart
+	{
+		public Node3D Node { get; init; } = null!;
+		public Vector3 RestPosition { get; init; }
+		public Vector3 RestRotation { get; init; }
+		public float Phase { get; init; }
+		public InfantryVisualPartKind Kind { get; init; }
+	}
+
+	[Signal]
+	public delegate void DiedEventHandler(RtsUnit unit);
+
+	public const uint ForestCollisionLayer = 4u;
+
+	public float Shield { get; private set; }
+	public float MaxShield { get; private set; }
+	float secondsSinceLastDamage = 99f;
+	float grenadeCooldownLeft = 0f;
+
+	[Export] public string UnitKey { get; set; } = "tank";
+	[Export] public string DisplayName { get; set; } = "Unit";
+	bool playerOwned = true;
+	[Export]
+	public bool PlayerOwned
+	{
+		get => playerOwned;
+		set
+		{
+			playerOwned = value;
+			FogRevealed = value;
+			FogExplored = value;
+		}
+	}
+	[Export] public float MaxHealth { get; set; } = 100f;
+	[Export] public float MoveSpeed { get; set; } = 6f;
+	[Export] public float TurnSpeed { get; set; } = 9f;
+	[Export] public float AttackDamage { get; set; } = 10f;
+	[Export] public float AttackRange { get; set; } = 6f;
+	[Export] public float AttackCooldown { get; set; } = 1f;
+	[Export] public float SplashRadius { get; set; }
+	[Export] public float SplashFalloff { get; set; } = 0.5f;
+	[Export] public int GoldCost { get; set; } = 100;
+	[Export] public int PopCost { get; set; } = 1;
+	[Export] public float CruiseHeight { get; set; }
+
+	public int NetId { get; set; }
+	public float Health { get; set; }
+	public Vector3 TargetPosition { get; private set; }
+	public Node3D? AttackTarget { get; private set; }
+	public bool Selected { get; private set; }
+	public bool IsDead => Health <= 0f;
+	public bool AttackMoving { get; private set; }
+	public bool AttackGrounding { get; private set; }
+	public bool Patrolling { get; private set; }
+	public bool Guarding { get; private set; }
+	public bool CanAttackGroundPoint => !BattleUnitCatalog.IsAirUnit(UnitKey) && SplashRadius > 0.05f && AttackRange > 0.5f && AttackDamage > 0f;
+	public bool FogRevealed { get; private set; }
+	/// <summary>曾经被玩家视野探索过（战争迷雾记忆）。</summary>
+	public bool FogExplored { get; private set; }
+	public float VisionBonus { get; private set; }
+	public bool SupportsBombingRun => UnitKey == "bomber" && !IsDead;
+	public bool SupportsAirfieldParking => BattleUnitCatalog.RequiresAirfieldSlot(UnitKey) && !IsDead;
+	public float CurrentFuel { get; private set; }
+	public float FuelRatio => maxFuelSeconds <= 0.01f ? 1f : Mathf.Clamp(CurrentFuel / maxFuelSeconds, 0f, 1f);
+	public bool IsReturningToRefuel => parkingAtAirfield;
+	public bool IsReturningToPark => parkingAtAirfield;
+	public bool IsParkedAtAirfield => parkedAtAirfield;
+
+	const float BomberApproachLead = 9f;
+	const float BomberExitLead = 7f;
+	const float BomberArrivalThreshold = 1.25f;
+	const float BomberFinishThreshold = 1.5f;
+	const float BomberReleaseProgress = 0.58f;
+	const float BomberReleaseSpacingForward = 2.2f;
+	const float BomberReleaseSpacingSide = 2.0f;
+	const float BomberDamageMultiplier = 0.58f;
+	const float BomberImpactJitter = 0.55f;
+	const float AirfieldParkingHeight = 0.72f;
+	const float ReturnFuelReserveSeconds = 2f;
+	float cooldownLeft;
+	float acquireTimer;
+	float baseMaxHealth;
+	float baseMoveSpeed;
+	float baseAttackDamage;
+	float baseAttackRange;
+	float baseAttackCooldown;
+	float baseSplashRadius;
+	float baseSplashFalloff;
+	float techDamageReduction;
+	float techRegenPerSecond;
+	float techRegenCarry;
+	float maxFuelSeconds;
+	float lowFuelReturnRatio;
+	float refuelSeconds;
+	float attackSlotAngleOffset;
+	Vector3 attackGroundTarget;
+	Vector3 patrolA;
+	Vector3 patrolB;
+	bool patrolHeadingToB;
+	RtsUnit? guardTarget;
+	uint originalCollisionLayer;
+	uint originalCollisionMask;
+	MeshInstance3D? selectionRing;
+	MeshInstance3D? techRing;
+	Node3D? visualRoot;
+	Vector3 currentNormal = Vector3.Up;
+	Node3D? weaponYawNode;
+	Node3D? weaponPitchNode;
+	public Node3D? WeaponYawNode => weaponYawNode;
+	public Node3D? WeaponPitchNode => weaponPitchNode;
+	bool weaponPitchIsPivot;
+	Vector3 weaponYawLookOffset;
+	Vector3 weaponPitchLookOffset;
+	Vector3 weaponPitchPivotOffset;
+	AnimationPlayer? visualAnimationPlayer;
+	readonly List<AnimationPlayer> visualAnimationPlayers = new();
+	string walkAnimationName = "";
+	string idleAnimationName = "";
+	string fireAnimationName = "";
+	string currentVisualAnimationName = "";
+	float visualAnimationLockRemaining;
+	float crouchRatio;
+	float infantryFootstepTimer;
+	int infantryFootstepSide;
+	float infantryRecoil;
+	float stationaryDuration; // 记录单位静止持续时间，用于平滑移动与站立动画的切换，防止频繁抖动
+	readonly List<AnimatedVisualPart> infantryVisualParts = new();
+	CpuParticles3D? bowWaveParticles; // 船头浪花（两侧下落水粒）
+	CpuParticles3D? sternWakeParticles; // 船尾水波纹（沿水面水平扩散）
+	readonly List<Node3D> propellerNodes = new();
+	bool holdPosition;
+	bool parkingAtAirfield;
+	bool parkedAtAirfield;
+	Vector3 parkedPosition;
+	bool warnedLowFuel;
+	bool warnedNoAirfield;
+	bool bombingRunActive;
+	bool bombingRunOnAttackLeg;
+	Vector3 bombingRunStart;
+	Vector3 bombingRunApproach;
+	Vector3 bombingRunExit;
+	Vector3 bombingRunDirection;
+	Vector3 bombingRunPerpendicular;
+	float bombingRunLength;
+	float bombingRunReleaseDistance;
+	bool bombingRunVolleyReleased;
+	string visualKey = "";
+	float bodyFacingYawOffset;
+	float visualMotionTime;
+	readonly Queue<Vector3> queuedMoveTargets = new();
+	readonly List<RuntimeTechBuff> techBuffs = new();
+	readonly List<CpuParticles3D> jetExhaustParticles = new();
+	float currentBankRoll;
+	float baseVisualRoll;
+	float lastRecordedYaw;
+	bool isAirPatrolCircuit;
+	int airCombatPhase; // 0: 俯冲接近开火, 1: 跃升改出与高速盘旋
+	float airCombatTimer;
+	Vector3 airCombatEgressTarget = Vector3.Zero;
+
+	public override void _Ready()
+	{
+		FogRevealed = PlayerOwned;
+		FogExplored = PlayerOwned;
+		CaptureBaseStats();
+		Health = MaxHealth;
+		TargetPosition = GlobalPosition;
+		InitializeAirUnitState();
+		originalCollisionLayer = CollisionLayer;
+		originalCollisionMask = CollisionMask;
+		EnsureCombatOverlays();
+		var visRoot = GetNodeOrNull<Node3D>("FA18Visual")
+			?? GetNodeOrNull<Node3D>("FighterVisual")
+			?? GetNodeOrNull<Node3D>("FA18_Fighter")
+			?? GetNodeOrNull<Node3D>("SubmarineVisual")
+			?? GetNodeOrNull<Node3D>("PatrolBoatVisual")
+			?? GetNodeOrNull<Node3D>("Visual")
+			?? GetNodeOrNull<Node3D>("Model")
+			?? this;
+		ConfigureVisualRig(string.IsNullOrEmpty(visualKey) ? UnitKey : visualKey, visRoot);
+
+		if (BattleUnitCatalog.IsAirUnit(UnitKey) && !parkedAtAirfield)
+		{
+			StartAirPatrolCircuit();
+		}
+	}
+
+	public override void _PhysicsProcess(double delta)
+	{
+		var dt = (float)delta;
+		visualMotionTime += dt;
+		if (cooldownLeft > 0f)
+			cooldownLeft -= dt;
+		if (grenadeCooldownLeft > 0f)
+			grenadeCooldownLeft -= dt;
+		UpdateTechBuffs(dt);
+
+		if (UpdateAirUnitFuelState(dt))
+		{
+			MaintainMovementLayer();
+			UpdateVisualState(dt);
+			return;
+		}
+
+		if (parkedAtAirfield)
+		{
+			Velocity = Vector3.Zero;
+			MoveAndSlide();
+			MaintainMovementLayer();
+			UpdateVisualState(dt);
+			return;
+		}
+
+		if (bombingRunActive)
+		{
+			ProcessBombingRun(dt);
+			UpdateVisualState(dt);
+			return;
+		}
+
+		if (GodotObject.IsInstanceValid(AttackTarget))
+			ProcessAttack(dt);
+		else
+		{
+			if (AttackGrounding)
+				ProcessAttackGround(dt);
+			else if (Patrolling)
+				ProcessPatrol(dt);
+			else if (Guarding)
+				ProcessGuard(dt);
+			else if (AttackMoving)
+				AcquireAttackMoveTarget(dt);
+			else if (!holdPosition && IsIdle())
+				AcquireGuardTarget(dt);
+			ProcessMove(dt);
+		}
+
+		UpdateVisualState(dt);
+	}
+
+	public void MoveTo(Vector3 worldPos)
+	{
+		ClearSpecialOrders();
+		ClearQueuedMovement();
+		AttackTarget = null;
+		AttackMoving = false;
+		AttackGrounding = false;
+		Patrolling = false;
+		Guarding = false;
+		TargetPosition = NormalizeCommandPosition(worldPos);
+	}
+
+	public void AttackMoveTo(Vector3 worldPos)
+	{
+		ClearSpecialOrders();
+		ClearQueuedMovement();
+		AttackTarget = null;
+		AttackMoving = true;
+		AttackGrounding = false;
+		Patrolling = false;
+		Guarding = false;
+		TargetPosition = NormalizeCommandPosition(worldPos);
+		acquireTimer = 0f;
+	}
+
+	public void Attack(Node3D node, float slotAngleOffset = 0f)
+	{
+		ClearSpecialOrders();
+		ClearQueuedMovement();
+		AttackTarget = node;
+		attackSlotAngleOffset = slotAngleOffset;
+		AttackMoving = false;
+		AttackGrounding = false;
+		Patrolling = false;
+		Guarding = false;
+	}
+
+	public bool AttackGround(Vector3 worldPos)
+	{
+		if (!CanAttackGroundPoint)
+			return false;
+
+		ClearSpecialOrders();
+		ClearQueuedMovement();
+		AttackTarget = null;
+		AttackMoving = false;
+		AttackGrounding = true;
+		Patrolling = false;
+		Guarding = false;
+		guardTarget = null;
+		attackGroundTarget = NormalizeAttackGroundTarget(worldPos);
+		TargetPosition = NormalizeCommandPosition(attackGroundTarget);
+		return true;
+	}
+
+	public void PatrolTo(Vector3 worldPos)
+		=> PatrolBetween(GlobalPosition, worldPos);
+
+	public void PatrolBetween(Vector3 pointA, Vector3 pointB)
+	{
+		ClearSpecialOrders();
+		ClearQueuedMovement();
+		AttackTarget = null;
+		AttackMoving = false;
+		AttackGrounding = false;
+		Guarding = false;
+		Patrolling = true;
+		guardTarget = null;
+		patrolA = NormalizeCommandPosition(pointA);
+		patrolB = NormalizeCommandPosition(pointB);
+		patrolHeadingToB = true;
+		TargetPosition = patrolB;
+		acquireTimer = 0f;
+	}
+
+	public void Guard(RtsUnit ally)
+	{
+		if (!GodotObject.IsInstanceValid(ally) || ally == this || ally.PlayerOwned != PlayerOwned)
+			return;
+
+		ClearSpecialOrders();
+		ClearQueuedMovement();
+		AttackTarget = null;
+		AttackMoving = false;
+		AttackGrounding = false;
+		Patrolling = false;
+		Guarding = true;
+		guardTarget = ally;
+		acquireTimer = 0f;
+		TargetPosition = NormalizeCommandPosition(GuardFollowPosition());
+	}
+
+	public void Stop()
+	{
+		CancelBombingRun();
+		if (!parkedAtAirfield)
+			parkingAtAirfield = false;
+		ClearQueuedMovement();
+		AttackTarget = null;
+		attackSlotAngleOffset = 0f;
+		AttackMoving = false;
+		AttackGrounding = false;
+		Patrolling = false;
+		Guarding = false;
+		guardTarget = null;
+		TargetPosition = parkedAtAirfield
+			? new Vector3(GlobalPosition.X, GlobalPosition.Y, GlobalPosition.Z)
+			: GlobalPosition;
+		Velocity = Vector3.Zero;
+	}
+
+	public void MoveAlongPath(IEnumerable<Vector3> worldPath, bool holdAtEnd = false)
+	{
+		ClearSpecialOrders();
+		ClearQueuedMovement();
+		var path = worldPath
+			.Select(NormalizeCommandPosition)
+			.Where(point => point.DistanceSquaredTo(GlobalPosition) > 0.04f)
+			.ToArray();
+		if (path.Length == 0)
+		{
+			holdPosition = holdAtEnd;
+			return;
+		}
+
+		TargetPosition = path[0];
+		for (var i = 1; i < path.Length; i++)
+			queuedMoveTargets.Enqueue(path[i]);
+		holdPosition = holdAtEnd;
+	}
+
+	public void BeginAirfieldParking(IEnumerable<Vector3> worldPath, Vector3 parkingTarget)
+	{
+		if (!SupportsAirfieldParking)
+			return;
+
+		CancelBombingRun();
+		ClearQueuedMovement();
+		parkingAtAirfield = true;
+		parkedAtAirfield = false;
+		parkedPosition = NormalizeCommandPosition(parkingTarget);
+		AttackTarget = null;
+		AttackMoving = false;
+		AttackGrounding = false;
+		Patrolling = false;
+		Guarding = false;
+		guardTarget = null;
+
+		var path = worldPath
+			.Select(NormalizeCommandPosition)
+			.Where(point => point.DistanceSquaredTo(GlobalPosition) > 0.04f)
+			.ToArray();
+		if (path.Length == 0)
+		{
+			TargetPosition = parkedPosition;
+			ParkAtAirfield();
+			return;
+		}
+
+		TargetPosition = path[0];
+		for (var i = 1; i < path.Length; i++)
+			queuedMoveTargets.Enqueue(path[i]);
+		holdPosition = true;
+	}
+
+	public void ApplyBombingRunCommand(Vector3 start, Vector3 end)
+	{
+		if (!SupportsBombingRun)
+			return;
+
+		ClearQueuedMovement();
+		parkingAtAirfield = false;
+		parkedAtAirfield = false;
+		AttackTarget = null;
+		AttackMoving = false;
+		AttackGrounding = false;
+		Patrolling = false;
+		Guarding = false;
+		guardTarget = null;
+		holdPosition = false;
+
+		var flatStart = new Vector3(start.X, 0f, start.Z);
+		var flatEnd = new Vector3(end.X, 0f, end.Z);
+		var flatDelta = flatEnd - flatStart;
+		if (flatDelta.LengthSquared() < 0.01f)
+		{
+			var fallback = -Basis.Z;
+			fallback.Y = 0f;
+			if (fallback.LengthSquared() < 0.01f)
+				fallback = Vector3.Forward;
+			flatDelta = fallback.Normalized() * BomberMinBombingRunLength;
+		}
+
+		bombingRunDirection = flatDelta.Normalized();
+		bombingRunLength = Mathf.Clamp(flatDelta.Length(), BomberMinBombingRunLength, BomberMaxBombingRunLength);
+		bombingRunPerpendicular = Vector3.Up.Cross(bombingRunDirection).Normalized();
+
+		var height = CruiseHeight > 0.1f ? CruiseHeight : BattleUnitCatalog.SpawnHeight(UnitKey);
+		bombingRunStart = new Vector3(flatStart.X, height, flatStart.Z);
+		bombingRunApproach = bombingRunStart - bombingRunDirection * BomberApproachLead;
+		var bombingRunEnd = bombingRunStart + bombingRunDirection * bombingRunLength;
+		bombingRunExit = bombingRunEnd + bombingRunDirection * BomberExitLead;
+		bombingRunReleaseDistance = Mathf.Clamp(
+			bombingRunLength * BomberReleaseProgress,
+			BomberReleaseSpacingForward,
+			Mathf.Max(BomberReleaseSpacingForward, bombingRunLength - BomberReleaseSpacingForward));
+		bombingRunVolleyReleased = false;
+		bombingRunOnAttackLeg = false;
+		bombingRunActive = true;
+		TargetPosition = NormalizeCommandPosition(bombingRunApproach);
+	}
+
+	public void ApplyCatalogCombatProfile()
+	{
+		if (SplashRadius <= 0.05f)
+			SplashRadius = BattleUnitCatalog.SplashRadius(UnitKey);
+		if (SplashFalloff <= 0f || SplashFalloff > 1f)
+			SplashFalloff = BattleUnitCatalog.SplashFalloff(UnitKey);
+		CaptureBaseStats();
+	}
+
+	public void ConfigureFromDefinition(BattleUnitDefinition def, bool playerOwned, string displayName)
+	{
+		var preserveHealthRatio = Health > 0f && MaxHealth > 0.01f;
+		var healthRatio = preserveHealthRatio
+			? Mathf.Clamp(Health / MaxHealth, 0f, 1f)
+			: 1f;
+
+		UnitKey = def.Key;
+		DisplayName = string.IsNullOrWhiteSpace(displayName) ? def.DisplayName : displayName.Trim();
+		PlayerOwned = playerOwned;
+		MaxHealth = def.MaxHealth;
+		MoveSpeed = def.MoveSpeed;
+		AttackDamage = def.AttackDamage;
+		AttackRange = def.AttackRange;
+		AttackCooldown = def.AttackCooldown;
+		SplashRadius = BattleUnitCatalog.SplashRadius(def.Key);
+		SplashFalloff = BattleUnitCatalog.SplashFalloff(def.Key);
+		GoldCost = def.GoldCost;
+		PopCost = def.PopCost;
+		CruiseHeight = BattleUnitCatalog.SpawnHeight(def.Key);
+
+		ResetCapturedBaseStats();
+		if (techBuffs.Count > 0)
+			RecalculateTechBuffStats();
+		else
+			CaptureBaseStats();
+
+		Health = preserveHealthRatio
+			? Mathf.Clamp(MaxHealth * healthRatio, 1f, MaxHealth)
+			: MaxHealth;
+
+		if (def.Key is "heavy_tank" or "anti_air_gun" or "fighter" or "bomber")
+		{
+			MaxShield = def.MaxHealth * 0.4f;
+			Shield = MaxShield;
+		}
+		else
+		{
+			MaxShield = 0f;
+			Shield = 0f;
+		}
+		secondsSinceLastDamage = 99f;
+
+		InitializeAirUnitState();
+		RefreshCombatOverlays();
+	}
+
+	void InitializeAirUnitState()
+	{
+		if (!BattleUnitCatalog.IsAirUnit(UnitKey))
+			return;
+
+		maxFuelSeconds = UnitKey switch
+		{
+			"bomber" => 120f,
+			_ => DefaultBattleFuelSeconds
+		};
+		lowFuelReturnRatio = DefaultLowFuelReturnRatio;
+		refuelSeconds = UnitKey switch
+		{
+			"bomber" => 8f,
+			"fighter" => 12f,
+			"scout_plane" => 10f,
+			_ => 14f
+		};
+		if (CurrentFuel <= 0f || CurrentFuel > maxFuelSeconds)
+			CurrentFuel = maxFuelSeconds;
+	}
+
+	bool UpdateAirUnitFuelState(float delta)
+	{
+		if (!BattleUnitCatalog.IsAirUnit(UnitKey))
+			return false;
+
+		if (!SupportsAirfieldParking || BattleGameManager.DisableFuelDepletion)
+		{
+			CurrentFuel = maxFuelSeconds;
+			warnedLowFuel = false;
+			warnedNoAirfield = false;
+			return false;
+		}
+
+		if (parkedAtAirfield)
+		{
+			RefuelWhileParked(delta);
+			return true;
+		}
+
+		CurrentFuel = Mathf.Max(0f, CurrentFuel - delta);
+		if (CurrentFuel <= 0f)
+		{
+			CrashFromFuelLoss();
+			return true;
+		}
+
+		if (!parkingAtAirfield && ShouldReturnForFuel())
+		{
+			var manager = BattleGameManager.Instance;
+			var message = "";
+			if (manager is not null && manager.TryBeginAircraftRefuelReturn(this, true, out message))
+			{
+				if (PlayerOwned && !warnedLowFuel)
+				{
+					FindHud()?.ShowAlert(message);
+					warnedLowFuel = true;
+				}
+				warnedNoAirfield = false;
+				return false;
+			}
+
+			if (PlayerOwned && !warnedNoAirfield && !string.IsNullOrWhiteSpace(message))
+			{
+				FindHud()?.ShowAlert(message);
+				warnedNoAirfield = true;
+			}
+		}
+
+		return false;
+	}
+
+	bool ShouldReturnForFuel()
+	{
+		if (FuelRatio <= lowFuelReturnRatio)
+			return true;
+
+		if (BattleGameManager.Instance?.ResolveNearestAirfield(PlayerOwned, GlobalPosition) is not { } airfield)
+			return false;
+
+		var flatSelf = new Vector3(GlobalPosition.X, 0f, GlobalPosition.Z);
+		var flatTarget = new Vector3(airfield.GlobalPosition.X, 0f, airfield.GlobalPosition.Z);
+		var returnSpeed = Mathf.Max(0.1f, MoveSpeed * 1.08f);
+		var fuelNeededToReturn = flatSelf.DistanceTo(flatTarget) / returnSpeed + ReturnFuelReserveSeconds;
+		return CurrentFuel <= fuelNeededToReturn;
+	}
+
+	void RefuelWhileParked(float delta)
+	{
+		var rate = maxFuelSeconds / Mathf.Max(2f, refuelSeconds);
+		CurrentFuel = Mathf.Min(maxFuelSeconds, CurrentFuel + rate * delta);
+		if (CurrentFuel >= maxFuelSeconds * 0.98f)
+		{
+			warnedLowFuel = false;
+			warnedNoAirfield = false;
+		}
+	}
+
+	void CrashFromFuelLoss()
+	{
+		if (IsDead)
+			return;
+
+		if (PlayerOwned)
+			FindHud()?.ShowAlert($"{DisplayName} 燃油耗尽，已坠毁");
+		CurrentFuel = 0f;
+		ApplyDamage(Health + 9999f);
+	}
+
+	BattleHud? FindHud()
+		=> GetTree().CurrentScene?.GetNodeOrNull<BattleHud>("HUD");
+
+	public void ApplyDamage(float amount, Node3D? attacker = null)
+	{
+		if (IsDead)
+			return;
+
+		float beforeShield = Shield;
+
+		if (amount > 0f)
+		{
+			secondsSinceLastDamage = 0f;
+			if (attacker is not null && IsLiveEnemyTarget(attacker))
+			{
+				OnDamagedBy(attacker);
+			}
+
+			// 1. 联盟阵地战减伤特技：如果是联盟核心兵种且在己方防御塔或基地 16 米内，伤害减少 15%
+			if (UnitKey is "tank" or "medium_tank" or "artillery" or "infantry")
+			{
+				if (BattleGameManager.Instance is { } manager)
+				{
+					bool nearDefense = false;
+					foreach (var building in manager.GetBuildings(PlayerOwned))
+					{
+						if (GodotObject.IsInstanceValid(building) && building.Health > 0f && (building.IsDefenseTurret || building.IsMainBase))
+						{
+							if (GlobalPosition.DistanceTo(building.GlobalPosition) <= 16f)
+							{
+								nearDefense = true;
+								break;
+							}
+						}
+					}
+					if (nearDefense)
+					{
+						amount *= 0.85f;
+					}
+				}
+			}
+
+			// 2. 科技伤害减免（科技树升级加成）
+			if (techDamageReduction > 0f)
+				amount *= Mathf.Clamp(1f - techDamageReduction, 0.25f, 1f);
+
+			// 3. 智能军等离子护盾吸收
+			if (MaxShield > 0f && Shield > 0f)
+			{
+				if (Shield >= amount)
+				{
+					Shield -= amount;
+					amount = 0f;
+				}
+				else
+				{
+					amount -= Shield;
+					Shield = 0f;
+				}
+			}
+		}
+
+		var before = Health;
+		Health = Mathf.Max(0f, Health - amount);
+
+		var shieldDealt = beforeShield - Shield;
+		var totalDealt = (before - Health) + shieldDealt;
+
+		BattleFeedback.Damage(this, GlobalPosition, totalDealt, PlayerOwned, Health <= 0f);
+		if (Health <= 0f)
+		{
+			GameState.Instance?.DeselectNode(this);
+			BattleFeedback.Destroyed(this, GlobalPosition, !BattleUnitCatalog.IsInfantryLike(UnitKey));
+			EmitSignal(SignalName.Died, this);
+			QueueFree();
+		}
+	}
+
+	public void OnDamagedBy(Node3D attacker)
+	{
+		if (IsDead || !GodotObject.IsInstanceValid(attacker) || !IsLiveEnemyTarget(attacker))
+			return;
+
+		// 1. 若当前处于空闲、目标已阵亡或无有效目标：立刻转向反击偷袭者，绝不原地发呆被动挨打！
+		if (AttackTarget is null || !IsLiveEnemyTarget(AttackTarget) || IsIdle())
+		{
+			Attack(attacker);
+		}
+		else if (AttackTarget != attacker)
+		{
+			// 2. 若已有目标，但袭扰者近在眼前（高危贴脸威胁）：紧急切火自卫
+			float currentDistSq = GlobalPosition.DistanceSquaredTo(AttackTarget.GlobalPosition);
+			float attackerDistSq = GlobalPosition.DistanceSquaredTo(attacker.GlobalPosition);
+			if (attackerDistSq < currentDistSq * 0.40f && attackerDistSq < AttackRange * AttackRange)
+			{
+				Attack(attacker);
+			}
+		}
+
+		// 3. 呼叫周围 18 米内空闲同伴协同聚焦反击
+		AlertNearbyAllies(attacker);
+	}
+
+	void AlertNearbyAllies(Node3D attacker)
+	{
+		if (BattleGameManager.Instance is not { } mgr) return;
+		float alertRadiusSq = 18f * 18f;
+		var myPos = GlobalPosition;
+		foreach (var ally in mgr.GetUnits(PlayerOwned))
+		{
+			if (ally == this || !GodotObject.IsInstanceValid(ally) || ally.IsDead) continue;
+			if (ally.AttackTarget is null && ally.IsIdle() && !ally.holdPosition)
+			{
+				if (ally.GlobalPosition.DistanceSquaredTo(myPos) <= alertRadiusSq)
+				{
+					ally.Attack(attacker);
+				}
+			}
+		}
+	}
+
+	public float Repair(float amount, bool showFeedback = true)
+	{
+		if (IsDead || amount <= 0f)
+			return 0f;
+
+		var before = Health;
+		Health = Mathf.Min(MaxHealth, Health + amount);
+		var repaired = Health - before;
+		if (showFeedback)
+			BattleFeedback.Repair(this, GlobalPosition, repaired);
+		return repaired;
+	}
+
+	public void SetHealthFraction(float ratio)
+	{
+		if (IsDead)
+			return;
+
+		Health = Mathf.Clamp(MaxHealth * Mathf.Clamp(ratio, 0.01f, 1f), 1f, MaxHealth);
+		RefreshCombatOverlays();
+	}
+
+	public void ApplyTechBuff(
+		string sourceId,
+		float duration,
+		float moveMultiplier,
+		float damageMultiplier,
+		float attackRangeBonus,
+		float attackCooldownMultiplier,
+		float defenseReduction,
+		float visionBonus,
+		float regenPerSecond,
+		Color tint)
+	{
+		CaptureBaseStats();
+		techBuffs.RemoveAll(buff => buff.SourceId == sourceId);
+		techBuffs.Add(new RuntimeTechBuff
+		{
+			SourceId = sourceId,
+			Remaining = Mathf.Max(0.1f, duration),
+			MoveMultiplier = Mathf.Max(0.01f, moveMultiplier),
+			DamageMultiplier = Mathf.Max(0.01f, damageMultiplier),
+			AttackRangeBonus = attackRangeBonus,
+			AttackCooldownMultiplier = Mathf.Max(0.01f, attackCooldownMultiplier),
+			DefenseReduction = Mathf.Max(0f, defenseReduction),
+			VisionBonus = visionBonus,
+			RegenPerSecond = Mathf.Max(0f, regenPerSecond),
+			Tint = tint
+		});
+		RecalculateTechBuffStats();
+	}
+
+	public void ConfigureVisualRig(string unitKey, Node3D? root)
+	{
+		visualKey = unitKey ?? "";
+		bodyFacingYawOffset = 0f;
+		visualRoot = root;
+		baseVisualRoll = root is not null ? root.Rotation.Z : 0f;
+		weaponYawNode = null;
+		weaponPitchNode = null;
+		weaponPitchIsPivot = false;
+		weaponYawLookOffset = Vector3.Zero;
+		weaponPitchLookOffset = Vector3.Zero;
+		weaponPitchPivotOffset = Vector3.Zero;
+		visualAnimationPlayer = null;
+		visualAnimationPlayers.Clear();
+		walkAnimationName = "";
+		idleAnimationName = "";
+		fireAnimationName = "";
+		currentVisualAnimationName = "";
+		visualAnimationLockRemaining = 0f;
+		crouchRatio = 0f;
+		infantryVisualParts.Clear();
+		propellerNodes.Clear();
+
+		if (root is null)
+			return;
+
+		visualAnimationPlayers.AddRange(root.FindChildren("*", "AnimationPlayer", true, false)
+			.OfType<AnimationPlayer>()
+			.ToArray());
+		visualAnimationPlayer = visualAnimationPlayers.FirstOrDefault();
+		ResolveVisualAnimationNames();
+
+		if (unitKey == "aircraft_carrier" || root.Name.ToString().Contains("Nimitz", System.StringComparison.OrdinalIgnoreCase))
+		{
+			var wakeChild = root.FindChild("Wake", true, false) as Node3D;
+			if (wakeChild != null)
+			{
+				wakeChild.Visible = false;
+			}
+			foreach (var node in root.FindChildren("*Wake*", "Node3D", true, false))
+			{
+				if (node is Node3D n3d)
+				{
+					n3d.Visible = false;
+				}
+			}
+		}
+
+		switch (unitKey)
+		{
+			case "heavy_tank":
+				weaponYawNode = root.FindChild("misc_a", true, false) as Node3D
+					?? root.FindChild("mount2", true, false) as Node3D
+					?? root;
+				weaponPitchNode = root.FindChild("weapon", true, false) as Node3D
+					?? root.FindChild("mount2", true, false) as Node3D
+					?? root.FindChild("misc_b", true, false) as Node3D;
+				weaponYawLookOffset = Vector3.Zero;
+				weaponPitchLookOffset = Vector3.Zero;
+				break;
+			case "light_tank":
+				weaponYawNode = root.FindChild("base", true, false) as Node3D ?? root;
+				weaponPitchNode = root.FindChild("gun_elevate", true, false) as Node3D
+					?? root.FindChild("coax", true, false) as Node3D;
+				break;
+			case "tank":
+			case "medium_tank":
+				weaponYawNode = root.FindChild("turret_exterior", true, false) as Node3D
+					?? root.FindChild("mantlet_inner", true, false) as Node3D
+					?? root;
+				weaponPitchNode = root.FindChild("barrel", true, false) as Node3D
+					?? root.FindChild("gun", true, false) as Node3D;
+				weaponPitchIsPivot = false;
+				HidePanzerInteriorVisuals(root);
+				PreparePanzerTurretRig(root);
+				weaponYawNode = root.FindChild("TurretPivot", true, false) as Node3D ?? weaponYawNode;
+				weaponPitchNode = root.FindChild("GunPivot", true, false) as Node3D ?? weaponPitchNode;
+				if (weaponPitchNode == root || weaponPitchNode == weaponYawNode)
+					weaponPitchNode = null;
+				weaponYawLookOffset = Vector3.Zero;
+				weaponPitchLookOffset = Vector3.Zero;
+				break;
+			case "artillery":
+				weaponYawNode = root;
+				PrepareArtilleryGunRig(root);
+				weaponPitchNode = root.GetNodeOrNull<Node3D>("GunPivot") ?? root;
+				weaponPitchIsPivot = weaponPitchNode.Name == "GunPivot";
+				weaponPitchPivotOffset = new Vector3(-Mathf.Pi * 0.5f, 0f, 0f);
+				break;
+			case "anti_air_gun":
+				weaponYawNode = root.FindChild("cannon", true, false) as Node3D
+					?? root.FindChild("weapon", true, false) as Node3D
+					?? root;
+				weaponPitchNode = root.FindChild("barrel", true, false) as Node3D
+					?? root.FindChild("gun", true, false) as Node3D
+					?? weaponYawNode;
+				weaponYawLookOffset = Vector3.Zero;
+				weaponPitchLookOffset = Vector3.Zero;
+				break;
+		}
+
+		CaptureInfantryVisualParts(root);
+		CapturePropellerNodes(root);
+	}
+
+	public void SetSelected(bool value)
+	{
+		Selected = value;
+	}
+
+	public void SetFogRevealed(bool revealed)
+	{
+		bool wasRevealed = FogRevealed;
+		FogRevealed = PlayerOwned || revealed;
+		if (FogRevealed)
+			FogExplored = true;
+
+		if (PlayerOwned)
+		{
+			// 己方单位始终完全显示
+			Visible = true;
+			CollisionLayer = originalCollisionLayer;
+			CollisionMask = originalCollisionMask;
+		}
+		else if (FogRevealed)
+		{
+			// 敌方单位在视野内：完全可见
+			Visible = true;
+			SetVisualModulate(Colors.White);
+			CollisionLayer = originalCollisionLayer;
+			CollisionMask = originalCollisionMask;
+		}
+		else
+		{
+			// 敌方单位不在视野内：完全隐藏（移动单位在无视野时不可见）
+			Visible = false;
+			SetVisualModulate(Colors.White);
+			CollisionLayer = 0;
+			CollisionMask = 0;
+			SetSelected(false);
+		}
+	}
+
+	void ProcessMove(float delta)
+	{
+		var flatDelta = TargetPosition - GlobalPosition;
+		flatDelta.Y = 0f;
+		float arrivalThreshold = BattleUnitCatalog.IsAirUnit(UnitKey) ? 3.8f : 0.18f;
+		if (flatDelta.Length() <= arrivalThreshold)
+		{
+			if (queuedMoveTargets.Count > 0)
+			{
+				var next = queuedMoveTargets.Dequeue();
+				if (BattleUnitCatalog.IsAirUnit(UnitKey) && isAirPatrolCircuit && !parkingAtAirfield && !AttackMoving && AttackTarget == null)
+				{
+					// 空中战机巡逻闭环：将经过的航路点重新追加到队尾，形成平滑循环飞行的无缝巡航大环线
+					queuedMoveTargets.Enqueue(TargetPosition);
+				}
+				TargetPosition = next;
+				return;
+			}
+
+			AttackMoving = false;
+			Velocity = Vector3.Zero;
+			MoveAndSlide();
+			MaintainMovementLayer();
+			if (parkingAtAirfield)
+				ParkAtAirfield();
+			return;
+		}
+
+		var direction = flatDelta.Normalized();
+		Velocity = direction * MoveSpeed;
+
+		var isLandUnit = !BattleUnitCatalog.IsAirUnit(UnitKey) && !BattleUnitCatalog.IsNavalUnit(UnitKey);
+		var isNavalUnit = BattleUnitCatalog.IsNavalUnit(UnitKey);
+		if (BattleGameManager.Instance is { } manager)
+		{
+			var nextPos = GlobalPosition + Velocity * delta;
+			if (isLandUnit && manager.IsWaterPoint(nextPos, 0.2f))
+			{
+				Velocity = Vector3.Zero;
+				var safeLand = manager.ClosestLandPoint(GlobalPosition, 1.5f);
+				GlobalPosition = new Vector3(safeLand.X, GlobalPosition.Y, safeLand.Z);
+				TargetPosition = GlobalPosition;
+				queuedMoveTargets.Clear();
+				MoveAndSlide();
+				MaintainMovementLayer();
+				return;
+			}
+			else if (isNavalUnit && !manager.IsWaterPoint(nextPos, 0f))
+			{
+				Velocity = Vector3.Zero;
+				var safeWater = manager.ClosestWaterPoint(GlobalPosition, 0.5f);
+				GlobalPosition = new Vector3(safeWater.X, GlobalPosition.Y, safeWater.Z);
+				TargetPosition = GlobalPosition;
+				queuedMoveTargets.Clear();
+				MoveAndSlide();
+				MaintainMovementLayer();
+				return;
+			}
+		}
+
+		FaceDirection(direction, delta);
+		MoveAndSlide();
+		MaintainMovementLayer();
+	}
+
+	void ProcessAttack(float delta)
+	{
+		if (AttackTarget is null || !IsLiveEnemyTarget(AttackTarget))
+		{
+			AttackTarget = null;
+			if (Patrolling)
+				TargetPosition = patrolHeadingToB ? patrolB : patrolA;
+			else if (Guarding)
+				TargetPosition = NormalizeCommandPosition(GuardFollowPosition());
+			else if (BattleGameManager.Instance is { } mgr)
+			{
+				// 目标阵亡后自动在射程圈周边检索新目标，保持战斗连续性
+				var nextTarget = FindBestTarget(mgr, AttackRange * 1.6f);
+				if (nextTarget is not null)
+					AttackTarget = nextTarget;
+			}
+			if (AttackTarget is null)
+				return;
+		}
+
+		var targetPos = AttackTarget.GlobalPosition;
+		var toTarget = targetPos - GlobalPosition;
+		toTarget.Y = 0f;
+		float dist = toTarget.Length();
+
+		// 空中战机（战斗机/轰炸机/侦察机）：执行高速俯冲扫射、投弹与盘旋回路，绝不空中刹停发呆
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+		{
+			ProcessAirCombat(delta, targetPos, toTarget, dist);
+			return;
+		}
+
+		// 地面与舰艇：超出射程时向弧形战术阵位推进
+		if (dist > AttackRange)
+		{
+			var approachVec = GlobalPosition - targetPos;
+			approachVec.Y = 0f;
+			if (approachVec.LengthSquared() < 0.04f)
+				approachVec = Vector3.Back;
+
+			var approachDir = approachVec.Normalized();
+			if (Mathf.Abs(attackSlotAngleOffset) > 0.001f)
+				approachDir = approachDir.Rotated(Vector3.Up, attackSlotAngleOffset);
+
+			float idealDist = Mathf.Max(3.0f, AttackRange * 0.82f);
+			var standoffPoint = targetPos + approachDir * idealDist;
+			TargetPosition = NormalizeCommandPosition(standoffPoint);
+
+			// 侧翼防拥堵避让微调
+			ApplyFlankSeparationSteering();
+			ProcessMove(delta);
+			return;
+		}
+
+		// 游走打击与拉扯逻辑 (Kiting & Dynamic Skirmish)
+		float minSafetyDist = Mathf.Max(3.2f, AttackRange * 0.45f);
+		if (dist < minSafetyDist && AttackRange >= 7.0f)
+		{
+			// 1. 敌军贴脸突进：倒车拉开距离（游走拉扯），边退边打
+			var retreatDir = -toTarget.Normalized();
+			Velocity = retreatDir * (MoveSpeed * 0.70f);
+			ApplyFlankSeparationSteering();
+			MoveAndSlide();
+			MaintainMovementLayer();
+			if (toTarget.Length() > 0.01f && ShouldBodyFaceAttackTarget())
+				FaceDirection(toTarget, delta);
+			UpdateWeaponAim(targetPos, false, delta);
+		}
+		else if (cooldownLeft > 0.35f && MoveSpeed >= 4.5f)
+		{
+			// 2. 武器装填间隙：沿射程环横向游走机动（Skirmish Strafe），避免站桩挨打
+			var tangent = new Vector3(-toTarget.Z, 0f, toTarget.X).Normalized();
+			float strafeSign = ((NetId % 2) == 0) ? 1.0f : -1.0f;
+			Velocity = tangent * (strafeSign * MoveSpeed * 0.52f);
+			ApplyFlankSeparationSteering();
+			MoveAndSlide();
+			MaintainMovementLayer();
+			if (toTarget.Length() > 0.01f && ShouldBodyFaceAttackTarget())
+				FaceDirection(toTarget, delta);
+			UpdateWeaponAim(targetPos, false, delta);
+		}
+		else
+		{
+			// 3. 稳固射击阵位开火
+			Velocity = Vector3.Zero;
+			MoveAndSlide();
+			MaintainMovementLayer();
+			if (toTarget.Length() > 0.01f && ShouldBodyFaceAttackTarget())
+				FaceDirection(toTarget, delta);
+			UpdateWeaponAim(targetPos, false, delta);
+		}
+
+		if (!IsWeaponYawAligned(targetPos))
+			return;
+
+		if (cooldownLeft <= 0f)
+		{
+			cooldownLeft = AttackCooldown;
+			PlayFireVisualAnimation();
+
+			// 步兵战术手榴弹：仅普通步兵在与目标保持一定交火距离时，偶尔投掷战术手榴弹，避免近距离自伤，喷火兵与迫击炮兵使用专属主武器
+			bool isRifleInfantry = UnitKey is "infantry" or "rifleman";
+			bool isMissileUnit = UnitKey is "anti_air_gun" or "patrol_boat" or "submarine" or "fighter";
+			float distToTarget = AttackTarget is not null ? GlobalPosition.DistanceTo(AttackTarget.GlobalPosition) : 0f;
+			if (isRifleInfantry && grenadeCooldownLeft <= 0f && distToTarget > 4.5f && GodotObject.IsInstanceValid(AttackTarget))
+			{
+				grenadeCooldownLeft = 6.5f;
+				CombatProjectile.SpawnGrenade(this, this, AttackTarget, AttackDamage * 1.6f, PlayerOwned, AttackRange);
+			}
+			else if (isMissileUnit && GodotObject.IsInstanceValid(AttackTarget))
+			{
+				CombatProjectile.SpawnMissile(this, this, AttackTarget, AttackDamage, PlayerOwned, AttackRange, SplashRadius > 0.05f ? SplashRadius : 3.8f);
+			}
+			else if (GodotObject.IsInstanceValid(AttackTarget))
+			{
+				CombatProjectile.Spawn(this, this, AttackTarget, AttackDamage, PlayerOwned, AttackRange, SplashRadius, SplashFalloff);
+			}
+		}
+	}
+
+	void ProcessAirCombat(float delta, Vector3 targetPos, Vector3 toTarget, float dist)
+	{
+		if (airCombatPhase == 0)
+		{
+			// 阶段 0：航向目标全速俯冲进击并扫射开火
+			var flyDir = toTarget.LengthSquared() > 0.01f ? toTarget.Normalized() : -GlobalTransform.Basis.Z;
+			Velocity = flyDir * MoveSpeed;
+			FaceDirection(flyDir, delta);
+			MoveAndSlide();
+			MaintainMovementLayer();
+
+			// 处于射程内且装填完毕：实施空中射击 / 投弹 / 空空或空地导弹发射
+			if (dist <= AttackRange)
+			{
+				if (cooldownLeft <= 0f && GodotObject.IsInstanceValid(AttackTarget))
+				{
+					cooldownLeft = AttackCooldown;
+					PlayFireVisualAnimation();
+
+					if (UnitKey == "fighter")
+					{
+						CombatProjectile.SpawnMissile(this, this, AttackTarget, AttackDamage, PlayerOwned, AttackRange, 3.2f);
+					}
+					else if (UnitKey == "bomber")
+					{
+						CombatProjectile.Spawn(this, this, AttackTarget, AttackDamage, PlayerOwned, AttackRange, SplashRadius > 0.1f ? SplashRadius : 7.2f, 0.5f);
+					}
+					else
+					{
+						CombatProjectile.Spawn(this, this, AttackTarget, AttackDamage, PlayerOwned, AttackRange, 0f, 0.5f);
+					}
+				}
+
+				// 掠过目标头顶（4.5米以内）时，拉升跃升改出，进入盘旋回转回路
+				if (dist <= Mathf.Max(4.5f, AttackRange * 0.35f))
+				{
+					var tangent = new Vector3(-flyDir.Z, 0f, flyDir.X).Normalized();
+					float bankSide = (NetId % 2 == 0) ? 1.0f : -1.0f;
+					airCombatEgressTarget = targetPos + flyDir * 26f + tangent * (bankSide * 14f);
+					airCombatPhase = 1;
+					airCombatTimer = 2.8f;
+				}
+			}
+		}
+		else
+		{
+			// 阶段 1：大坡度改出与高速盘旋回转回路（Egress & Banking Loop）
+			var egressDelta = airCombatEgressTarget - GlobalPosition;
+			egressDelta.Y = 0f;
+			var egressDir = egressDelta.LengthSquared() > 0.01f ? egressDelta.Normalized() : -GlobalTransform.Basis.Z;
+			Velocity = egressDir * MoveSpeed;
+			FaceDirection(egressDir, delta);
+			MoveAndSlide();
+			MaintainMovementLayer();
+
+			airCombatTimer -= delta;
+			if (airCombatTimer <= 0f || egressDelta.LengthSquared() <= 16f)
+			{
+				// 改出完成，切回进击俯冲航线
+				airCombatPhase = 0;
+			}
+		}
+	}
+
+	void ApplyFlankSeparationSteering()
+	{
+		if (BattleGameManager.Instance is not { } manager)
+			return;
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+			return;
+
+		var myPos = GlobalPosition;
+		Vector3 avoidance = Vector3.Zero;
+		float checkRadius = BattleUnitCatalog.IsInfantryLike(UnitKey) ? 2.4f : 3.8f;
+		float checkRadiusSq = checkRadius * checkRadius;
+
+		foreach (var ally in manager.GetUnits(PlayerOwned))
+		{
+			if (ally == this || !GodotObject.IsInstanceValid(ally) || ally.IsDead)
+				continue;
+			if (BattleUnitCatalog.IsAirUnit(ally.UnitKey))
+				continue;
+
+			var diff = myPos - ally.GlobalPosition;
+			diff.Y = 0f;
+			float distSq = diff.LengthSquared();
+			if (distSq > 0.01f && distSq < checkRadiusSq)
+			{
+				float dist = Mathf.Sqrt(distSq);
+				var pushDir = diff / dist;
+				var tangent = new Vector3(-pushDir.Z, 0f, pushDir.X);
+				float weight = (checkRadius - dist) / checkRadius;
+				avoidance += (pushDir * 0.6f + tangent * 0.5f) * weight;
+			}
+		}
+
+		if (avoidance.LengthSquared() > 0.01f)
+		{
+			avoidance.Y = 0f;
+			TargetPosition = NormalizeCommandPosition(TargetPosition + avoidance.Normalized() * 1.2f);
+		}
+	}
+
+	void ProcessAttackGround(float delta)
+	{
+		if (!CanAttackGroundPoint)
+		{
+			AttackGrounding = false;
+			return;
+		}
+
+		var toTarget = attackGroundTarget - GlobalPosition;
+		toTarget.Y = 0f;
+		if (toTarget.Length() > AttackRange)
+		{
+			TargetPosition = NormalizeCommandPosition(attackGroundTarget);
+			ProcessMove(delta);
+			return;
+		}
+
+		Velocity = Vector3.Zero;
+		MoveAndSlide();
+		if (toTarget.LengthSquared() > 0.0001f && ShouldBodyFaceAttackTarget())
+			FaceDirection(toTarget, delta);
+		UpdateWeaponAim(attackGroundTarget, true, delta);
+		if (!IsWeaponYawAligned(attackGroundTarget))
+			return;
+
+		if (cooldownLeft <= 0f)
+		{
+			cooldownLeft = AttackCooldown;
+			PlayFireVisualAnimation();
+			CombatProjectile.SpawnGround(this, this, attackGroundTarget, AttackDamage, PlayerOwned, AttackRange, SplashRadius, SplashFalloff);
+		}
+	}
+
+	Vector3 NormalizeCommandPosition(Vector3 worldPos)
+	{
+		if (BattleGameManager.Instance is { } manager)
+			return manager.NormalizeUnitTarget(this, worldPos);
+		return BattleMapCatalog.ClampToMap(worldPos, 4f);
+	}
+
+	static Vector3 NormalizeAttackGroundTarget(Vector3 worldPos)
+	{
+		if (BattleGameManager.Instance is { } manager)
+		{
+			var target = manager.ClampToPlayableMap(worldPos);
+			return new Vector3(target.X, 0f, target.Z);
+		}
+
+		var clamped = BattleMapCatalog.ClampToMap(worldPos, 4f);
+		return new Vector3(clamped.X, 0f, clamped.Z);
+	}
+
+	void MaintainMovementLayer()
+	{
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+		{
+			var height = parkedAtAirfield
+				? AirfieldParkingHeight
+				: CruiseHeight > 0.1f ? CruiseHeight : BattleUnitCatalog.SpawnHeight(UnitKey);
+			GlobalPosition = new Vector3(GlobalPosition.X, height, GlobalPosition.Z);
+		}
+		else if (BattleUnitCatalog.IsNavalUnit(UnitKey))
+		{
+			UpdateNavalWaveBuoyancy();
+		}
+		else
+		{
+			GlobalPosition = new Vector3(GlobalPosition.X, 0f, GlobalPosition.Z);
+		}
+	}
+
+	void UpdateNavalWaveBuoyancy()
+	{
+		float t = (float)(Time.GetTicksMsec() / 1000.0);
+		float seed = (float)(GetInstanceId() % 1000) * 0.173f;
+		bool isSubmarine = UnitKey == "submarine";
+		bool isMoving = Velocity.LengthSquared() > 0.05f;
+
+		if (isSubmarine)
+		{
+			// 潜艇完全下潜节点深度为 Y = -2.53m；上浮为半潜航状态 (Y = -0.45m)
+			float subHeave = Mathf.Sin(t * 0.85f + seed) * 0.02f + Mathf.Cos(t * 1.35f + seed * 1.2f) * 0.008f;
+			float subPitch = Mathf.Sin(t * 0.75f + seed * 1.1f) * 0.010f;
+			float subRoll = Mathf.Cos(t * 0.60f + seed * 0.8f) * 0.012f;
+
+			// Y 代表节点基准高度：下潜目标深度精确为 Y = -2.53m
+			float targetY = GlobalPosition.Y;
+			if (targetY > -0.1f)
+			{
+				targetY = -0.45f; // 上浮默认半潜状态
+			}
+			else if (targetY <= -2.0f)
+			{
+				targetY = -2.53f; // 完全下潜 2.53 米深度
+			}
+			GlobalPosition = new Vector3(GlobalPosition.X, targetY + subHeave, GlobalPosition.Z);
+			if (GetNodeOrNull("SubmarineVisual") is Node3D subVisual)
+			{
+				subVisual.Rotation = new Vector3(subPitch, 0f, subRoll);
+				ApplySubmarineUnderwaterRenderPriority(subVisual);
+			}
+			return;
+		}
+
+	static void ApplySubmarineUnderwaterRenderPriority(Node3D visual)
+	{
+		if (visual.HasMeta("SubmarineRenderPrioritySet")) return;
+		visual.SetMeta("SubmarineRenderPrioritySet", true);
+
+		foreach (var child in visual.FindChildren("*", "MeshInstance3D", true, false))
+		{
+			if (child is MeshInstance3D mesh)
+			{
+				mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+			}
+		}
+	}
+
+		// 水面舰艇 (战列舰/驱逐舰/航母/巡逻艇/运输船) 破浪沉浮与倾斜
+		float speedMult = isMoving ? 1.45f : 1.0f;
+		float heaveFreq = 1.75f;
+		float heaveAmp = (UnitKey == "battleship" || UnitKey == "aircraft_carrier") ? 0.12f : 0.16f;
+		float heave = Mathf.Sin(t * heaveFreq * speedMult + seed) * heaveAmp +
+					  Mathf.Cos(t * heaveFreq * 1.8f * speedMult + seed * 1.3f) * (heaveAmp * 0.4f);
+
+		float pitchAmp = isMoving ? 0.065f : 0.045f;
+		float pitch = Mathf.Sin(t * 1.35f * speedMult + seed * 1.1f) * pitchAmp;
+		if (isMoving)
+			pitch -= 0.028f; // 航行时船头受水流冲击自然微微上仰
+
+		float rollAmp = isMoving ? 0.085f : 0.055f;
+		float roll = Mathf.Cos(t * 0.95f * speedMult + seed * 0.8f) * rollAmp;
+
+		GlobalPosition = new Vector3(GlobalPosition.X, BattleUnitCatalog.SpawnHeight(UnitKey) + heave, GlobalPosition.Z);
+
+		if (GetNodeOrNull("BattleshipVisual") is Node3D bsVisual)
+		{
+			bsVisual.Rotation = new Vector3(pitch, 0f, roll);
+		}
+		else if (GetNodeOrNull("NimitzCarrier") is Node3D carrierVisual)
+		{
+			carrierVisual.Rotation = new Vector3(pitch, 0f, roll);
+		}
+		else if (GetNodeOrNull("DestroyerVisual") is Node3D desVisual)
+		{
+			desVisual.Rotation = new Vector3(pitch, 0f, roll);
+		}
+		else if (GetNodeOrNull("PatrolBoatVisual") is Node3D pbVisual)
+		{
+			pbVisual.Rotation = new Vector3(pitch, 0f, roll);
+		}
+		else if (GetNodeOrNull("TransportVisual") is Node3D transVisual)
+		{
+			transVisual.Rotation = new Vector3(pitch, 0f, roll);
+		}
+		else if (GetNodeOrNull("ImportedShip") is Node3D importedVisual)
+		{
+			importedVisual.Rotation = new Vector3(pitch, 0f, roll);
+		}
+	}
+
+	void ProcessBombingRun(float delta)
+	{
+		var target = bombingRunOnAttackLeg ? bombingRunExit : bombingRunApproach;
+		TargetPosition = NormalizeCommandPosition(target);
+		ProcessMove(delta);
+
+		var flatSelf = new Vector3(GlobalPosition.X, 0f, GlobalPosition.Z);
+		if (!bombingRunOnAttackLeg)
+		{
+			var flatApproach = new Vector3(bombingRunApproach.X, 0f, bombingRunApproach.Z);
+			if (flatSelf.DistanceTo(flatApproach) <= BomberArrivalThreshold)
+				bombingRunOnAttackLeg = true;
+			return;
+		}
+
+		var runOffset = flatSelf - new Vector3(bombingRunStart.X, 0f, bombingRunStart.Z);
+		var runProgress = runOffset.Dot(bombingRunDirection);
+		if (!bombingRunVolleyReleased && runProgress + 0.3f >= bombingRunReleaseDistance)
+			ReleaseBombingRunVolley();
+
+		var flatExit = new Vector3(bombingRunExit.X, 0f, bombingRunExit.Z);
+		if (flatSelf.DistanceTo(flatExit) <= BomberFinishThreshold)
+		{
+			CancelBombingRun();
+			Stop();
+		}
+	}
+
+	void AcquireAttackMoveTarget(float delta)
+	{
+		acquireTimer -= delta;
+		if (acquireTimer > 0f || BattleGameManager.Instance is not { } manager)
+			return;
+
+		acquireTimer = 0.35f;
+		var target = FindBestTarget(manager, AttackRange);
+		if (target is not null)
+			AttackTarget = target;
+	}
+
+	void AcquireGuardTarget(float delta)
+	{
+		acquireTimer -= delta;
+		if (acquireTimer > 0f || BattleGameManager.Instance is not { } manager)
+			return;
+
+		acquireTimer = 0.45f;
+		AttackTarget = FindBestTarget(manager, AttackRange);
+	}
+
+	void ProcessPatrol(float delta)
+	{
+		if (BattleGameManager.Instance is not { } manager)
+			return;
+
+		acquireTimer -= delta;
+		if (acquireTimer <= 0f)
+		{
+			acquireTimer = 0.35f;
+			var target = FindBestTarget(manager, AttackRange * 1.45f);
+			if (target is not null)
+			{
+				AttackTarget = target;
+				return;
+			}
+		}
+
+		if (IsIdle())
+		{
+			patrolHeadingToB = !patrolHeadingToB;
+			TargetPosition = patrolHeadingToB ? patrolB : patrolA;
+		}
+	}
+
+	void ProcessGuard(float delta)
+	{
+		if (guardTarget is null || !GodotObject.IsInstanceValid(guardTarget) || guardTarget.IsDead)
+		{
+			Stop();
+			return;
+		}
+
+		if (BattleGameManager.Instance is not { } manager)
+			return;
+
+		acquireTimer -= delta;
+		if (acquireTimer <= 0f)
+		{
+			acquireTimer = 0.35f;
+			var target = FindBestTarget(manager, AttackRange * 1.8f);
+			if (target is not null && target.GlobalPosition.DistanceTo(guardTarget.GlobalPosition) <= 22f)
+			{
+				AttackTarget = target;
+				return;
+			}
+		}
+
+		if (GlobalPosition.DistanceTo(guardTarget.GlobalPosition) > 6f || IsIdle())
+			TargetPosition = NormalizeCommandPosition(GuardFollowPosition());
+	}
+
+	Vector3 GuardFollowPosition()
+	{
+		if (guardTarget is null || !GodotObject.IsInstanceValid(guardTarget))
+			return GlobalPosition;
+
+		var toSelf = GlobalPosition - guardTarget.GlobalPosition;
+		toSelf.Y = 0f;
+		var direction = toSelf.LengthSquared() > 0.1f ? toSelf.Normalized() : Vector3.Right;
+		return guardTarget.GlobalPosition + direction * 4f;
+	}
+
+	Node3D? FindBestTarget(BattleGameManager manager, float maxRange)
+	{
+		Node3D? target = null;
+		var maxDistanceSquared = maxRange * maxRange;
+		var bestScore = float.NegativeInfinity;
+
+		foreach (var unit in manager.GetUnits(!PlayerOwned))
+		{
+			if (!GodotObject.IsInstanceValid(unit) || unit.IsDead)
+				continue;
+			if (!BattleUnitCatalog.CanAttackTargetType(UnitKey, unit.UnitKey))
+				continue;
+			var distanceSquared = unit.GlobalPosition.DistanceSquaredTo(GlobalPosition);
+			if (distanceSquared > maxDistanceSquared)
+				continue;
+			var score = TargetPriorityScore(unit, distanceSquared);
+			if (score <= bestScore)
+				continue;
+			bestScore = score;
+			target = unit;
+		}
+
+		foreach (var building in manager.GetBuildings(!PlayerOwned))
+		{
+			if (!GodotObject.IsInstanceValid(building) || building.Health <= 0f)
+				continue;
+			var distanceSquared = building.GlobalPosition.DistanceSquaredTo(GlobalPosition);
+			if (distanceSquared > maxDistanceSquared)
+				continue;
+			var score = TargetPriorityScore(building, distanceSquared);
+			if (score <= bestScore)
+				continue;
+			bestScore = score;
+			target = building;
+		}
+
+		return target;
+	}
+
+	float TargetPriorityScore(Node3D target, float distanceSquared)
+	{
+		var score = 1000f - Mathf.Sqrt(distanceSquared) * 6f;
+		if (target is RtsUnit unit)
+		{
+			score += 260f; // 优先攻击所有能反击的敌方移动单位
+
+			var targetIsAir = BattleUnitCatalog.IsAirUnit(unit.UnitKey);
+			var targetIsInfantry = BattleUnitCatalog.IsInfantryLike(unit.UnitKey);
+			var targetIsNaval = BattleUnitCatalog.IsNavalUnit(unit.UnitKey);
+
+			if (targetIsAir)
+				score += UnitKey is "anti_air_gun" or "fighter" ? 520f : -380f;
+			if (UnitKey is "infantry_flamethrower" or "flamethrower" && targetIsInfantry)
+				score += 430f;
+			if (BattleUnitCatalog.IsInfantryLike(UnitKey) && targetIsInfantry)
+				score += 120f;
+			if (BattleUnitCatalog.IsNavalUnit(UnitKey) && targetIsNaval)
+				score += 300f;
+			if (UnitKey == "fighter" && targetIsAir)
+				score += 220f;
+		}
+		else if (target is RtsBuilding building)
+		{
+			score += -120f; // 大幅降低对非防御性建筑的默认攻击权重
+			if (UnitKey is "artillery" or "bomber" or "destroyer_ship" or "transport_ship")
+				score += 550f; // 攻城和轰炸单位依然优先轰炸建筑
+			if (UnitKey is "anti_air_gun" or "fighter")
+				score -= 360f;
+			if (building.IsDefenseTurret)
+				score += 280f; // 具有反击能力的炮塔，权重高一些
+		}
+
+		return score;
+	}
+
+	bool IsIdle()
+	{
+		var flatDelta = TargetPosition - GlobalPosition;
+		flatDelta.Y = 0f;
+		return flatDelta.LengthSquared() <= 0.05f;
+	}
+
+	bool ShouldBodyFaceAttackTarget()
+		=> BattleUnitCatalog.IsAirUnit(UnitKey)
+			|| BattleUnitCatalog.IsInfantryLike(UnitKey)
+			|| BattleUnitCatalog.IsNavalUnit(UnitKey)
+			|| weaponYawNode is null;
+
+	public void FaceDirectionImmediate(Vector3 direction)
+	{
+		direction.Y = 0f;
+		if (direction.LengthSquared() <= 0.0001f)
+			return;
+
+		Rotation = new Vector3(Rotation.X, ResolveFacingYaw(direction), Rotation.Z);
+	}
+
+	public void DebugForceRotateTurret(float degrees)
+	{
+		if (weaponYawNode is not null && GodotObject.IsInstanceValid(weaponYawNode))
+		{
+			weaponYawNode.Rotation = new Vector3(weaponYawNode.Rotation.X, Mathf.DegToRad(degrees), weaponYawNode.Rotation.Z);
+		}
+	}
+
+	float ResolveFacingYaw(Vector3 direction)
+		=> Mathf.Atan2(-direction.X, -direction.Z) + bodyFacingYawOffset;
+
+	void FaceDirection(Vector3 direction, float delta)
+	{
+		direction.Y = 0f;
+		if (direction.LengthSquared() <= 0.0001f)
+			return;
+
+		var targetYaw = ResolveFacingYaw(direction);
+		var currentYaw = Rotation.Y;
+		var turnStep = Mathf.Clamp(TurnSpeed * delta, 0f, 1f);
+		Rotation = new Vector3(Rotation.X, Mathf.LerpAngle(currentYaw, targetYaw, turnStep), Rotation.Z);
+	}
+
+	void UpdateWeaponAim(Vector3 target, bool groundAttack, float delta)
+	{
+		if (weaponYawNode is null && weaponPitchNode is null)
+			return;
+
+		if (!IsNodeReadyForWorldAim(weaponYawNode) || !IsNodeReadyForWorldAim(weaponPitchNode))
+			return;
+
+		var aimTarget = target;
+		aimTarget.Y = GlobalPosition.Y + (BattleUnitCatalog.IsArtilleryLike(visualKey) ? 2.3f : 0.65f);
+
+		if (weaponYawNode is not null)
+		{
+			var yawTarget = aimTarget;
+			yawTarget.Y = weaponYawNode.GlobalPosition.Y;
+			ApplySmoothLookAt(weaponYawNode, yawTarget, weaponYawLookOffset, delta, 8.5f);
+		}
+
+		if (weaponPitchNode is not null)
+		{
+			var pitchTarget = aimTarget;
+			if (BattleUnitCatalog.IsArtilleryLike(visualKey) || groundAttack)
+				pitchTarget.Y += Mathf.Clamp(AttackRange * 0.08f, 0.85f, 2.8f);
+			if (weaponPitchIsPivot)
+			{
+				var localTarget = weaponPitchNode.ToLocal(pitchTarget);
+				var desired = new Vector3(Mathf.Atan2(localTarget.Y, -localTarget.Z), 0f, 0f) + weaponPitchPivotOffset;
+				weaponPitchNode.Rotation = SmoothEuler(weaponPitchNode.Rotation, desired, delta, 7.5f);
+			}
+			else
+			{
+				ApplySmoothLookAt(weaponPitchNode, pitchTarget, weaponPitchLookOffset, delta, 7.5f);
+			}
+		}
+	}
+
+	bool IsWeaponYawAligned(Vector3 target)
+	{
+		// 如果没有独立的武器旋转炮塔（如普通步兵），身体在射程内即允许随时攻击，避免拥挤摩擦导致卡住无法开火
+		if (weaponYawNode is null)
+			return true;
+
+		var yawNode = weaponYawNode;
+		if (!IsNodeReadyForWorldAim(yawNode))
+			return false;
+
+		var toTarget = target - yawNode.GlobalPosition;
+		toTarget.Y = 0f;
+		if (toTarget.LengthSquared() <= 0.0001f)
+			return true;
+
+		var forward = ResolveAimForward(yawNode, weaponYawLookOffset);
+		forward.Y = 0f;
+		if (forward.LengthSquared() <= 0.0001f)
+			return true;
+
+		// 放宽旋转对齐容差（点积从 0.965f 降到 0.82f，即夹角约 35 度以内均可开火）
+		return forward.Normalized().Dot(toTarget.Normalized()) >= 0.82f;
+	}
+
+	static Vector3 ResolveAimForward(Node3D node, Vector3 lookOffset)
+	{
+		var localForward = Basis.FromEuler(lookOffset) * new Vector3(0f, 0f, -1f);
+		return node.GlobalTransform.Basis * localForward;
+	}
+
+	static void ApplySmoothLookAt(Node3D node, Vector3 target, Vector3 offset, float delta, float speed)
+	{
+		if (!IsNodeReadyForWorldAim(node))
+			return;
+
+		var previous = node.GlobalTransform;
+		node.LookAt(target, Vector3.Up, true);
+		var desiredRotation = node.Rotation + offset;
+		node.GlobalTransform = previous;
+		node.Rotation = SmoothEuler(node.Rotation, desiredRotation, delta, speed);
+	}
+
+	static bool IsNodeReadyForWorldAim(Node3D? node)
+		=> node is not null && GodotObject.IsInstanceValid(node) && node.IsInsideTree();
+
+	static Vector3 SmoothEuler(Vector3 current, Vector3 desired, float delta, float speed)
+	{
+		var t = 1f - Mathf.Exp(-Mathf.Max(0.01f, speed) * delta);
+		return new Vector3(
+			Mathf.LerpAngle(current.X, desired.X, t),
+			Mathf.LerpAngle(current.Y, desired.Y, t),
+			Mathf.LerpAngle(current.Z, desired.Z, t));
+	}
+
+	void ResolveVisualAnimationNames()
+	{
+		if (visualAnimationPlayers.Count == 0)
+			return;
+
+		foreach (var player in visualAnimationPlayers)
+		{
+			// 为所有动画播放器设置默认融合时间为 0.2 秒，使 idle, walk, fire 状态平滑过渡，消除生硬的关节跳转
+			player.PlaybackDefaultBlendTime = 0.2f;
+			foreach (var animation in player.GetAnimationList())
+			{
+				var name = animation.ToString();
+				var lower = name.ToLowerInvariant();
+				if (string.IsNullOrEmpty(walkAnimationName)
+					&& (lower.Contains("walk") || lower.Contains("run") || lower.Contains("move")))
+					walkAnimationName = name;
+				if (string.IsNullOrEmpty(idleAnimationName) && lower.Contains("idle"))
+					idleAnimationName = name;
+				if (string.IsNullOrEmpty(fireAnimationName)
+					&& (lower.Contains("fire") || lower.Contains("shoot") || lower.Contains("attack")))
+					fireAnimationName = name;
+			}
+		}
+	}
+
+	void CaptureInfantryVisualParts(Node3D root)
+	{
+		if (!BattleUnitCatalog.IsInfantryLike(visualKey))
+			return;
+
+		// 如果模型拥有标准的骨骼动画播放器，就不应捕获骨骼进行手脚摆动的纯逻辑二次覆盖，避免冲突导致频繁抖动/闪烁
+		if (visualAnimationPlayers.Count > 0)
+			return;
+
+		var allNodes = root.FindChildren("*", "Node3D", true, false)
+			.OfType<Node3D>()
+			.ToArray();
+		var bodyNodes = allNodes
+			.Where(node => IsInfantryBodyNode(node, root))
+			.Where(node => !HasInfantryBodyAncestor(node, root))
+			.ToList();
+		if (bodyNodes.Count == 0)
+			bodyNodes.Add(root);
+
+		for (var i = 0; i < bodyNodes.Count; i++)
+			AddAnimatedInfantryPart(bodyNodes[i], InfantryVisualPartKind.Body, i * 1.7f);
+
+		foreach (var node in allNodes)
+		{
+			if (!TryResolveInfantryPartKind(node.Name.ToString(), out var kind))
+				continue;
+			var bodyIndex = FindInfantryBodyIndex(node, bodyNodes);
+			AddAnimatedInfantryPart(node, kind, bodyIndex * 1.7f);
+		}
+	}
+
+	void AddAnimatedInfantryPart(Node3D node, InfantryVisualPartKind kind, float phase)
+	{
+		if (infantryVisualParts.Any(part => part.Node == node))
+			return;
+
+		infantryVisualParts.Add(new AnimatedVisualPart
+		{
+			Node = node,
+			RestPosition = node.Position,
+			RestRotation = node.Rotation,
+			Phase = phase,
+			Kind = kind
+		});
+	}
+
+	static bool IsInfantryBodyNode(Node3D node, Node3D root)
+	{
+		if (node == root)
+			return false;
+
+		var lower = node.Name.ToString().ToLowerInvariant();
+		return !lower.Contains("squad")
+			&& (lower.StartsWith("infantry_")
+				|| lower.StartsWith("soldier")
+				|| lower.StartsWith("rifleman")
+				|| lower.StartsWith("trooper"));
+	}
+
+	static bool HasInfantryBodyAncestor(Node3D node, Node3D root)
+	{
+		var parent = node.GetParent();
+		while (parent is Node3D parent3D && parent3D != root)
+		{
+			if (IsInfantryBodyNode(parent3D, root))
+				return true;
+			parent = parent.GetParent();
+		}
+		return false;
+	}
+
+	static bool TryResolveInfantryPartKind(string name, out InfantryVisualPartKind kind)
+	{
+		var lower = name.ToLowerInvariant().Replace("_", "").Replace("-", "");
+		if (lower.Contains("strideleftleg") || lower.Contains("leftleg"))
+		{
+			kind = InfantryVisualPartKind.LeftLeg;
+			return true;
+		}
+
+		if (lower.Contains("striderightleg") || lower.Contains("rightleg"))
+		{
+			kind = InfantryVisualPartKind.RightLeg;
+			return true;
+		}
+
+		if (lower.Contains("strideleftarm") || lower.Contains("leftarm"))
+		{
+			kind = InfantryVisualPartKind.LeftArm;
+			return true;
+		}
+
+		if (lower.Contains("striderightarm") || lower.Contains("rightarm"))
+		{
+			kind = InfantryVisualPartKind.RightArm;
+			return true;
+		}
+
+		kind = InfantryVisualPartKind.Body;
+		return false;
+	}
+
+	static int FindInfantryBodyIndex(Node3D node, IReadOnlyList<Node3D> bodyNodes)
+	{
+		var parent = node.GetParent();
+		while (parent is Node3D parent3D)
+		{
+			for (var i = 0; i < bodyNodes.Count; i++)
+			{
+				if (bodyNodes[i] == parent3D)
+					return i;
+			}
+			parent = parent.GetParent();
+		}
+		return Mathf.Max(0, bodyNodes.Count - 1);
+	}
+
+	void CapturePropellerNodes(Node3D root)
+	{
+		if (!BattleUnitCatalog.IsAirUnit(visualKey) && visualKey != "submarine" && !BattleUnitCatalog.IsNavalUnit(visualKey))
+			return;
+
+		if (visualKey == "submarine" || UnitKey == "submarine")
+		{
+			var propRig = root.FindChild("SubmarinePropellerRig", true, false) as Node3D;
+			if (propRig == null)
+			{
+				var firstBlade = root.FindChildren("Plane_00*", "MeshInstance3D", true, false)
+					.OfType<MeshInstance3D>()
+					.FirstOrDefault(m => m.Position.Z > 4.5f);
+
+				if (firstBlade != null && firstBlade.GetParent() is Node3D parentNode)
+				{
+					var blades = parentNode.FindChildren("Plane_00*", "MeshInstance3D", false, false)
+						.OfType<MeshInstance3D>()
+						.ToList();
+					var hub = parentNode.FindChild("Cylinder_001", false, false) as MeshInstance3D;
+
+					if (blades.Count > 0)
+					{
+						var pivotPos = hub != null ? hub.Position : Vector3.Zero;
+						if (pivotPos == Vector3.Zero)
+						{
+							foreach (var b in blades)
+								pivotPos += b.Position;
+							pivotPos /= blades.Count;
+						}
+
+						propRig = new Node3D
+						{
+							Name = "SubmarinePropellerRig",
+							Position = pivotPos
+						};
+						parentNode.AddChild(propRig);
+
+						foreach (var blade in blades)
+						{
+							var oldPos = blade.Position;
+							blade.Reparent(propRig, false);
+							blade.Position = oldPos - propRig.Position;
+						}
+						if (hub != null)
+						{
+							var oldPos = hub.Position;
+							hub.Reparent(propRig, false);
+							hub.Position = oldPos - propRig.Position;
+						}
+					}
+				}
+			}
+
+			if (propRig != null && !propellerNodes.Contains(propRig))
+			{
+				propellerNodes.Add(propRig);
+				return;
+			}
+
+			var customProp = root.FindChild("SubmarinePropeller", true, false) as Node3D;
+			if (customProp != null && !propellerNodes.Contains(customProp))
+			{
+				propellerNodes.Add(customProp);
+				return;
+			}
+		}
+
+		var allNodes = root.FindChildren("*", "Node3D", true, false)
+			.OfType<Node3D>()
+			.ToArray();
+		var primaryNodes = allNodes.Where(IsPrimaryPropellerNode).ToArray();
+		foreach (var node in primaryNodes)
+		{
+			if (!HasCapturedPropellerAncestor(node))
+				propellerNodes.Add(node);
+		}
+
+		if (propellerNodes.Count > 0)
+			return;
+
+		foreach (var node in allNodes.Where(IsFallbackPropellerNode))
+		{
+			if (!HasCapturedPropellerAncestor(node))
+				propellerNodes.Add(node);
+		}
+	}
+
+	bool HasCapturedPropellerAncestor(Node3D node)
+	{
+		var parent = node.GetParent();
+		while (parent is Node3D parent3D)
+		{
+			if (propellerNodes.Contains(parent3D))
+				return true;
+			parent = parent.GetParent();
+		}
+		return false;
+	}
+
+	static bool IsPrimaryPropellerNode(Node3D node)
+	{
+		var lower = node.Name.ToString().ToLowerInvariant();
+		return !lower.Contains("blade")
+			&& !lower.Contains("hub")
+			&& !lower.Contains("blur")
+			&& (lower.Contains("propeller")
+				|| lower.Contains("rotor")
+				|| lower == "prop"
+				|| lower.StartsWith("prop_")
+				|| lower.StartsWith("prop-"));
+	}
+
+	static bool IsFallbackPropellerNode(Node3D node)
+	{
+		var lower = node.Name.ToString().ToLowerInvariant();
+		return lower.Contains("propeller")
+			|| lower.Contains("prop")
+			|| lower.Contains("rotor")
+			|| lower.Contains("blade");
+	}
+
+	void UpdateVisualState(float delta)
+	{
+		var actuallyMoving = Velocity.LengthSquared() > 0.08f || bombingRunActive || parkingAtAirfield;
+		if (actuallyMoving)
+		{
+			stationaryDuration = 0f;
+		}
+		else
+		{
+			stationaryDuration += delta;
+		}
+
+		// 采用非对称移动状态过滤（滞后滤波器）：起步瞬时判定为走，但停止动画延迟 0.22 秒触发。
+		// 这避免了单位在寻路、绕路时因单帧速度骤减为 0 而频繁在 walk/idle 间来回闪烁闪现。
+		var moving = actuallyMoving || (stationaryDuration < 0.22f);
+		UpdateAnimationPlayback(moving, delta);
+		UpdateInfantryStride(moving);
+		UpdatePropellers(delta, moving);
+
+		// 步兵写实视觉特效：行进微步扬尘、射击后坐力微动、迫击炮蹲姿联动
+		if (BattleUnitCatalog.IsInfantryLike(UnitKey))
+		{
+			UpdateInfantryVisualEffects(actuallyMoving, delta);
+		}
+
+		// 如果是舰船或潜艇单位，在真实行驶/漂浮状态下更新水面浪花、波纹粒子及螺旋桨推进旋转
+		if (BattleUnitCatalog.IsNavalUnit(UnitKey) || UnitKey == "submarine" || visualKey == "submarine")
+		{
+			UpdateNavalWaves(actuallyMoving, delta);
+		}
+
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+		{
+			UpdateJetExhaust(actuallyMoving, delta);
+
+			// 真实战机气动转弯倾斜（Bank Roll）与机头俯仰平滑
+			if (visualRoot is not null)
+			{
+				float yawDelta = Mathf.AngleDifference(Rotation.Y, lastRecordedYaw);
+				lastRecordedYaw = Rotation.Y;
+				float yawRate = yawDelta / Mathf.Max(0.001f, delta);
+				float targetRoll = Mathf.Clamp(-yawRate * 0.12f, -0.65f, 0.65f); // 侧倾最大约 37 度
+				currentBankRoll = Mathf.LerpAngle(currentBankRoll, targetRoll, delta * 6.5f);
+
+				var baseRot = visualRoot.Rotation;
+				visualRoot.Rotation = new Vector3(baseRot.X, baseRot.Y, baseVisualRoll + currentBankRoll);
+			}
+		}
+
+		UpdatePropellers(delta, actuallyMoving);
+
+		// 地形坡度贴合：使陆地战车/单位 3D 模型在驶入深坑、凹陷河谷或斜坡时自动发生倾斜 (Pitch & Roll Alignment)
+		if (visualRoot is not null && !BattleUnitCatalog.IsAirUnit(UnitKey) && !BattleUnitCatalog.IsNavalUnit(UnitKey))
+		{
+			Vector3 targetNormal = SampleGroundNormal();
+			currentNormal = currentNormal.Lerp(targetNormal, 14f * delta).Normalized();
+
+			var savedScale = visualRoot.Scale;
+			if (currentNormal.DistanceSquaredTo(Vector3.Up) > 0.0001f)
+			{
+				// 将世界坐标系下的地面法向量转换到单位本地坐标系，仅计算 Pitch/Roll 倾斜，绝不颠倒车头朝向
+				Vector3 localNormal = (GlobalTransform.Basis.Inverse() * currentNormal).Normalized();
+				var q = new Quaternion(Vector3.Up, localNormal);
+				visualRoot.Quaternion = q;
+			}
+			else
+			{
+				visualRoot.Quaternion = Quaternion.Identity;
+			}
+			visualRoot.Scale = savedScale;
+		}
+	}
+
+	Vector3 SampleGroundNormal()
+	{
+		var world3D = GetWorld3D();
+		if (world3D is null) return Vector3.Up;
+		var spaceState = world3D.DirectSpaceState;
+		if (spaceState is null) return Vector3.Up;
+
+		var center = GlobalPosition;
+		var query = PhysicsRayQueryParameters3D.Create(center + Vector3.Up * 10f, center + Vector3.Down * 25f);
+		query.CollisionMask = 1;
+		var hit = spaceState.IntersectRay(query);
+		if (hit.Count > 0 && hit.ContainsKey("normal"))
+		{
+			var norm = hit["normal"].AsVector3();
+			return norm.Y > 0.1f ? norm : Vector3.Up;
+		}
+
+		return IsOnFloor() ? GetFloorNormal() : Vector3.Up;
+	}
+
+	void UpdateAnimationPlayback(bool moving, float delta)
+	{
+		if (visualAnimationPlayers.Count == 0)
+			return;
+
+		if (visualAnimationLockRemaining > 0f)
+		{
+			visualAnimationLockRemaining = Mathf.Max(0f, visualAnimationLockRemaining - delta);
+			return;
+		}
+
+		var next = moving && !string.IsNullOrEmpty(walkAnimationName)
+			? walkAnimationName
+			: idleAnimationName;
+
+		// 根据当前真实物理位移速度动态伸缩步态播放速率，完全消除“滑步 (Foot Skating)”现象
+		foreach (var player in visualAnimationPlayers)
+		{
+			float currentSpeed = Velocity.Length();
+			float speedRatio = Mathf.Clamp(currentSpeed / Mathf.Max(0.1f, MoveSpeed), 0.35f, 1.35f);
+			float targetSpeed = moving && next == walkAnimationName
+				? speedRatio * 1.05f
+				: 1.0f;
+			player.SpeedScale = Mathf.Lerp((float)player.SpeedScale, targetSpeed, (float)delta * 12.0f);
+		}
+
+		if (string.IsNullOrEmpty(next) || next == currentVisualAnimationName)
+			return;
+
+		foreach (var player in visualAnimationPlayers)
+		{
+			if (player.HasAnimation(next))
+				player.Play(next, customBlend: 0.22f);
+		}
+		currentVisualAnimationName = next;
+	}
+
+	void PlayFireVisualAnimation()
+	{
+		TriggerInfantryFireVisuals();
+
+		if (visualAnimationPlayers.Count == 0 || string.IsNullOrEmpty(fireAnimationName))
+			return;
+
+		foreach (var player in visualAnimationPlayers)
+		{
+			if (player.HasAnimation(fireAnimationName))
+				player.Play(fireAnimationName);
+		}
+		currentVisualAnimationName = fireAnimationName;
+		var animation = visualAnimationPlayers
+			.Select(player => player.HasAnimation(fireAnimationName) ? player.GetAnimation(fireAnimationName) : null)
+			.FirstOrDefault(candidate => candidate is not null);
+		visualAnimationLockRemaining = animation is null
+			? 0.18f
+			: Mathf.Min(AttackCooldown * 0.85f, Mathf.Max(0.12f, (float)animation.Length * 0.92f));
+	}
+
+	void UpdateInfantryStride(bool moving)
+	{
+		if (infantryVisualParts.Count == 0)
+			return;
+
+		// 根据实际运动速度按比例调节步伐周期
+		float speedRatio = Velocity.Length() / Mathf.Max(0.1f, MoveSpeed);
+		var stride = moving ? visualMotionTime * (6.5f + 4.0f * speedRatio) : 0f;
+
+		foreach (var part in infantryVisualParts)
+		{
+			var wave = Mathf.Sin(stride + part.Phase);
+			var counterWave = Mathf.Sin(stride + part.Phase + Mathf.Pi);
+			switch (part.Kind)
+			{
+				case InfantryVisualPartKind.LeftLeg:
+					ApplyInfantryLimbStride(part, moving, wave, 0.42f);
+					break;
+				case InfantryVisualPartKind.RightLeg:
+					ApplyInfantryLimbStride(part, moving, counterWave, 0.42f);
+					break;
+				case InfantryVisualPartKind.LeftArm:
+					ApplyInfantryLimbStride(part, moving, counterWave, 0.30f);
+					break;
+				case InfantryVisualPartKind.RightArm:
+					ApplyInfantryLimbStride(part, moving, wave, 0.30f);
+					break;
+				default:
+					// 躯干上下起伏与偏航/侧倾 - 适当改小以防止士兵产生夸张的“弹簧震动”
+					var bob = moving ? Mathf.Abs(wave) * 0.022f : 0f;
+					var forwardStep = moving ? Mathf.Cos(stride + part.Phase) * 0.012f : 0f;
+					var sideSway = moving ? Mathf.Sin(stride * 0.5f + part.Phase) * 0.006f : 0f;
+					var lean = moving ? wave * 0.022f : 0f;
+					part.Node.Position = part.RestPosition + new Vector3(sideSway, bob, forwardStep);
+					part.Node.Rotation = part.RestRotation + new Vector3(lean * 0.45f, lean * 0.65f, lean);
+					break;
+			}
+		}
+	}
+
+	static void ApplyInfantryLimbStride(AnimatedVisualPart part, bool moving, float wave, float swing)
+	{
+		if (!moving)
+		{
+			part.Node.Position = part.RestPosition;
+			part.Node.Rotation = part.RestRotation;
+			return;
+		}
+
+		// 仅在 Y 轴做极小的提足抬升（最大 0.015m），移除 Z 轴前后平移以防肢体关节脱臼分离
+		float yOffset = (part.Kind == InfantryVisualPartKind.LeftLeg || part.Kind == InfantryVisualPartKind.RightLeg)
+			? Mathf.Abs(wave) * 0.015f
+			: 0f;
+
+		part.Node.Position = part.RestPosition + new Vector3(0f, yOffset, 0f);
+		// 主轴在 X 轴前后摆动，并提供微小的 Z 轴 Roll 偏角以保持身形协调而不再外八字外翻
+		part.Node.Rotation = part.RestRotation + new Vector3(wave * swing, 0f, wave * swing * 0.04f);
+	}
+
+	void TriggerInfantryFireVisuals()
+	{
+		if (!BattleUnitCatalog.IsInfantryLike(UnitKey))
+			return;
+
+		infantryRecoil = 1.0f;
+
+		var forward = -GlobalTransform.Basis.Z;
+		var right = -GlobalTransform.Basis.X;
+		var targetPos = AttackTarget is not null && GodotObject.IsInstanceValid(AttackTarget)
+			? AttackTarget.GlobalPosition
+			: (GlobalPosition + forward * 6f);
+		var muzzlePos = CombatProjectile.ResolveMuzzlePosition(this, targetPos);
+
+		if (UnitKey == "infantry_artillery")
+		{
+			CombatProjectile.SpawnBackblastEffect(this, GlobalPosition, forward);
+		}
+		else if (UnitKey is "infantry" or "rifleman")
+		{
+			CombatProjectile.SpawnCartridgeEjection(this, muzzlePos, forward, right);
+		}
+	}
+
+	void UpdateInfantryVisualEffects(bool actuallyMoving, float delta)
+	{
+		// 1. 步兵行进踏步扬尘 (Footstep Dust)
+		if (actuallyMoving && IsOnFloor() && !IsDead)
+		{
+			float speed = Velocity.Length();
+			float stepRate = Mathf.Clamp(speed * 2.8f, 1.2f, 4.5f);
+			infantryFootstepTimer += delta * stepRate;
+			if (infantryFootstepTimer >= 1.0f)
+			{
+				infantryFootstepTimer = 0f;
+				infantryFootstepSide = (infantryFootstepSide + 1) % 2;
+				float sideSign = infantryFootstepSide == 0 ? -1f : 1f;
+				Vector3 right = -GlobalTransform.Basis.X;
+				Vector3 forward = -GlobalTransform.Basis.Z;
+
+				if (visualRoot is not null && visualRoot.GetChildCount() > 0)
+				{
+					foreach (var child in visualRoot.GetChildren())
+					{
+						if (child is Node3D soldierNode)
+						{
+							Vector3 soldierPos = soldierNode.GlobalPosition;
+							Vector3 footPos = soldierPos + right * (sideSign * 0.12f) - forward * 0.05f;
+							footPos.Y = GlobalPosition.Y + 0.02f;
+							CombatProjectile.SpawnFootstepDust(this, footPos);
+						}
+					}
+				}
+				else
+				{
+					Vector3 footPos = GlobalPosition + right * (sideSign * 0.14f) - forward * 0.05f;
+					footPos.Y = GlobalPosition.Y + 0.02f;
+					CombatProjectile.SpawnFootstepDust(this, footPos);
+				}
+			}
+		}
+		else
+		{
+			infantryFootstepTimer = 0.5f;
+		}
+
+		// 2. 迫击炮兵蹲姿与所有步兵开火后坐力微动混合
+		bool isArtillery = visualKey == "infantry_artillery";
+		if (isArtillery)
+		{
+			bool isFiring = visualAnimationLockRemaining > 0f && currentVisualAnimationName == fireAnimationName;
+			float targetCrouch = isFiring ? 1f : 0f;
+			crouchRatio = Mathf.Lerp(crouchRatio, targetCrouch, delta * 12f);
+		}
+		else
+		{
+			crouchRatio = 0f;
+		}
+
+		if (infantryRecoil > 0.001f)
+		{
+			infantryRecoil = Mathf.Lerp(infantryRecoil, 0f, delta * 16.0f);
+		}
+
+		// 3. 将蹲姿偏移与后坐力回弹融合应用到士兵模型节点
+		if (visualRoot is not null && (crouchRatio > 0.001f || infantryRecoil > 0.001f))
+		{
+			foreach (var child in visualRoot.GetChildren())
+			{
+				if (child is Node3D soldierNode)
+				{
+					var modelNode = soldierNode.GetNodeOrNull<Node3D>("Model") ?? soldierNode.GetNodeOrNull<Node3D>("Body");
+					if (modelNode is not null)
+					{
+						if (!modelNode.HasMeta("original_pos"))
+						{
+							modelNode.SetMeta("original_pos", modelNode.Position);
+							modelNode.SetMeta("original_rot", modelNode.Rotation);
+						}
+
+						Vector3 origPos = modelNode.GetMeta("original_pos").AsVector3();
+						Vector3 origRot = modelNode.GetMeta("original_rot").AsVector3();
+
+						float crouchHeight = 0.36f * crouchRatio;
+						float crouchTilt = -0.39f * crouchRatio;
+						float crouchForward = -0.15f * crouchRatio;
+
+						// 后坐力向后微退 0.042m，枪口上扬微倾 0.065 rad (~3.7度)
+						float kickback = 0.042f * infantryRecoil;
+						float kickPitch = -0.065f * infantryRecoil;
+
+						modelNode.Position = origPos + new Vector3(0f, -crouchHeight, crouchForward + kickback);
+						modelNode.Rotation = origRot + new Vector3(crouchTilt + kickPitch, 0f, 0f);
+					}
+				}
+			}
+		}
+		else if (visualRoot is not null && crouchRatio <= 0.001f && infantryRecoil <= 0.001f)
+		{
+			foreach (var child in visualRoot.GetChildren())
+			{
+				if (child is Node3D soldierNode)
+				{
+					var modelNode = soldierNode.GetNodeOrNull<Node3D>("Model") ?? soldierNode.GetNodeOrNull<Node3D>("Body");
+					if (modelNode is not null && modelNode.HasMeta("original_pos"))
+					{
+						Vector3 origPos = modelNode.GetMeta("original_pos").AsVector3();
+						Vector3 origRot = modelNode.GetMeta("original_rot").AsVector3();
+						if (modelNode.Position != origPos) modelNode.Position = origPos;
+						if (modelNode.Rotation != origRot) modelNode.Rotation = origRot;
+					}
+				}
+			}
+		}
+	}
+
+	void UpdatePropellers(float delta, bool moving)
+	{
+		if (propellerNodes.Count == 0)
+			return;
+
+		var isSub = UnitKey == "submarine" || visualKey == "submarine";
+		if (!moving && (isSub || BattleUnitCatalog.IsNavalUnit(UnitKey)))
+			return;
+
+		var speed = isSub ? 42f : (parkedAtAirfield ? 11f : moving ? 58f : 36f);
+
+		foreach (var propeller in propellerNodes)
+		{
+			propeller.RotateObjectLocal(Vector3.Forward, speed * delta);
+		}
+	}
+
+	void ClearQueuedMovement()
+	{
+		queuedMoveTargets.Clear();
+		holdPosition = false;
+	}
+
+	void ClearSpecialOrders()
+	{
+		CancelBombingRun();
+		parkingAtAirfield = false;
+		parkedAtAirfield = false;
+	}
+
+	void CancelBombingRun()
+	{
+		bombingRunActive = false;
+		bombingRunOnAttackLeg = false;
+		bombingRunVolleyReleased = false;
+		bombingRunReleaseDistance = 0f;
+	}
+
+	void ParkAtAirfield()
+	{
+		parkingAtAirfield = false;
+		parkedAtAirfield = true;
+		TargetPosition = parkedPosition;
+		Velocity = Vector3.Zero;
+		GlobalPosition = new Vector3(parkedPosition.X, AirfieldParkingHeight, parkedPosition.Z);
+	}
+
+	async void ReleaseBombingRunVolley()
+	{
+		bombingRunVolleyReleased = true;
+		var releaseCenter = bombingRunStart + bombingRunDirection * bombingRunReleaseDistance;
+		var bombDamage = Mathf.Max(1f, AttackDamage * BomberDamageMultiplier);
+
+		int totalBombs = 6;
+		for (int i = 0; i < totalBombs; i++)
+		{
+			if (!GodotObject.IsInstanceValid(this) || IsDead) break;
+
+			float forwardStep = (i - (totalBombs - 1) * 0.5f) * 3.6f;
+			float sideJitter = (i % 2 == 0 ? -1f : 1f) * 1.5f;
+			Vector3 impactPoint = releaseCenter + bombingRunDirection * forwardStep + bombingRunPerpendicular * sideJitter;
+			impactPoint.Y = 0f;
+
+			CombatProjectile.SpawnAerialBomb(this, this, impactPoint, bombDamage, PlayerOwned);
+
+			// 间隔 0.10 秒连续下挂投弹，在空中形成从机腹投掷弹药自由落体、地面地毯式爆炸波效果
+			await ToSignal(GetTree().CreateTimer(0.10f), SceneTreeTimer.SignalName.Timeout);
+		}
+	}
+
+	Vector3 ComputeBombingRunJitter(int bombIndex)
+	{
+		var seed = NetId != 0 ? NetId : (int)(GetInstanceId() & 0x7fffffff);
+		var noiseA = Mathf.Sin((seed * 0.731f + bombIndex * 1.913f + 0.37f) * 12.9898f);
+		var noiseB = Mathf.Sin((seed * 1.117f + bombIndex * 2.357f + 1.19f) * 78.233f);
+		return bombingRunDirection * (noiseA * BomberImpactJitter)
+			 + bombingRunPerpendicular * (noiseB * BomberImpactJitter);
+	}
+
+	void PreparePanzerTurretRig(Node3D root)
+	{
+		if (root.FindChild("TurretPivot", true, false) is not null)
+			return;
+
+		var turretAnchor = root.FindChild("turret_exterior", true, false) as Node3D
+			?? root.FindChild("mantlet_inner", true, false) as Node3D;
+		if (turretAnchor is null)
+			return;
+
+		var rigRoot = turretAnchor.GetParent() as Node3D;
+		if (rigRoot is null)
+			return;
+
+		var gunPivotAnchor = root.FindChild("mantlet_inner", true, false) as Node3D
+			?? root.FindChild("barrel", true, false) as Node3D;
+		var gunAnchor = root.FindChild("barrel", true, false) as Node3D;
+		if (gunPivotAnchor is null || gunAnchor is null)
+			return;
+
+		var turretAnchorPos = turretAnchor.Position;
+
+		var turretPivot = new Node3D
+		{
+			Name = "TurretPivot",
+			Position = turretAnchorPos
+		};
+		rigRoot.AddChild(turretPivot);
+
+		var gunPivot = new Node3D
+		{
+			Name = "GunPivot",
+			Position = gunPivotAnchor.Position - turretAnchorPos
+		};
+		turretPivot.AddChild(gunPivot);
+
+		var candidates = rigRoot.GetChildren().OfType<Node3D>().ToArray();
+		foreach (var child in candidates)
+		{
+			if (child == turretPivot)
+				continue;
+			if (!BelongsToPanzerTurret(child.Name))
+				continue;
+
+			var originalPosition = child.Position;
+			rigRoot.RemoveChild(child);
+			if (BelongsToPanzerGun(child.Name))
+			{
+				gunPivot.AddChild(child);
+				child.Position = originalPosition - turretAnchorPos - gunPivot.Position;
+			}
+			else
+			{
+				turretPivot.AddChild(child);
+				child.Position = originalPosition - turretAnchorPos;
+			}
+		}
+	}
+
+	static void HidePanzerInteriorVisuals(Node3D root)
+	{
+		foreach (var mesh in root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>())
+		{
+			if (IsPanzerInteriorVisual(mesh.Name))
+				mesh.Visible = false;
+		}
+	}
+
+	static bool IsPanzerExteriorTurretDetail(string lower)
+	{
+		return lower is "turret_exterior"
+			|| lower.Contains("turret_door")
+			|| lower.Contains("turret_sideslit")
+			|| (lower.Contains("hatch") && !lower.Contains("driver") && !lower.Contains("radioman"))
+			|| lower.Contains("cmdr_hatch")
+			|| lower.Contains("cupola")
+			|| lower.Contains("lever_gunner_door")
+			|| lower.Contains("lever_loader_door")
+			|| lower.StartsWith("mantlet")
+			|| lower.StartsWith("barrel");
+	}
+
+	static bool IsPanzerInteriorVisual(string name)
+	{
+		var lower = name.ToLowerInvariant();
+		if (IsPanzerExteriorTurretDetail(lower))
+			return false;
+
+		return lower is "gun"
+			or "floor"
+			or "floor_circle"
+			or "recoil_guard"
+			or "electricals"
+			or "gyro"
+			or "trigger"
+			or "wires"
+			or "driver_panel"
+			or "cupola_details"
+			or "gunner_sight"
+			or "driver_block"
+			or "driver_slit"
+			or "radioman_hatch"
+			or "driver_hatch"
+			or "hull_sideport_driver"
+			or "cupola_exterior"
+			or "cupola_rim"
+			or "gunner_front_port"
+			or "loader_front_port"
+			|| lower.StartsWith("turret_interior")
+			|| lower.StartsWith("turret_details")
+			|| lower.StartsWith("cmdr_hatch_")
+			|| lower.StartsWith("turret_door_")
+			|| lower.StartsWith("turret_sideslit_")
+			|| lower.StartsWith("breech")
+			|| lower.StartsWith("ammo_bin_")
+			|| lower.StartsWith("shell.")
+			|| lower.StartsWith("mg_ammo_")
+			|| lower.StartsWith("lever_")
+			|| lower.StartsWith("switch_")
+			|| lower.StartsWith("gunner_")
+			|| lower.StartsWith("loader_");
+	}
+
+	void PrepareArtilleryGunRig(Node3D root)
+	{
+		if (root.GetNodeOrNull<Node3D>("GunPivot") is not null)
+			return;
+
+		MeshInstance3D? barrelCandidate = root.GetNodeOrNull<MeshInstance3D>("object_6");
+		var bestScore = 0f;
+		foreach (var mesh in root.GetChildren().OfType<MeshInstance3D>())
+		{
+			if (mesh.Mesh is null)
+				continue;
+
+			var size = mesh.Mesh.GetAabb().Size.Abs();
+			var dims = new[] { size.X, size.Y, size.Z }.OrderByDescending(value => value).ToArray();
+			if (dims[1] <= 0.0001f)
+				continue;
+
+			var score = dims[0] / dims[1];
+			if (dims[0] < 2f || score <= bestScore || (barrelCandidate is not null && mesh != barrelCandidate))
+				continue;
+
+			bestScore = score;
+			barrelCandidate = mesh;
+		}
+
+		if (barrelCandidate is null)
+			return;
+
+		var pivot = new Node3D
+		{
+			Name = "GunPivot",
+			Position = barrelCandidate.Position
+		};
+		root.AddChild(pivot);
+		root.RemoveChild(barrelCandidate);
+		pivot.AddChild(barrelCandidate);
+		barrelCandidate.Position = Vector3.Zero;
+	}
+
+	static bool BelongsToPanzerTurret(string name)
+	{
+		var lower = name.ToLowerInvariant();
+		return !IsPanzerInteriorVisual(lower) && IsPanzerExteriorTurretDetail(lower);
+	}
+
+	static bool BelongsToPanzerGun(string name)
+	{
+		var lower = name.ToLowerInvariant();
+		return lower.StartsWith("barrel")
+			|| lower.StartsWith("mantlet");
+	}
+
+	public void DebugDumpPanzerVisibleNodes()
+	{
+		if (visualRoot is not Node3D root)
+			return;
+
+		if (visualKey is not "tank" and not "medium_tank")
+			return;
+
+		foreach (var node in EnumerateDebugNodes(root))
+		{
+			if (node is not VisualInstance3D visual || !visual.Visible)
+				continue;
+
+			var lower = node.Name.ToString().ToLowerInvariant();
+			if (!lower.Contains("turret")
+				&& !lower.Contains("cupola")
+				&& !lower.Contains("hatch")
+				&& !lower.Contains("door")
+				&& !lower.Contains("barrel")
+				&& !lower.Contains("mantlet")
+				&& !lower.Contains("floor")
+				&& !lower.Contains("breech")
+				&& !lower.Contains("gunner")
+				&& !lower.Contains("loader")
+				&& !lower.Contains("driver"))
+				continue;
+
+			GD.Print($"PANZER_VISIBLE {Name} :: {node.Name} class={node.GetClass()} parent={node.GetParent()?.Name} pos={node.Position} gpos={node.GlobalPosition}");
+		}
+
+		static IEnumerable<Node3D> EnumerateDebugNodes(Node3D parent)
+		{
+			foreach (var child in parent.GetChildren().OfType<Node3D>())
+			{
+				yield return child;
+				foreach (var descendant in EnumerateDebugNodes(child))
+					yield return descendant;
+			}
+		}
+	}
+
+	bool IsLiveEnemyTarget(Node3D target)
+		=> target switch
+		{
+			RtsUnit unit => unit.PlayerOwned != PlayerOwned && !unit.IsDead && unit.FogRevealed,
+			RtsBuilding building => building.PlayerOwned != PlayerOwned && building.Health > 0f && building.FogRevealed,
+			_ => GodotObject.IsInstanceValid(target)
+		};
+
+	float GetUnitHealthBarHeight()
+	{
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+			return 2.95f;
+		if (UnitKey.StartsWith("infantry"))
+			return 2.05f; // 步兵血条位于 2.05m 高度，精准悬浮于步兵头顶上方
+		if (UnitKey.Contains("light_tank"))
+			return 1.65f;
+		return 2.05f; // 战车血条 2.05m 高度
+	}
+
+	float GetUnitHealthBarWidth()
+	{
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+			return 2.8f;
+		if (UnitKey.StartsWith("infantry"))
+			return 0.9f; // 步兵血条缩窄为0.9m宽，匹配身形
+		return 2.2f;
+	}
+
+	void EnsureCombatOverlays()
+	{
+		var healthBar = GetNodeOrNull<WorldHealthBar3D>("WorldHealthBar");
+		if (healthBar is null)
+		{
+			var isAir = BattleUnitCatalog.IsAirUnit(UnitKey);
+			var bar = new WorldHealthBar3D
+			{
+				Name = "WorldHealthBar",
+				Width = GetUnitHealthBarWidth(),
+				HeightOffset = GetUnitHealthBarHeight(),
+				Depth = isAir ? 0.20f : 0.18f,
+				Position = SelectionRingPosition() + new Vector3(0f, GetUnitHealthBarHeight(), 0f)
+			};
+			AddChild(bar);
+		}
+		else
+		{
+			healthBar.Position = SelectionRingPosition() + new Vector3(0f, GetUnitHealthBarHeight(), 0f);
+		}
+
+		selectionRing = GetNodeOrNull<MeshInstance3D>("SelectionRing");
+		if (selectionRing is null)
+		{
+			selectionRing = new MeshInstance3D
+			{
+				Name = "SelectionRing",
+				Position = SelectionRingPosition(),
+				Mesh = new TorusMesh
+				{
+					InnerRadius = SelectionRingRadius(),
+					OuterRadius = SelectionRingRadius() + 0.10f,
+					RingSegments = 48
+				},
+				MaterialOverride = new StandardMaterial3D
+				{
+					AlbedoColor = PlayerOwned
+						? new Color(0.20f, 0.82f, 1f, 0.86f)
+						: new Color(1f, 0.34f, 0.20f, 0.86f),
+					Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+					ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
+				},
+				Scale = SelectionRingScale(),
+				Visible = false
+			};
+			AddChild(selectionRing);
+		}
+		else
+		{
+			selectionRing.Scale = SelectionRingScale();
+		}
+
+		techRing = GetNodeOrNull<MeshInstance3D>("TechRing");
+		if (techRing is null)
+		{
+			techRing = new MeshInstance3D
+			{
+				Name = "TechRing",
+				Position = TechRingPosition(),
+				Mesh = new TorusMesh
+				{
+					InnerRadius = SelectionRingRadius() + 0.18f,
+					OuterRadius = SelectionRingRadius() + 0.28f,
+					RingSegments = 48
+				},
+				MaterialOverride = new StandardMaterial3D
+				{
+					AlbedoColor = new Color(0.38f, 1f, 0.50f, 0.54f),
+					Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+					ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
+				},
+				Scale = SelectionRingScale(),
+				Visible = false
+			};
+			AddChild(techRing);
+		}
+		else
+		{
+			techRing.Scale = SelectionRingScale();
+		}
+	}
+
+	void RefreshCombatOverlays()
+	{
+		if (GetNodeOrNull<WorldHealthBar3D>("WorldHealthBar") is { } worldHealthBar)
+			worldHealthBar.Position = SelectionRingPosition() + new Vector3(0f, GetUnitHealthBarHeight(), 0f);
+
+		selectionRing ??= GetNodeOrNull<MeshInstance3D>("SelectionRing");
+		if (selectionRing?.Mesh is TorusMesh selectionMesh)
+		{
+			selectionRing.Position = SelectionRingPosition();
+			selectionRing.Scale = SelectionRingScale();
+			selectionMesh.InnerRadius = SelectionRingRadius();
+			selectionMesh.OuterRadius = SelectionRingRadius() + 0.10f;
+		}
+
+		techRing ??= GetNodeOrNull<MeshInstance3D>("TechRing");
+		if (techRing?.Mesh is TorusMesh techMesh)
+		{
+			techRing.Position = TechRingPosition();
+			techRing.Scale = SelectionRingScale();
+			techMesh.InnerRadius = SelectionRingRadius() + 0.18f;
+			techMesh.OuterRadius = SelectionRingRadius() + 0.28f;
+		}
+	}
+
+	void ResetCapturedBaseStats()
+	{
+		baseMaxHealth = 0f;
+		baseMoveSpeed = 0f;
+		baseAttackDamage = 0f;
+		baseAttackRange = 0f;
+		baseAttackCooldown = 0f;
+		baseSplashRadius = 0f;
+		baseSplashFalloff = 0f;
+	}
+
+	void CaptureBaseStats()
+	{
+		if (baseMaxHealth > 0f)
+			return;
+
+		baseMaxHealth = MaxHealth;
+		baseMoveSpeed = MoveSpeed;
+		baseAttackDamage = AttackDamage;
+		baseAttackRange = AttackRange;
+		baseAttackCooldown = AttackCooldown;
+		if (SplashRadius <= 0.05f)
+			SplashRadius = BattleUnitCatalog.SplashRadius(UnitKey);
+		if (SplashFalloff <= 0f || SplashFalloff > 1f)
+			SplashFalloff = BattleUnitCatalog.SplashFalloff(UnitKey);
+		baseSplashRadius = SplashRadius;
+		baseSplashFalloff = SplashFalloff;
+	}
+
+	void UpdateTechBuffs(float delta)
+	{
+		if (techBuffs.Count == 0)
+			return;
+
+		var changed = false;
+		for (var i = techBuffs.Count - 1; i >= 0; i--)
+		{
+			techBuffs[i].Remaining -= delta;
+			if (techBuffs[i].Remaining > 0f)
+				continue;
+			techBuffs.RemoveAt(i);
+			changed = true;
+		}
+
+		if (techRegenPerSecond > 0f && Health < MaxHealth)
+		{
+			techRegenCarry += techRegenPerSecond * delta;
+			if (techRegenCarry >= 1f)
+			{
+				var repair = Mathf.Floor(techRegenCarry);
+				techRegenCarry -= repair;
+				Repair(repair, false);
+			}
+		}
+		else
+		{
+			techRegenCarry = 0f;
+		}
+
+		if (changed)
+			RecalculateTechBuffStats();
+	}
+
+	void RecalculateTechBuffStats()
+	{
+		CaptureBaseStats();
+		var healthRatio = MaxHealth > 0f ? Mathf.Clamp(Health / MaxHealth, 0f, 1f) : 1f;
+		var moveMultiplier = 1f;
+		var damageMultiplier = 1f;
+		var attackRangeBonus = 0f;
+		var attackCooldownMultiplier = 1f;
+		var defenseReduction = 0f;
+		var visionBonus = 0f;
+		var regenPerSecond = 0f;
+
+		for (var i = 0; i < techBuffs.Count; i++)
+		{
+			var buff = techBuffs[i];
+			moveMultiplier *= buff.MoveMultiplier;
+			damageMultiplier *= buff.DamageMultiplier;
+			attackRangeBonus += buff.AttackRangeBonus;
+			attackCooldownMultiplier *= buff.AttackCooldownMultiplier;
+			defenseReduction += buff.DefenseReduction;
+			visionBonus += buff.VisionBonus;
+			regenPerSecond += buff.RegenPerSecond;
+		}
+
+		MaxHealth = baseMaxHealth;
+		MoveSpeed = baseMoveSpeed * moveMultiplier;
+		AttackDamage = Mathf.Round(baseAttackDamage * damageMultiplier);
+		AttackRange = baseAttackRange + attackRangeBonus;
+		AttackCooldown = Mathf.Max(0.12f, baseAttackCooldown * attackCooldownMultiplier);
+		SplashRadius = baseSplashRadius;
+		SplashFalloff = baseSplashFalloff;
+		VisionBonus = visionBonus;
+		techDamageReduction = Mathf.Clamp(defenseReduction, 0f, 0.75f);
+		techRegenPerSecond = regenPerSecond;
+		Health = Mathf.Clamp(MaxHealth * healthRatio, 1f, MaxHealth);
+
+		if (techBuffs.Count > 0 && techRing?.MaterialOverride is StandardMaterial3D ringMaterial)
+			ringMaterial.AlbedoColor = techBuffs[^1].Tint;
+		SetTechRingVisible(techBuffs.Count > 0);
+	}
+
+	void SetTechRingVisible(bool visible)
+	{
+		if (techRing is not null)
+			techRing.Visible = visible;
+	}
+
+	Vector3 SelectionRingScale()
+	{
+		if (UnitKey == "submarine" || visualKey == "submarine")
+			return new Vector3(1.2f, 1.0f, 2.2f);
+		if (BattleUnitCatalog.IsNavalUnit(UnitKey))
+			return new Vector3(1.2f, 1.0f, 1.8f);
+		return Vector3.One;
+	}
+
+	Vector3 TechRingPosition()
+	{
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+			return new Vector3(0f, -1.54f, 0f);
+		return new Vector3(0f, 0.055f, 0f);
+	}
+
+	Vector3 SelectionRingPosition()
+	{
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+			return new Vector3(0f, -1.55f, 0f);
+		return new Vector3(0f, 0.04f, 0f);
+	}
+
+	float SelectionRingRadius()
+	{
+		if (BattleUnitCatalog.IsAirUnit(UnitKey))
+			return 1.55f;
+		if (UnitKey == "submarine" || visualKey == "submarine")
+			return 1.65f;
+		if (BattleUnitCatalog.IsNavalUnit(UnitKey))
+			return 1.65f;
+		return 1.18f;
+	}
+
+	public override void _Process(double delta)
+	{
+		if (selectionRing is not null)
+			selectionRing.Visible = Selected;
+
+		if (MaxShield > 0f && Shield < MaxShield && !IsDead)
+		{
+			secondsSinceLastDamage += (float)delta;
+			if (secondsSinceLastDamage >= 5.0f)
+			{
+				Shield = Mathf.Min(MaxShield, Shield + MaxShield * 0.1f * (float)delta);
+			}
+		}
+	}
+
+	/// <summary>
+	/// 通过对 visualRoot 下的所有 GeometryInstance3D 子节点临时叠加材质，
+	/// 模拟战争迷雾的颜色调制效果（3D 节点不支持 Modulate）。
+	/// </summary>
+	void SetVisualModulate(Color color)
+	{
+		var root = visualRoot ?? this as Node3D;
+		if (root is null)
+			return;
+		SetNodeModulateRecursive(root, color);
+	}
+
+	static void SetNodeModulateRecursive(Node3D node, Color color)
+	{
+		foreach (var child in node.GetChildren())
+		{
+			if (child is GeometryInstance3D geom)
+			{
+				if (color == Colors.White)
+				{
+					// 恢复正常：移除覆盖材质
+					geom.MaterialOverlay = null;
+				}
+				else
+				{
+					// 叠加半透明幽灵材质
+					if (geom.MaterialOverlay is not StandardMaterial3D overlay
+						|| overlay.ResourceName != "_fog_ghost_overlay")
+					{
+						overlay = new StandardMaterial3D
+						{
+							ResourceName = "_fog_ghost_overlay",
+							Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+							ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+							BlendMode = BaseMaterial3D.BlendModeEnum.Mix,
+							NoDepthTest = false
+						};
+						geom.MaterialOverlay = overlay;
+					}
+					overlay.AlbedoColor = color;
+				}
+			}
+			if (child is Node3D child3d)
+				SetNodeModulateRecursive(child3d, color);
+		}
+	}
+
+	/// <summary>
+	/// 确保舰船行驶的两种水面动态特效（船头浪花和船尾水平扩散波纹）已被初始化并添加为子节点
+	/// </summary>
+	void EnsureNavalWaveParticles()
+	{
+		if (bowWaveParticles is null)
+		{
+			var splashMesh = new SphereMesh
+			{
+				Radius = 0.22f,
+				Height = 0.44f,
+				RadialSegments = 6,
+				Rings = 3
+			};
+
+			var splashMat = new StandardMaterial3D
+			{
+				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+				AlbedoColor = new Color(0.9f, 0.95f, 1f, 0.72f),
+				Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+				RenderPriority = -15,
+				DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Disabled
+			};
+
+			var splashScale = new Curve();
+			splashScale.AddPoint(new Vector2(0f, 0.5f));
+			splashScale.AddPoint(new Vector2(1f, 1.5f));
+
+			var splashColor = new Gradient();
+			splashColor.AddPoint(0f, new Color(0.9f, 0.95f, 1f, 0.78f));
+			splashColor.AddPoint(0.7f, new Color(0.85f, 0.92f, 0.96f, 0.35f));
+			splashColor.AddPoint(1f, new Color(0.8f, 0.9f, 0.95f, 0f));
+
+			var halfLength = 1.1f;
+			if (UnitKey == "aircraft_carrier")
+				halfLength = 3.3f;
+			else if (UnitKey == "destroyer_ship")
+				halfLength = 1.6f;
+			else if (UnitKey == "transport_ship")
+				halfLength = 1.9f;
+
+			bowWaveParticles = new CpuParticles3D
+			{
+				Name = "BowWaveParticles",
+				Amount = 14,
+				Lifetime = 0.55f,
+				OneShot = false,
+				Direction = new Vector3(0f, 0.2f, 0.8f),
+				Spread = 35f,
+				Gravity = new Vector3(0f, -2.5f, 0f),
+				InitialVelocityMin = 1.8f,
+				InitialVelocityMax = 3.2f,
+				ScaleAmountMin = 0.4f,
+				ScaleAmountMax = 1.0f,
+				Mesh = splashMesh,
+				MaterialOverride = splashMat,
+				ScaleAmountCurve = splashScale,
+				ColorRamp = splashColor,
+				Position = new Vector3(0f, 0.05f, -halfLength),
+				Emitting = false
+			};
+			AddChild(bowWaveParticles);
+		}
+
+		if (sternWakeParticles is null)
+		{
+			var rippleMesh = new QuadMesh
+			{
+				Size = new Vector2(1f, 1f),
+				Orientation = PlaneMesh.OrientationEnum.Y
+			};
+
+			var rippleMat = new StandardMaterial3D
+			{
+				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+				AlbedoColor = new Color(0.8f, 0.92f, 0.98f, 0.42f),
+				Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+				RenderPriority = -15,
+				DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Disabled
+			};
+
+			var rippleScale = new Curve();
+			rippleScale.AddPoint(new Vector2(0f, 0.8f));
+			rippleScale.AddPoint(new Vector2(1f, 3.4f));
+
+			var rippleColor = new Gradient();
+			rippleColor.AddPoint(0f, new Color(0.85f, 0.95f, 1f, 0.52f));
+			rippleColor.AddPoint(0.5f, new Color(0.8f, 0.9f, 0.96f, 0.22f));
+			rippleColor.AddPoint(1f, new Color(0.75f, 0.85f, 0.9f, 0f));
+
+			var halfLength = 1.1f;
+			if (UnitKey == "aircraft_carrier")
+				halfLength = 3.3f;
+			else if (UnitKey == "destroyer_ship")
+				halfLength = 1.6f;
+			else if (UnitKey == "transport_ship")
+				halfLength = 1.9f;
+
+			sternWakeParticles = new CpuParticles3D
+			{
+				Name = "SternWakeParticles",
+				Amount = 10,
+				Lifetime = 0.92f,
+				OneShot = false,
+				Direction = new Vector3(0f, 0f, 1f),
+				Spread = 12f,
+				Gravity = Vector3.Zero,
+				InitialVelocityMin = 1.0f,
+				InitialVelocityMax = 2.0f,
+				ScaleAmountMin = 0.8f,
+				ScaleAmountMax = 1.4f,
+				Mesh = rippleMesh,
+				MaterialOverride = rippleMat,
+				ScaleAmountCurve = rippleScale,
+				ColorRamp = rippleColor,
+				Position = new Vector3(0f, 0.03f, halfLength),
+				Emitting = false
+			};
+			AddChild(sternWakeParticles);
+		}
+	}
+
+	/// <summary>
+	/// 根据舰船的实时运动状态，开启或关闭船头和船尾粒子发射
+	/// </summary>
+	void UpdateNavalWaves(bool moving, float delta)
+	{
+		EnsureNavalWaveParticles();
+		if (bowWaveParticles is not null && bowWaveParticles.Emitting != moving)
+		{
+			bowWaveParticles.Emitting = moving;
+		}
+		if (sternWakeParticles is not null && sternWakeParticles.Emitting != moving)
+		{
+			sternWakeParticles.Emitting = moving;
+		}
+	}
+
+	/// <summary>
+	/// 确保战机双发喷气发动机尾焰与高空热浪尾流粒子已被初始化
+	/// </summary>
+	void EnsureJetExhaustParticles()
+	{
+		if (jetExhaustParticles.Count > 0)
+			return;
+
+		if (UnitKey != "fighter" && visualKey != "fighter")
+			return;
+
+		var particleQuad = new QuadMesh { Size = Vector2.One };
+
+		// 左右双发喷气口本地坐标（对应 F-22 猛禽机尾双发隐身二维矢量排气喷口位置）
+		var nozzles = new[]
+		{
+			new Vector3(-0.52f, -0.34f, 3.65f),
+			new Vector3(0.52f, -0.34f, 3.65f)
+		};
+
+		var parentNode = visualRoot ?? this;
+
+		foreach (var nozzlePos in nozzles)
+		{
+			// 1. 核心马赫环高温加力尾焰 (Afterburner Jet Flame)
+			var flame = new CpuParticles3D
+			{
+				Name = "AfterburnerFlame",
+				Amount = 24,
+				Lifetime = 0.14f,
+				Explosiveness = 0.85f,
+				Direction = new Vector3(0f, 0f, 1f), // 向机尾后方喷射
+				Spread = 8f,
+				Gravity = Vector3.Zero,
+				InitialVelocityMin = 8.0f,
+				InitialVelocityMax = 14.0f,
+				ScaleAmountMin = 0.28f,
+				ScaleAmountMax = 0.52f,
+				Position = nozzlePos,
+				LocalCoords = true,
+				Mesh = particleQuad
+			};
+
+			var flameMat = new StandardMaterial3D
+			{
+				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+				AlbedoColor = Colors.White,
+				Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+				BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled,
+				VertexColorUseAsAlbedo = true
+			};
+			flame.MaterialOverride = flameMat;
+
+			var flameScale = new Curve();
+			flameScale.AddPoint(new Vector2(0f, 0.6f));
+			flameScale.AddPoint(new Vector2(0.4f, 1.2f));
+			flameScale.AddPoint(new Vector2(1f, 0.1f));
+			flame.ScaleAmountCurve = flameScale;
+
+			// 电光青蓝核心 -> 炽烈暖橙红 -> 燃尽火光
+			var flameRamp = new Gradient();
+			flameRamp.AddPoint(0f, new Color(1.2f, 2.2f, 2.8f, 1f)); // 电光青蓝核心
+			flameRamp.AddPoint(0.25f, new Color(2.4f, 1.4f, 0.4f, 1f)); // 耀眼金黄
+			flameRamp.AddPoint(0.65f, new Color(1.8f, 0.4f, 0.08f, 0.9f)); // 橙红火光
+			flameRamp.AddPoint(1.0f, new Color(0.6f, 0.1f, 0.02f, 0f));
+			flame.ColorRamp = flameRamp;
+
+			parentNode.AddChild(flame);
+			flame.Emitting = true;
+			jetExhaustParticles.Add(flame);
+
+			// 2. 超音速航迹云 / 尾流烟带 (Jet Smoke Wake - 长度适中紧凑尾迹)
+			var smoke = new CpuParticles3D
+			{
+				Name = "JetSmokeTrail",
+				Amount = 24,
+				Lifetime = 0.26f, // 缩短一半寿命，使高空拉烟更加干脆利落紧凑
+				Direction = new Vector3(0f, 0f, 1f),
+				Spread = 8f,
+				Gravity = new Vector3(0f, 0.1f, 0f),
+				InitialVelocityMin = 0.6f,
+				InitialVelocityMax = 1.8f,
+				ScaleAmountMin = 0.16f,
+				ScaleAmountMax = 0.48f,
+				Position = nozzlePos,
+				LocalCoords = false, // 世界坐标，形成连续高空尾流
+				Mesh = particleQuad
+			};
+
+			smoke.MaterialOverride = flameMat;
+
+			var smokeScale = new Curve();
+			smokeScale.AddPoint(new Vector2(0f, 0.35f));
+			smokeScale.AddPoint(new Vector2(1f, 1.15f));
+			smoke.ScaleAmountCurve = smokeScale;
+
+			var smokeRamp = new Gradient();
+			smokeRamp.AddPoint(0f, new Color(0.85f, 0.92f, 1.0f, 0.45f));
+			smokeRamp.AddPoint(0.4f, new Color(0.80f, 0.85f, 0.92f, 0.20f));
+			smokeRamp.AddPoint(1.0f, new Color(0.75f, 0.75f, 0.80f, 0f));
+			smoke.ColorRamp = smokeRamp;
+
+			parentNode.AddChild(smoke);
+			smoke.Emitting = true;
+			jetExhaustParticles.Add(smoke);
+		}
+	}
+
+	/// <summary>
+	/// 根据战斗机实时飞行状态更新喷气尾焰与尾流发射
+	/// </summary>
+	void UpdateJetExhaust(bool moving, float delta)
+	{
+		EnsureJetExhaustParticles();
+		bool shouldEmit = moving && !parkedAtAirfield;
+		foreach (var p in jetExhaustParticles)
+		{
+			if (GodotObject.IsInstanceValid(p) && p.Emitting != shouldEmit)
+				p.Emitting = shouldEmit;
+		}
+	}
+
+	/// <summary>
+	/// 开启高空战斗机无缝大环线巡航航线
+	/// </summary>
+	public void StartAirPatrolCircuit()
+	{
+		if (!BattleUnitCatalog.IsAirUnit(UnitKey) || parkedAtAirfield)
+			return;
+
+		isAirPatrolCircuit = true;
+		var center = GlobalPosition;
+		float height = CruiseHeight > 0.1f ? CruiseHeight : BattleUnitCatalog.SpawnHeight(UnitKey);
+		center.Y = height;
+		float radius = 32f;
+		int pointsCount = 8;
+		var circuit = new List<Vector3>();
+
+		for (int i = 0; i < pointsCount; i++)
+		{
+			float angle = (i / (float)pointsCount) * Mathf.Tau;
+			var pt = center + new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+			circuit.Add(NormalizeCommandPosition(pt));
+		}
+
+		MoveAlongPath(circuit, false);
+	}
 }

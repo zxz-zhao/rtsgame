@@ -754,13 +754,38 @@ public partial class PlayerController : Node
         var rect = new Rect2(min, max - min);
         var selected = new List<Node>();
 
+        if (camera is null)
+            return;
+
         foreach (var unit in GetTree().GetNodesInGroup("rts_units").OfType<RtsUnit>())
         {
             if (!GodotObject.IsInstanceValid(unit) || !unit.PlayerOwned || unit.IsDead)
                 continue;
-            var screen = camera.UnprojectPosition(unit.GlobalPosition + Vector3.Up);
-            if (rect.HasPoint(screen))
+
+            if (camera.IsPositionBehind(unit.GlobalPosition))
+                continue;
+
+            float halfLength = unit.UnitKey switch
+            {
+                "aircraft_carrier" => 4.5f,
+                "battleship" => 3.5f,
+                "destroyer_ship" => 2.5f,
+                "submarine" => 3.2f,
+                "fighter" or "bomber" => 2.2f,
+                _ => 0.9f
+            };
+
+            var pCenter = camera.UnprojectPosition(unit.GlobalPosition);
+            var pTop = camera.UnprojectPosition(unit.GlobalPosition + Vector3.Up * (unit.UnitKey == "submarine" ? 1.0f : 1.8f));
+            var pFront = camera.UnprojectPosition(unit.GlobalPosition - unit.Transform.Basis.Z * halfLength);
+            var pBack = camera.UnprojectPosition(unit.GlobalPosition + unit.Transform.Basis.Z * halfLength);
+            var pLeft = camera.UnprojectPosition(unit.GlobalPosition - unit.Transform.Basis.X * (halfLength * 0.45f));
+            var pRight = camera.UnprojectPosition(unit.GlobalPosition + unit.Transform.Basis.X * (halfLength * 0.45f));
+
+            if (rect.HasPoint(pCenter) || rect.HasPoint(pTop) || rect.HasPoint(pFront) || rect.HasPoint(pBack) || rect.HasPoint(pLeft) || rect.HasPoint(pRight))
+            {
                 selected.Add(unit);
+            }
         }
 
         if (selected.Count == 0)
@@ -806,14 +831,27 @@ public partial class PlayerController : Node
             bool targetIsUnit = enemy is RtsUnit;
             string enemyUnitKey = targetIsUnit ? ((RtsUnit)enemy).UnitKey : "";
 
-            foreach (var unit in selected)
+            // 军团多单位集火优化：沿目标外缘半月形弧度展开，避免全部单位挤向同一个单一点
+            int totalAttackers = selected.Count;
+            float totalArcSpread = Mathf.Clamp((totalAttackers - 1) * 0.22f, 0.35f, 2.1f);
+
+            for (int i = 0; i < selected.Count; i++)
             {
+                var unit = selected[i];
                 if (targetIsUnit)
                 {
                     if (!BattleUnitCatalog.CanAttackTargetType(unit.UnitKey, enemyUnitKey))
                         continue;
                 }
-                unit.Attack(enemy);
+
+                float slotAngleOffset = 0f;
+                if (totalAttackers > 1)
+                {
+                    float t = (float)i / (totalAttackers - 1);
+                    slotAngleOffset = (t - 0.5f) * totalArcSpread;
+                }
+
+                unit.Attack(enemy, slotAngleOffset);
                 GameRelay.Instance?.SendAttack(unit.NetId, GetNetId(enemy), target.IsInGroup("rts_buildings"));
                 orderedCount++;
             }
@@ -836,7 +874,11 @@ public partial class PlayerController : Node
             return;
         }
 
-        var position = hit["position"].AsVector3();
+        bool isNavalSelection = selected.Any(u => BattleUnitCatalog.IsNavalUnit(u.UnitKey));
+        float targetSurfaceY = isNavalSelection ? -0.25f : 0f;
+
+        if (!TryProjectGroundPoint(screenPos, targetSurfaceY, out var position))
+            return;
         if (selected.Count == 0 && selectedProductionBuilding is not null)
         {
             var rallyPoint = NormalizeRallyPoint(selectedProductionBuilding, position);
@@ -865,9 +907,16 @@ public partial class PlayerController : Node
         }
 
         bool hasVehicles = selected.Any(u => !BattleUnitCatalog.IsInfantryLike(u.UnitKey));
+        Vector3 centroid = Vector3.Zero;
+        foreach (var u in selected)
+            centroid += u.GlobalPosition;
+        centroid /= selected.Count;
+        Vector3 marchHeading = (position - centroid);
+        marchHeading.Y = 0f;
+
         for (var i = 0; i < selected.Count; i++)
         {
-            var offset = FormationOffset(i, selected.Count, hasVehicles);
+            var offset = FormationOffset(i, selected.Count, hasVehicles, marchHeading);
             var orderTarget = NormalizeOrderTarget(selected[i], position + offset);
             if (patrolOrder)
             {
@@ -904,9 +953,16 @@ public partial class PlayerController : Node
         }
 
         bool hasVehicles = selected.Any(u => !BattleUnitCatalog.IsInfantryLike(u.UnitKey));
+        Vector3 centroid = Vector3.Zero;
+        foreach (var u in selected)
+            centroid += u.GlobalPosition;
+        centroid /= selected.Count;
+        Vector3 marchHeading = (position - centroid);
+        marchHeading.Y = 0f;
+
         for (var i = 0; i < selected.Count; i++)
         {
-            var offset = FormationOffset(i, selected.Count, hasVehicles);
+            var offset = FormationOffset(i, selected.Count, hasVehicles, marchHeading);
             var orderTarget = NormalizeOrderTarget(selected[i], position + offset);
             selected[i].PatrolTo(orderTarget);
             GameRelay.Instance?.SendPatrol(selected[i].NetId, selected[i].GlobalPosition, orderTarget);
@@ -975,7 +1031,7 @@ public partial class PlayerController : Node
         BattleFeedback.Command(this, normalizedEnd, "BOMB", new Color(1f, 0.52f, 0.22f));
     }
 
-    static Vector3 FormationOffset(int index, int count, bool hasVehicles)
+    static Vector3 FormationOffset(int index, int count, bool hasVehicles, Vector3 marchHeading = default)
     {
         if (count <= 1)
             return Vector3.Zero;
@@ -985,10 +1041,17 @@ public partial class PlayerController : Node
         var column = index % columns;
         var row = index / columns;
         var spacing = hasVehicles ? 3.6f : 2.6f; // 载具群间距为 3.6m，纯步兵群间距为 2.6m
-        return new Vector3(
+        var localOffset = new Vector3(
             (column - (columns - 1) * 0.5f) * spacing,
             0f,
             (row - (rows - 1) * 0.5f) * spacing);
+
+        if (marchHeading.LengthSquared() > 0.04f)
+        {
+            float yaw = Mathf.Atan2(marchHeading.X, marchHeading.Z);
+            return localOffset.Rotated(Vector3.Up, yaw);
+        }
+        return localOffset;
     }
 
     static Vector3 NormalizeOrderTarget(RtsUnit unit, Vector3 position)
@@ -1037,25 +1100,23 @@ public partial class PlayerController : Node
         return GetViewport().World3D.DirectSpaceState.IntersectRay(query);
     }
 
-    bool TryProjectGroundPoint(Vector2 screenPos, out Vector3 position)
+    public bool TryProjectGroundPoint(Vector2 screenPos, float targetY, out Vector3 position)
     {
-        var hit = Raycast(screenPos);
-        if (hit.Count > 0 && hit.ContainsKey("position"))
-        {
-            var hitPos = hit["position"].AsVector3();
-            position = hitPos;
-            return true;
-        }
-
-        var origin = camera.ProjectRayOrigin(screenPos);
-        var direction = camera.ProjectRayNormal(screenPos);
-        if (Mathf.Abs(direction.Y) <= 0.0001f)
+        if (camera is null)
         {
             position = Vector3.Zero;
             return false;
         }
 
-        var distance = -origin.Y / direction.Y;
+        var origin = camera.ProjectRayOrigin(screenPos);
+        var direction = camera.ProjectRayNormal(screenPos);
+        if (direction.Y >= -0.0001f)
+        {
+            position = Vector3.Zero;
+            return false;
+        }
+
+        var distance = (targetY - origin.Y) / direction.Y;
         if (distance <= 0f)
         {
             position = Vector3.Zero;
@@ -1063,9 +1124,12 @@ public partial class PlayerController : Node
         }
 
         position = origin + direction * distance;
-        position.Y = 0f;
+        position.Y = targetY;
         return true;
     }
+
+    public bool TryProjectGroundPoint(Vector2 screenPos, out Vector3 position)
+        => TryProjectGroundPoint(screenPos, 0f, out position);
 
     BattleHud? FindHud()
         => GetParent()?.GetNodeOrNull<BattleHud>("HUD");
@@ -1073,13 +1137,80 @@ public partial class PlayerController : Node
     Node? TryGetVisibleSelectable(Vector2 screenPos, Godot.Collections.Dictionary? hit = null)
     {
         hit ??= Raycast(screenPos);
-        if (hit.Count == 0)
-            return null;
+        if (hit.Count > 0 && hit.ContainsKey("collider"))
+        {
+            var target = FindSelectable(hit["collider"].AsGodotObject() as Node);
+            if (target is Node3D target3D && BattleGameManager.Instance is { } manager && !manager.IsVisibleToPlayer(target3D))
+                target = null;
+            if (target is not null)
+                return target;
+        }
 
-        var target = FindSelectable(hit["collider"].AsGodotObject() as Node);
-        if (target is Node3D target3D && BattleGameManager.Instance is { } manager && !manager.IsVisibleToPlayer(target3D))
-            return null;
-        return target;
+        // 屏幕空间拾取补偿：当潜艇位于水下或射线被水面优先阻挡时，对点击坐标附近的单位进行精准屏幕距离拾取
+        if (camera is not null)
+        {
+            Node? bestSelectable = null;
+            float bestDistSq = 48f * 48f; // 48 像素点击容差范围
+
+            foreach (var node in GetTree().GetNodesInGroup("rts_selectable"))
+            {
+                if (node is RtsUnit unit && GodotObject.IsInstanceValid(unit) && !unit.IsDead)
+                {
+                    if (BattleGameManager.Instance is { } manager && !manager.IsVisibleToPlayer(unit))
+                        continue;
+
+                    if (camera.IsPositionBehind(unit.GlobalPosition))
+                        continue;
+
+                    float halfLength = unit.UnitKey switch
+                    {
+                        "aircraft_carrier" => 4.5f,
+                        "battleship" => 3.5f,
+                        "destroyer_ship" => 2.5f,
+                        "submarine" => 3.2f,
+                        "fighter" or "bomber" => 2.2f,
+                        _ => 0.9f
+                    };
+
+                    var pCenter = camera.UnprojectPosition(unit.GlobalPosition);
+                    var pTop = camera.UnprojectPosition(unit.GlobalPosition + Vector3.Up * (unit.UnitKey == "submarine" ? 0.8f : 1.5f));
+                    var pFront = camera.UnprojectPosition(unit.GlobalPosition - unit.Transform.Basis.Z * halfLength);
+                    var pBack = camera.UnprojectPosition(unit.GlobalPosition + unit.Transform.Basis.Z * halfLength);
+
+                    float distSq = Mathf.Min(
+                        Mathf.Min(screenPos.DistanceSquaredTo(pCenter), screenPos.DistanceSquaredTo(pTop)),
+                        Mathf.Min(screenPos.DistanceSquaredTo(pFront), screenPos.DistanceSquaredTo(pBack))
+                    );
+
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        bestSelectable = unit;
+                    }
+                }
+                else if (node is RtsBuilding building && GodotObject.IsInstanceValid(building) && building.Health > 0f)
+                {
+                    if (BattleGameManager.Instance is { } manager && !manager.IsVisibleToPlayer(building))
+                        continue;
+
+                    if (camera.IsPositionBehind(building.GlobalPosition))
+                        continue;
+
+                    var bScreen = camera.UnprojectPosition(building.GlobalPosition + Vector3.Up * 1.5f);
+                    float distSq = screenPos.DistanceSquaredTo(bScreen);
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        bestSelectable = building;
+                    }
+                }
+            }
+
+            if (bestSelectable is not null)
+                return bestSelectable;
+        }
+
+        return null;
     }
 
     static Node? FindSelectable(Node? node)

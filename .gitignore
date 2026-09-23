@@ -76,3 +76,21 @@ desktop.ini
 .vs/
 .vscode/
 .idea/
+
+*.avi
+*.mp4
+screenshots/
+*.pdf
+.dotnet/
+.dotnet /
+.godot /
+NuGet/
+tools/accounts_pool.json
+tools/active_account.json
+tools/qq_bot_config.json
+
+ServerCpp/.env
+tools/chatos_config.json
+Tools/Downloads/
+7.10.15
+node_modules/

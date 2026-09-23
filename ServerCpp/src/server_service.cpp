@@ -1202,11 +1202,17 @@ json ServerService::HandleTechSpeedup(const ParsedRequest& request, int& statusC
     statusCode = 200;
     if (!user.hasActiveTech || user.activeTech.endAt <= ServerJson::CurrentTimeMs())
         return { { "success", false }, { "error", "No research is currently in progress." } };
-    if (user.gems < 10)
+
+    std::int64_t remainMs = std::max<std::int64_t>(0, user.activeTech.endAt - ServerJson::CurrentTimeMs());
+    std::int64_t remainSec = (remainMs + 999LL) / 1000LL;
+    std::int64_t neededGems = std::max<std::int64_t>(1LL, (remainSec + 59LL) / 60LL);
+
+    if (user.gems < neededGems)
         return { { "success", false }, { "error", "Not enough gems." } };
 
-    user.gems -= 10;
-    user.activeTech.endAt = std::max<std::int64_t>(ServerJson::CurrentTimeMs(), user.activeTech.endAt - 10LL * 60LL * 1000LL);
+    user.gems -= neededGems;
+    user.activeTech.endAt = ServerJson::CurrentTimeMs();
+    user.hasActiveTech = false;
     storage_.UpsertUser(user);
 
     return {
@@ -1888,13 +1894,12 @@ json ServerService::HandlePaymentCreate(const ParsedRequest& request, int& statu
 
 json ServerService::HandlePaymentConfirm(const ParsedRequest& request, int& statusCode)
 {
-    if (!HasAdminSecret(request))
+    UserRecord authUser;
+    json errorJson;
+    bool isAdmin = HasAdminSecret(request);
+    if (!isAdmin && !TryAuthenticate(request, authUser, errorJson, statusCode))
     {
-        statusCode = 401;
-        return {
-            { "success", false },
-            { "error", "Admin secret is required." }
-        };
+        return errorJson;
     }
 
     const std::string orderId = SafeStringFromJson(request.body, "orderId");
@@ -1903,6 +1908,21 @@ json ServerService::HandlePaymentConfirm(const ParsedRequest& request, int& stat
     {
         statusCode = 400;
         return { { "success", false }, { "error", "orderId is required." } };
+    }
+
+    if (!isAdmin)
+    {
+        PaymentOrderRecord existingOrder;
+        if (!storage_.FindPaymentOrder(orderId, existingOrder))
+        {
+            statusCode = 404;
+            return { { "success", false }, { "error", "Order not found." } };
+        }
+        if (existingOrder.userId != authUser.id)
+        {
+            statusCode = 403;
+            return { { "success", false }, { "error", "Order does not belong to user." } };
+        }
     }
 
     PaymentOrderRecord order;

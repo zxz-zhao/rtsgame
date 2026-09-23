@@ -110,20 +110,20 @@ std::string RankTitleFrom(const UserRecord& user)
     const double winRate = total == 0 ? 0.0 : static_cast<double>(wins) / static_cast<double>(total);
 
     if (wins >= 50 && winRate >= 0.55)
-        return "Commander Ace";
+        return "王牌元帅";
     if (wins >= 30)
-        return "Diamond I";
+        return "钻石 I";
     if (wins >= 15)
-        return "Gold II";
+        return "黄金 II";
     if (wins >= 5)
-        return "Silver I";
+        return "白银 I";
     if (user.level >= 25)
-        return "Colonel I";
+        return "上校 I";
     if (user.level >= 15)
-        return "Major III";
+        return "少校 III";
     if (user.level >= 8)
-        return "Captain II";
-    return "Recruit";
+        return "上尉 II";
+    return "列兵";
 }
 
 Json UserToSafeJson(const UserRecord& user)

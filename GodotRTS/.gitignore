@@ -15,3 +15,21 @@ assets/third_party/polyhaven/
 scratch/
 my_*.png
 my_*.png.import
+*.avi
+*.mp4
+screenshots/
+tools/accounts_pool.json
+tools/active_account.json
+tools/qq_bot_config.json
+tools/chatos_config.json
+tools/wecom_bot/config.json
+tools/.cockpit_oauth.json
+.cockpit_oauth.json
+tools/__pycache__/
+__pycache__/
+*.pdf
+.dotnet/
+.dotnet /
+.godot /
+NuGet/
+node_modules/

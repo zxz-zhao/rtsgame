@@ -19,7 +19,7 @@ public static class InfantryAnimationBridge
     static readonly (string path, string targetName)[] AnimSources =
     {
         (MixamoRoot + "rifle aiming idle.fbx", IdleAnimName),
-        (MixamoRoot + "walking.fbx",           WalkAnimName),
+        (MixamoRoot + "rifle run.fbx",          WalkAnimName),
         (MixamoRoot + "firing rifle.fbx",      FireAnimName),
     };
 
@@ -77,6 +77,10 @@ public static class InfantryAnimationBridge
             {
                 anim.LoopMode = Animation.LoopModeEnum.Linear;
             }
+            else
+            {
+                anim.LoopMode = Animation.LoopModeEnum.None;
+            }
 
             if (lib.HasAnimation(targetName))
                 lib.RemoveAnimation(targetName);
@@ -112,7 +116,7 @@ public static class InfantryAnimationBridge
         {
             var trackType = targetAnim.TrackGetType(i);
 
-            // 1. 丢弃所有缩放轨道（极度关键！防止 Mixamo 厘米级缩放导致 Kenney 模型缩为 1/100 大小变成隐形点）
+            // 1. 丢弃所有缩放轨道（极度关键！防止 Mixamo 厘米级缩放导致模型缩为 1/100 大小变成隐形点）
             if (trackType == Animation.TrackType.Scale3D)
             {
                 targetAnim.RemoveTrack(i);
@@ -132,18 +136,11 @@ public static class InfantryAnimationBridge
                     boneName = boneName.Substring("mixamorig_".Length);
                 }
 
-                // 针对 Kenney 模型的常用骨骼命名差异进行别名映射
+                // 针对骨骼命名差异进行别名映射
                 if (boneName == "LeftToeBase" || boneName == "LeftToe") boneName = "LeftToes";
                 else if (boneName == "RightToeBase" || boneName == "RightToe") boneName = "RightToes";
                 else if (boneName == "Spine1") boneName = "Chest";
                 else if (boneName == "Spine2") boneName = "UpperChest";
-
-                // 2. 丢弃除 Hips（盆骨根节点）之外的所有位移轨道（防止骨骼因为两套模型骨长不同发生错位拉伸）
-                if (trackType == Animation.TrackType.Position3D && boneName != "Hips")
-                {
-                    targetAnim.RemoveTrack(i);
-                    continue;
-                }
 
                 var targetBoneName = boneName;
                 if (skeleton.FindBone(targetBoneName) == -1 && skeleton.FindBone("mixamorig_" + targetBoneName) != -1)
@@ -151,23 +148,50 @@ public static class InfantryAnimationBridge
                     targetBoneName = "mixamorig_" + targetBoneName;
                 }
 
-                if (skeleton.FindBone(targetBoneName) != -1)
+                int foundBoneIdx = skeleton.FindBone(targetBoneName);
+                if (foundBoneIdx == -1)
                 {
-                    var newPathStr = skeletonPath + ":" + targetBoneName;
-                    if (parts.Length > 2)
+                    // 模型中不存在的骨骼轨道（比如手指细分骨骼）直接删掉，彻底静默控制台警告
+                    targetAnim.RemoveTrack(i);
+                    continue;
+                }
+
+                // 2. 针对位移轨道 (Position3D)：
+                // 丢弃除 Hips 盆骨根节点之外的所有肢体位移轨道，防止肢体因骨长不同而发生拉脱拉长
+                if (trackType == Animation.TrackType.Position3D)
+                {
+                    if (boneName != "Hips")
                     {
-                        for (int j = 2; j < parts.Length; j++)
+                        targetAnim.RemoveTrack(i);
+                        continue;
+                    }
+
+                    // 针对 Hips 位移轨道：消除 Mixamo 自带的向前与横向位移 Root Motion，彻底消除循环跳转与滑步！
+                    var restOrigin = skeleton.GetBoneRest(foundBoneIdx).Origin;
+                    int keyCount = targetAnim.TrackGetKeyCount(i);
+                    if (keyCount > 0)
+                    {
+                        var firstKeyPos = (Vector3)targetAnim.TrackGetKeyValue(i, 0);
+                        for (int k = 0; k < keyCount; k++)
                         {
-                            newPathStr += ":" + parts[j];
+                            var keyPos = (Vector3)targetAnim.TrackGetKeyValue(i, k);
+                            // 保留步态中自然微弱的骨盆上下起伏 (Pelvic Bobbing, 约 0.02m~0.04m)，完全归零前后 (Z) 与左右 (X) 位移
+                            float deltaY = keyPos.Y - firstKeyPos.Y;
+                            var inPlacePos = new Vector3(restOrigin.X, restOrigin.Y + deltaY, restOrigin.Z);
+                            targetAnim.TrackSetKeyValue(i, k, inPlacePos);
                         }
                     }
-                    targetAnim.TrackSetPath(i, new NodePath(newPathStr));
                 }
-                else
+
+                var newPathStr = skeletonPath + ":" + targetBoneName;
+                if (parts.Length > 2)
                 {
-                    // 3. 模型中不存在的骨骼轨道（比如手指细分骨骼）直接删掉，彻底静默控制台警告
-                    targetAnim.RemoveTrack(i);
+                    for (int j = 2; j < parts.Length; j++)
+                    {
+                        newPathStr += ":" + parts[j];
+                    }
                 }
+                targetAnim.TrackSetPath(i, new NodePath(newPathStr));
             }
             else
             {

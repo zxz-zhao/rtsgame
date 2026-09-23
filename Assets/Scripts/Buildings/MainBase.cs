@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text;
 using UnityEngine;
 
@@ -85,13 +85,13 @@ public class MainBase : RTSBuilding
             1,
             3000,
             10,
-            30,
+            1,
             0),
         new BaseLevelDefinition(
             2,
             4200,
             15,
-            40,
+            2,
             800,
             new UpgradeRequirement(typeof(Barracks), 1, "兵工厂"),
             new UpgradeRequirement(typeof(GoldMine), 2, "金矿"),
@@ -100,7 +100,7 @@ public class MainBase : RTSBuilding
             3,
             5600,
             20,
-            55,
+            3,
             1400,
             new UpgradeRequirement(typeof(Barracks), 1, "兵工厂"),
             new UpgradeRequirement(typeof(GoldMine), 3, "金矿"),

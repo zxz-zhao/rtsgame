@@ -101,7 +101,7 @@ public static class BattleBuildingUpgradeCatalog
             },
             MaxHealthOverride: 4200f,
             PopCapBonusOverride: 15,
-            GoldIncomeOverride: 40);
+            GoldIncomeOverride: 2);
 
     static BattleBuildingUpgradeDefinition MainBaseLevel3()
         => new(
@@ -117,7 +117,7 @@ public static class BattleBuildingUpgradeCatalog
             },
             MaxHealthOverride: 5600f,
             PopCapBonusOverride: 20,
-            GoldIncomeOverride: 55);
+            GoldIncomeOverride: 3);
 
     static BattleBuildingUpgradeDefinition MainBaseLevel4()
         => new(
@@ -131,7 +131,7 @@ public static class BattleBuildingUpgradeCatalog
             },
             MaxHealthOverride: 7200f,
             PopCapBonusOverride: 26,
-            GoldIncomeOverride: 70);
+            GoldIncomeOverride: 4);
 
     static BattleBuildingUpgradeDefinition MainBaseLevel5()
         => new(
@@ -145,7 +145,7 @@ public static class BattleBuildingUpgradeCatalog
             },
             MaxHealthOverride: 9000f,
             PopCapBonusOverride: 32,
-            GoldIncomeOverride: 85);
+            GoldIncomeOverride: 5);
 
     static BattleBuildingUpgradeDefinition MainBaseLevel6()
         => new(
@@ -159,7 +159,7 @@ public static class BattleBuildingUpgradeCatalog
             },
             MaxHealthOverride: 11000f,
             PopCapBonusOverride: 38,
-            GoldIncomeOverride: 100);
+            GoldIncomeOverride: 6);
 
     static BattleBuildingUpgradeDefinition MainBaseLevel7()
         => new(
@@ -172,7 +172,7 @@ public static class BattleBuildingUpgradeCatalog
             },
             MaxHealthOverride: 13500f,
             PopCapBonusOverride: 44,
-            GoldIncomeOverride: 120);
+            GoldIncomeOverride: 7);
 
     static BattleBuildingUpgradeDefinition MainBaseLevel8()
         => new(
@@ -185,7 +185,7 @@ public static class BattleBuildingUpgradeCatalog
             },
             MaxHealthOverride: 16500f,
             PopCapBonusOverride: 50,
-            GoldIncomeOverride: 145);
+            GoldIncomeOverride: 8);
 
     static BattleBuildingUpgradeDefinition MainBaseLevel9()
         => new(
@@ -199,7 +199,7 @@ public static class BattleBuildingUpgradeCatalog
             },
             MaxHealthOverride: 20000f,
             PopCapBonusOverride: 60,
-            GoldIncomeOverride: 175);
+            GoldIncomeOverride: 10);
 
     static BattleBuildingUpgradeDefinition ProductionLevel2(int cost, float maxHealth, float productionSpeed)
         => new(

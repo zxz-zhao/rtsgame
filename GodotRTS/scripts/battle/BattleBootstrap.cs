@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 
 
 public partial class BattleBootstrap : Node3D
@@ -27,6 +27,8 @@ public partial class BattleBootstrap : Node3D
                 GameRelay.Instance.StartNetworkGame(roomId);
             GameRelay.Instance.CommandReceived += OnRemoteCommand;
         }
+
+        Callable.From(() => BattleGameManager.Instance?.FocusCameraOnPlayerForces()).CallDeferred();
     }
 
     public override void _ExitTree()

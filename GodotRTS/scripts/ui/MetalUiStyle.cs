@@ -41,6 +41,13 @@ public static class MetalUiStyle
         new Color(0.03f, 0.08f, 0.04f, 0.90f),
         new Color(0.46f, 0.96f, 0.58f, 0.12f));
 
+    public static readonly MetalPalette Red = new(
+        new Color(0.28f, 0.12f, 0.12f, 0.96f),
+        new Color(0.88f, 0.46f, 0.46f, 0.84f),
+        new Color(1f, 0.86f, 0.86f, 0.86f),
+        new Color(0.12f, 0.04f, 0.04f, 0.90f),
+        new Color(1f, 0.38f, 0.38f, 0.18f));
+
     public static readonly MetalPalette BronzePanel = new(
         new Color(0.03f, 0.05f, 0.06f, 0.92f),
         new Color(0.84f, 0.67f, 0.28f, 0.78f),

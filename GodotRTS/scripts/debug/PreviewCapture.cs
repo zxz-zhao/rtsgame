@@ -49,9 +49,10 @@ public partial class PreviewCapture : Node
     public override void _Ready()
     {
         var args = CommandLineArgs.Get();
+        GD.Print($"[PreviewCapture] Found {args.Length} args: {string.Join(", ", args)}");
         for (var i = 0; i < args.Length; i++)
         {
-            if (args[i] == "--capture-preview")
+            if (args[i] == "--capture-preview" || args[i] == "--login-capture")
                 framesLeft = 20;
             else if (args[i] == "--capture-frames" && i + 1 < args.Length)
                 int.TryParse(args[i + 1], out framesLeft);
@@ -206,7 +207,7 @@ public partial class PreviewCapture : Node
         if (disableAi)
             CallDeferred(MethodName.DisableAiDeferred);
 
-        if (showGameOver || selectPlayerBase || selectEnemyBase || !string.IsNullOrWhiteSpace(queueUnit) || !string.IsNullOrWhiteSpace(damageTarget) || buildOrders.Count > 0 || spawnOrders.Count > 0 || researchOrders.Count > 0 || techOrders.Count > 0 || repairSelectedUnit || upgradeSelectedBuilding || damageSpawnedPlayer > 0f || openBuildMenu || parkSpawned || dumpPanzerNodes || !string.IsNullOrWhiteSpace(previewBuildKey) || demoTurretRotations)
+        if (showGameOver || selectPlayerBase || selectEnemyBase || focusPoint is not null || !string.IsNullOrWhiteSpace(focusUnitKey) || !string.IsNullOrWhiteSpace(queueUnit) || !string.IsNullOrWhiteSpace(damageTarget) || buildOrders.Count > 0 || spawnOrders.Count > 0 || researchOrders.Count > 0 || techOrders.Count > 0 || repairSelectedUnit || upgradeSelectedBuilding || damageSpawnedPlayer > 0f || openBuildMenu || parkSpawned || dumpPanzerNodes || !string.IsNullOrWhiteSpace(previewBuildKey) || demoTurretRotations)
             _ = ApplyDebugActions();
         if (hideHud)
             CallDeferred(MethodName.HideHudDeferred);
@@ -251,19 +252,25 @@ public partial class PreviewCapture : Node
         }
 
         var building = manager.FindMainBase(true);
-        if (building is null)
-            return;
-
-        if (selectPlayerBase)
-            GameState.Instance?.SetSelection(new[] { building });
-
-        if (selectEnemyBase && manager.FindMainBase(false) is { } enemyBase)
-            GameState.Instance?.SetSelection(new[] { enemyBase });
-
-        if (rallyPoint is { } rally)
+        if (building is not null)
         {
-            building.SetRallyPoint(rally);
-            GameState.Instance?.SetSelection(new[] { building });
+            if (selectPlayerBase)
+                GameState.Instance?.SetSelection(new[] { building });
+
+            if (building.GetNodeOrNull<Node3D>("BuildingVisual") is { } mainVis)
+            {
+                GD.Print("=== MAIN BASE BUILDING VISUAL TREE ===");
+                DumpNodeTree(mainVis, 0);
+            }
+
+            if (selectEnemyBase && manager.FindMainBase(false) is { } enemyBase)
+                GameState.Instance?.SetSelection(new[] { enemyBase });
+
+            if (rallyPoint is { } rally)
+            {
+                building.SetRallyPoint(rally);
+                GameState.Instance?.SetSelection(new[] { building });
+            }
         }
 
         RtsBuilding? lastBuilt = null;
@@ -489,28 +496,40 @@ public partial class PreviewCapture : Node
 
     }
 
-    void FocusCamera(System.Collections.Generic.IReadOnlyList<RtsUnit> units, float zoom)
+    void FocusCamera(System.Collections.Generic.IEnumerable<RtsUnit> units, float zoom)
     {
-        var cameraRig = GetTree().CurrentScene?.GetNodeOrNull<Node3D>("CameraRig");
-        var camera = cameraRig?.GetNodeOrNull<Camera3D>("Camera3D") ?? GetTree().CurrentScene?.GetNodeOrNull<Camera3D>("CameraRig/Camera3D");
-        if (camera is null)
+        if (units == null)
             return;
-
         var center = Vector3.Zero;
+        int count = 0;
         foreach (var unit in units)
-            center += unit.GlobalPosition;
-        center /= units.Count;
-        if (cameraRig is not null)
-            cameraRig.GlobalPosition = center;
-
-        camera.GlobalPosition = center + new Vector3(0f, 16f * zoom, 20f * zoom);
-        camera.LookAt(center, Vector3.Up);
-        camera.Fov = 38f;
+        {
+            if (GodotObject.IsInstanceValid(unit))
+            {
+                center += unit.GlobalPosition;
+                count++;
+            }
+        }
+        if (count == 0)
+            return;
+        center /= count;
+        FocusCamera(center, zoom);
     }
 
     void FocusCamera(Vector3 center, float zoom)
     {
         var cameraRig = GetTree().CurrentScene?.GetNodeOrNull<Node3D>("CameraRig");
+        if (cameraRig is RtsCamera rtsCam)
+        {
+            if (zoom > 0.01f)
+            {
+                float targetHeight = Mathf.Clamp(32f / zoom, rtsCam.MinHeight, rtsCam.MaxHeight);
+                rtsCam.SetHeight(targetHeight);
+            }
+            rtsCam.JumpTo(center);
+            return;
+        }
+
         var camera = cameraRig?.GetNodeOrNull<Camera3D>("Camera3D") ?? GetTree().CurrentScene?.GetNodeOrNull<Camera3D>("CameraRig/Camera3D");
         if (camera is null)
             return;
@@ -585,9 +604,18 @@ public partial class PreviewCapture : Node
             return;
         }
 
-        var err = image.SavePng(outputPath);
+        var globalPath = outputPath.StartsWith("res://") || outputPath.StartsWith("user://")
+            ? ProjectSettings.GlobalizePath(outputPath)
+            : outputPath;
+        GD.Print($"[PREVIEW_CAPTURE_SAVING] TargetPath: {globalPath}");
+        var dir = System.IO.Path.GetDirectoryName(globalPath);
+        if (!string.IsNullOrEmpty(dir) && !System.IO.Directory.Exists(dir))
+            System.IO.Directory.CreateDirectory(dir);
+        var err = image.SavePng(globalPath);
         if (err != Error.Ok)
-            GD.PushError($"Failed to save preview screenshot: {outputPath} ({err})");
+            GD.PushError($"Failed to save preview screenshot: {globalPath} ({err})");
+        else
+            GD.Print($"[PREVIEW_CAPTURE_SUCCESS] Saved screenshot to {globalPath}");
         
         GetTree().Quit();
     }

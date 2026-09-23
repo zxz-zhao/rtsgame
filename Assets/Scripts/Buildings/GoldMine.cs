@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 public class GoldMine : RTSBuilding
 {
     // Gold mines need a slightly fuller body so they do not look undersized inside the mining footprint ring.
@@ -13,7 +13,7 @@ public class GoldMine : RTSBuilding
         DisplayName = "金矿"; MaxHP = 500; GoldCost = 250; PowerCost = 10;
         PopCapBonus = 0; PowerProvide = 0;
         bIsMainBase = false; bIsPowerPlant = false;
-        bIsGoldMine = true; GoldIncomeAmount = 50; GoldIncomeInterval = 5f;
+        bIsGoldMine = true; GoldIncomeAmount = 5; GoldIncomeInterval = 5f;
         bAutoAttack = false;
     }
 

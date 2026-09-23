@@ -10,6 +10,12 @@ public partial class NetClient : Node
     [Signal]
     public delegate void RequestFailedEventHandler(string path, string error);
 
+    [Signal]
+    public delegate void ServerDisconnectedEventHandler(string reason);
+
+    private int consecutiveNetworkFailures = 0;
+    private bool isHandlingDisconnect = false;
+
     public const string NetworkUnavailable = "NETWORK_UNAVAILABLE";
 
     [Export]
@@ -201,6 +207,7 @@ public partial class NetClient : Node
         {
             req.QueueFree();
             EmitSignal(SignalName.RequestFailed, path, NetworkUnavailable);
+            CheckServerDisconnect(path);
             return Failure(NetworkUnavailable);
         }
 
@@ -212,12 +219,23 @@ public partial class NetClient : Node
         if (responseCode <= 0 || responseCode >= 500)
         {
             EmitSignal(SignalName.RequestFailed, path, NetworkUnavailable);
+            CheckServerDisconnect(path);
             return Failure(NetworkUnavailable);
         }
 
+        ResetNetworkFailures();
+
         if (responseCode == 401 || responseCode == 403)
         {
-            if (path == "/api/leaderboard" || path == "/api/friends" || path == "/api/rooms" || path == "/api/invites")
+            if (path.StartsWith("/api/leaderboard") ||
+                path.StartsWith("/api/friends") ||
+                path.StartsWith("/api/rooms") ||
+                path.StartsWith("/api/invites") ||
+                path.StartsWith("/api/tech") ||
+                path.StartsWith("/api/mail") ||
+                path.StartsWith("/api/tasks") ||
+                path.StartsWith("/api/guild") ||
+                path.StartsWith("/api/result"))
             {
                 return Failure(responseCode == 401 ? "Unauthorized" : "Forbidden");
             }
@@ -237,6 +255,31 @@ public partial class NetClient : Node
         if (data.GetBool("success") && data.ContainsKey("token"))
             GameState.Instance?.SetSession(data);
         return data;
+    }
+
+    private void CheckServerDisconnect(string path)
+    {
+        if (GameState.Instance is null || GameState.Instance.IsGuest || string.IsNullOrEmpty(GameState.Instance.Token))
+            return;
+
+        consecutiveNetworkFailures++;
+        if (consecutiveNetworkFailures >= 2 && !isHandlingDisconnect)
+        {
+            isHandlingDisconnect = true;
+            EmitSignal(SignalName.ServerDisconnected, "服务端连接波动，已切换为单机离线保活模式");
+            GD.PrintErr("[NetClient] 连续网络通信超时，已自动开启无缝单机/离线容错保护，保持游戏进程运行。");
+        }
+    }
+
+    private void ResetNetworkFailures()
+    {
+        consecutiveNetworkFailures = 0;
+    }
+
+    public void TriggerSynchronousQuit()
+    {
+        GD.PrintErr("[NetClient] 收到网络连接断开通知，保留客户端运行状态。");
+        isHandlingDisconnect = false;
     }
 
     static Godot.Collections.Dictionary Failure(string error)

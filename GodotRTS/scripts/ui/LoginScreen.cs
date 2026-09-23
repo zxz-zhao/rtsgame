@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Threading.Tasks;
 
 public partial class LoginScreen : Control
@@ -84,6 +84,13 @@ public partial class LoginScreen : Control
         StyleUi();
         uiReady = true;
         SetRegisterMode(false);
+
+        var cmdArgs = CommandLineArgs.Get();
+        if (System.Array.IndexOf(cmdArgs, "--capture-preview") != -1 || System.Array.IndexOf(cmdArgs, "--battle") != -1)
+        {
+            Callable.From(() => GetTree().ChangeSceneToFile("res://scenes/battle/BattlePrototype.tscn")).CallDeferred();
+            return;
+        }
     }
 
     public override void _Notification(int what)

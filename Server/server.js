@@ -496,11 +496,14 @@ app.post('/api/tech/start', authMiddleware, (req, res) => {
   ensureUserDefaults(u);
   if (u.activeTech && u.activeTech.endAt > Date.now())
     return res.json({ success: false, error: '已有进行中的研究' });
-  const totalSec = 2 * 60 * 60;
+  const techKey = req.body?.techKey || 'speed';
+  const level = (u.techLevels && u.techLevels[techKey]) || 1;
+  const durationMap = { 1: 60, 2: 300, 3: 1800, 4: 3600 };
+  const totalSec = durationMap[level] || 60;
   u.activeTech = {
-    id: 'tank_armor_1',
-    name: '战车装甲强化 I',
-    desc: '提升战车生命值5%',
+    id: techKey,
+    name: req.body?.techName || '战术科技强化',
+    desc: req.body?.techDesc || '提升部队战术属性',
     totalSec,
     endAt: Date.now() + totalSec * 1000
   };
@@ -514,10 +517,11 @@ app.post('/api/tech/speedup', authMiddleware, (req, res) => {
   if (!u) return res.json({ success: false, error: '用户不存在' });
   if (!u.activeTech || u.activeTech.endAt <= Date.now())
     return res.json({ success: false, error: '没有进行中的研究' });
-  const cost = 10;
-  if ((u.gems || 0) < cost) return res.json({ success: false, error: '钻石不足' });
+  const remainSec = Math.max(1, Math.ceil((u.activeTech.endAt - Date.now()) / 1000));
+  const cost = Math.max(1, Math.ceil(remainSec / 60));
+  if ((u.gems || 0) < cost) return res.json({ success: false, error: `钻石不足，加速需要 ${cost} 钻石` });
   u.gems -= cost;
-  u.activeTech.endAt = Math.max(Date.now(), u.activeTech.endAt - 10 * 60 * 1000);
+  u.activeTech.endAt = Date.now();
   saveDB('users', users);
   res.json({ success: true, gold: u.gold, gems: u.gems, endAt: u.activeTech.endAt });
 });
