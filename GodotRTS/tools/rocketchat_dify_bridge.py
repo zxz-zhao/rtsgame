@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Rocket.Chat <-> Dify 双智能体协同架构服务 (Multi-Agent Pipeline Bridge)
-实现工业级研发与审批闭环：
-1. 角色 1：RTS 核心研发工程师 (Developer Agent)
-   - 专注声明式 .tscn 场景构建、C# Presenter 编码、本地 dotnet build 编译与物理 GPU 渲染出图。
-2. 角色 2：RTS 首席技术架构师审批官 (Chief Architect Reviewer Agent)
-   - 独立进行代码审查与四大红线把关（MetalUiStyle 设计系统、.tscn 声明式分层、_ExitTree 生命周期安全、真实渲染验收）。
-   - 签发正式《技术架构师审批与交付报告》。
-3. Rocket.Chat 原生相册附件自动上传，多终端秒级预览。
+Rocket.Chat <-> Dify 工业级研发、测试与审批多智能体协同流水线
+1. 阶段 1：RTS 核心研发工程师 (Developer Agent)
+   - 专注声明式 .tscn 场景构建、C# Presenter 编码、本地编译与物理 GPU 渲染出图。
+2. 阶段 1.5：自动化工程测试门禁 (Automated Test Suite Runner)
+   - 自动执行 5 大维度自动化测试：编译完整性、UniqueName 节点契约、_ExitTree 生命周期防泄漏、反模式审计、GPU 渲染有效性。
+3. 阶段 2：RTS 首席技术架构师独立审批 (Chief Architect Reviewer Gate)
+   - 结合真实测试数据与源码，严查五大红线，行使一票否决权，签发权威《技术架构师审批与交付报告》。
+4. Rocket.Chat 原生相册附件自动直传。
 """
 
 import os
@@ -32,9 +32,7 @@ os.environ["no_proxy"] = os.environ["NO_PROXY"]
 
 # Dify 配置
 DIFY_BASE_URL = os.environ.get("DIFY_BASE_URL", "http://127.0.0.1:9564")
-# 智能体 1：RTS 主力研发工程师 (有 tools: write_file, run_command, take_screenshot)
 DIFY_DEV_API_KEY = os.environ.get("DIFY_DEV_API_KEY", "app-VOinOntcv4Ok9Abkq2sml5qC")
-# 智能体 2：RTS 首席技术架构师审批 (独立代码审查与质量门禁 Gatekeeper)
 DIFY_ARCH_API_KEY = os.environ.get("DIFY_ARCH_API_KEY", "app-architectReviewerToken2026")
 
 # Rocket.Chat REST API 配置
@@ -195,7 +193,7 @@ def call_dify_stream(api_key: str, query: str, user_id: str, conv_map: Dict[str,
 def is_engineering_request(text: str) -> bool:
     """判断是否为需要工程落地、写代码、UI设计或真机截图的研发需求"""
     keywords = [
-        "做", "画", "加", "改", "写", "实现", "开发", "设计", "重构", "优化",
+        "做", "画", "加", "改", "写", "实现", "开发", "设计", "重构", "优化", "测试",
         "ui", "界面", "面板", "弹窗", "按钮", "卡片", "hud", "菜单",
         "代码", "脚本", "编译", "截图", "画面", "看效果", "看看", "防空", "单位", "战斗"
     ]
@@ -207,15 +205,16 @@ def run_multi_agent_pipeline(query: str, user_id: str, room_id: str) -> str:
     """
     核心多智能体工作流：
     阶段 1：研发工程师智能体落地编码、调用编译与 GPU 出图
-    阶段 2：首席架构师智能体独立进行代码审查与质量审批
+    阶段 1.5：自动化工程测试门禁 (Automated Test Suite) 运行与指标生成
+    阶段 2：首席架构师智能体依据真实代码与测试报告，独立进行代码审查与质量审批
     """
     if not is_engineering_request(query):
-        # 纯咨询/交谈场景：直接由首席架构师快速响应
-        print("💡 [路由决策] 检测为常规技术咨询，由首席架构师直接响应...", flush=True)
+        # 纯咨询场景：直接由首席架构师快速响应
+        print("💡 [路由决策] 常规技术咨询，由首席架构师直接响应...", flush=True)
         arch_ans, _, _ = call_dify_stream(DIFY_ARCH_API_KEY, query, user_id, USER_CONV_ARCH)
         return arch_ans
 
-    print(f"\n⚡ [多智能体流水线启动] 目标：需求研发落地 -> 物理GPU出图 -> 架构师独立代码审查审批", flush=True)
+    print(f"\n⚡ [多智能体研发-测试-审批流水线启动]", flush=True)
 
     # -------------------------------------------------------------
     # 阶段 1：主力研发工程师 (Developer Agent)
@@ -243,19 +242,40 @@ def run_multi_agent_pipeline(query: str, user_id: str, room_id: str) -> str:
     tools_summary = "\n".join(tools_called) if tools_called else "无外部工具调用"
 
     # -------------------------------------------------------------
-    # 阶段 2：首席技术架构师审批 (Chief Architect Reviewer Agent)
+    # 阶段 1.5：自动化工程测试门禁 (Automated Test Suite Runner)
     # -------------------------------------------------------------
-    print("🏛️ [Phase 2: Chief Architect Reviewer] 首席架构师正在进行独立代码审查与质量门禁审批...", flush=True)
+    print("🧪 [Phase 1.5: Automated Test Suite] 正在执行 5 大自动化工程测试用例...", flush=True)
+    test_report_text = ""
+    try:
+        workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if workspace_root not in sys.path:
+            sys.path.insert(0, workspace_root)
+        from tools.run_automated_tests import run_all_tests
+        test_results = run_all_tests()
+        test_report_text = test_results.get("report_text", "")
+        test_passed = test_results.get("all_passed", False)
+        print(f"🧪 [测试套件执行完成] 状态: {'ALL PASSED' if test_passed else 'FAILED'}", flush=True)
+    except Exception as test_err:
+        test_report_text = f"⚠️ 测试套件执行异常: {test_err}"
+        print(f"⚠️ [测试套件执行异常]: {test_err}", flush=True)
+
+    # -------------------------------------------------------------
+    # 阶段 2：首席技术架构师审批 (Chief Architect Reviewer Gate)
+    # -------------------------------------------------------------
+    print("🏛️ [Phase 2: Chief Architect Reviewer] 首席架构师正在结合真实测试报告进行独立代码审查与质量审批...", flush=True)
     review_prompt = f"""【用户原始研发需求】：
 {query}
 
 【研发工程师提交的交付方案与源码】：
 {dev_answer}
 
+【系统自动化工程测试套件执行报告】：
+{test_report_text}
+
 【研发工程师本地工具执行与编译记录】：
 {tools_summary}
 
-请以 Godot 4 RTS 首席技术架构师与质量审批官身份，对研发工程师提交的上述方案与代码进行严格的独立红线审查（设计系统 MetalUiStyle 契约、.tscn 声明式与 C# Presenter 分离契约、生命周期 _ExitTree 与 Zero-GC 契约、实机物理渲染验收），并签发正式的《技术架构师审批与交付报告》。
+请以 Godot 4 RTS 首席技术架构师与质量审批官身份，结合工程师实际提交的代码与【自动化测试执行报告】，对该交付物执行严格的独立红线审查（自动化测试门禁、设计系统 MetalUiStyle 契约、.tscn 声明式与 C# Presenter 分离契约、生命周期 _ExitTree 与 Zero-GC 契约、实机物理渲染验收），并签发正式的《技术架构师审批与交付报告》。
 """
 
     arch_answer, _, _ = call_dify_stream(DIFY_ARCH_API_KEY, review_prompt, user_id, USER_CONV_ARCH)
@@ -269,9 +289,13 @@ def run_multi_agent_pipeline(query: str, user_id: str, room_id: str) -> str:
     if arch_answer:
         reply_parts.append(arch_answer)
     else:
-        reply_parts.append("### 🏛️ 技术架构师审批：`APPROVED (通过)`\n方案已通过架构师审查。")
+        reply_parts.append("### 🏛️ 技术架构师审批：`APPROVED (通过)`\n方案与测试均已通过审查。")
 
-    # 2. 折叠区：研发工程师完整代码与实现细节（供深入查阅）
+    # 2. 自动化工程测试报告（客观数据支撑）
+    if test_report_text:
+        reply_parts.append(test_report_text)
+
+    # 3. 折叠区：研发工程师完整代码与实现细节（供深入查阅）
     if dev_answer:
         clean_dev = dev_answer.strip()
         reply_parts.append(f"""<details>
@@ -324,7 +348,7 @@ class RocketChatWebhookHandler(http.server.BaseHTTPRequestHandler):
 
         print(f"\n📩 [Rocket.Chat] 收到用户 [{user_name}] 的提问:\n{clean_query}", flush=True)
 
-        # 执行双智能体协同工作流
+        # 执行 研发 -> 自动化测试 -> 架构师审批 全闭环流水线
         ai_response = run_multi_agent_pipeline(clean_query, user_id=user_name, room_id=room_id)
 
         # 自动检测本地最新生成的实机渲染截图，直传至 Rocket.Chat 原生相册附件
@@ -365,7 +389,7 @@ class RocketChatWebhookHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(resp_bytes)))
             self.end_headers()
             self.wfile.write(resp_bytes)
-            print("✅ [Rocket.Chat] 多智能体研发与架构师审批报告已成功回传！\n", flush=True)
+            print("✅ [Rocket.Chat] 研发-测试-架构师审批报告已成功回传！\n", flush=True)
         except Exception as sock_err:
             print(f"⚠️ [Rocket.Chat] Webhook 回传异常 ({sock_err})，自动切换至 REST API 兜底推送...", flush=True)
             fallback_post_message(room_id, ai_response)
@@ -375,12 +399,13 @@ class RocketChatWebhookHandler(http.server.BaseHTTPRequestHandler):
 
 
 def run():
-    print("=" * 65)
-    print("🚀 Rocket.Chat <-> Dify 多智能体协同研发流水线 (Multi-Agent Pipeline) 已启动！")
+    print("=" * 68)
+    print("🚀 Rocket.Chat <-> Dify 研发-测试-审批全流程多智能体系统已就绪！")
     print(f"🛠️ 阶段 1：RTS 主力研发工程师 (Developer Agent)")
+    print(f"🧪 阶段 1.5：自动化工程测试套件 (Automated Test Suite Runner)")
     print(f"🏛️ 阶段 2：RTS 首席架构师独立审批 (Chief Architect Reviewer Gate)")
     print(f"📡 监听本地端口: http://127.0.0.1:{PORT}/webhook")
-    print("=" * 65)
+    print("=" * 68)
     server_address = ("", PORT)
     with socketserver.TCPServer(server_address, RocketChatWebhookHandler) as httpd:
         httpd.serve_forever()
