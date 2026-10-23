@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dxkmkwkg18kc2"
 path.s3tc="res://.godot/imported/Tex_surrounding open space_D.png-9e4589aef03abf06095d99e159d9de52.s3tc.ctex"
+path.etc2="res://.godot/imported/Tex_surrounding open space_D.png-9e4589aef03abf06095d99e159d9de52.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Props/WarScene/Tex_surrounding open space_D.png"
-dest_files=["res://.godot/imported/Tex_surrounding open space_D.png-9e4589aef03abf06095d99e159d9de52.s3tc.ctex"]
+dest_files=["res://.godot/imported/Tex_surrounding open space_D.png-9e4589aef03abf06095d99e159d9de52.s3tc.ctex", "res://.godot/imported/Tex_surrounding open space_D.png-9e4589aef03abf06095d99e159d9de52.etc2.ctex"]
 
 [params]
 

@@ -1,0 +1,16 @@
+build/
+bin/
+dist/
+logs/
+backups/
+data/
+test-runtime/
+.git/
+.vs/
+.vscode/
+*.o
+*.obj
+*.exe
+*.pdb
+*.zip
+*.tar.gz

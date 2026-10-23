@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://c77buqj0a6c40"
 path.s3tc="res://.godot/imported/Tex_road near base_D.png-989bd52a19948b6c78fc1e6f7dc8bcfc.s3tc.ctex"
+path.etc2="res://.godot/imported/Tex_road near base_D.png-989bd52a19948b6c78fc1e6f7dc8bcfc.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Props/WarScene/Tex_road near base_D.png"
-dest_files=["res://.godot/imported/Tex_road near base_D.png-989bd52a19948b6c78fc1e6f7dc8bcfc.s3tc.ctex"]
+dest_files=["res://.godot/imported/Tex_road near base_D.png-989bd52a19948b6c78fc1e6f7dc8bcfc.s3tc.ctex", "res://.godot/imported/Tex_road near base_D.png-989bd52a19948b6c78fc1e6f7dc8bcfc.etc2.ctex"]
 
 [params]
 

@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://ddrcivwprdi24"
 path.s3tc="res://.godot/imported/Merrick556_barrel_reinforced.png-a3a787baea1e4584900404d8a2739476.s3tc.ctex"
+path.etc2="res://.godot/imported/Merrick556_barrel_reinforced.png-a3a787baea1e4584900404d8a2739476.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Weapons/Merrick556/Merrick556_barrel_reinforced.png"
-dest_files=["res://.godot/imported/Merrick556_barrel_reinforced.png-a3a787baea1e4584900404d8a2739476.s3tc.ctex"]
+dest_files=["res://.godot/imported/Merrick556_barrel_reinforced.png-a3a787baea1e4584900404d8a2739476.s3tc.ctex", "res://.godot/imported/Merrick556_barrel_reinforced.png-a3a787baea1e4584900404d8a2739476.etc2.ctex"]
 
 [params]
 

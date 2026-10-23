@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bovk38bury6gd"
 path.s3tc="res://.godot/imported/colormap.png-e6f5d1719aaba0af12face065b7df6f3.s3tc.ctex"
+path.etc2="res://.godot/imported/colormap.png-e6f5d1719aaba0af12face065b7df6f3.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/MilitaryModels/Kenney/Extracted/SurvivalKit/Models/FBX format/Textures/colormap.png"
-dest_files=["res://.godot/imported/colormap.png-e6f5d1719aaba0af12face065b7df6f3.s3tc.ctex"]
+dest_files=["res://.godot/imported/colormap.png-e6f5d1719aaba0af12face065b7df6f3.s3tc.ctex", "res://.godot/imported/colormap.png-e6f5d1719aaba0af12face065b7df6f3.etc2.ctex"]
 
 [params]
 

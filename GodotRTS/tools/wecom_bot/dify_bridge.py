@@ -63,8 +63,9 @@ def ask_dify(
             if on_chunk:
                 on_chunk(text)
 
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with opener.open(req, timeout=timeout) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if not line.startswith("data:"):
@@ -108,6 +109,10 @@ def ask_dify(
                     elif event == "error":
                         err_msg = data.get("message", "未知错误")
                         emit(f"\n⚠️ **[Dify 错误]**: {err_msg}\n")
+
+                    # 4. End of stream
+                    elif event == "message_end":
+                        break
 
                 except json.JSONDecodeError:
                     continue

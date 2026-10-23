@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bv08pgq5imm7s"
 path.s3tc="res://.godot/imported/Gemini_Generated_Image_hiizlxhiizlxhiiz.png-55ebbbc62ee032dff3762148ea50dada.s3tc.ctex"
+path.etc2="res://.godot/imported/Gemini_Generated_Image_hiizlxhiizlxhiiz.png-55ebbbc62ee032dff3762148ea50dada.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Units/HeavyTank/Gemini_Generated_Image_hiizlxhiizlxhiiz.png"
-dest_files=["res://.godot/imported/Gemini_Generated_Image_hiizlxhiizlxhiiz.png-55ebbbc62ee032dff3762148ea50dada.s3tc.ctex"]
+dest_files=["res://.godot/imported/Gemini_Generated_Image_hiizlxhiizlxhiiz.png-55ebbbc62ee032dff3762148ea50dada.s3tc.ctex", "res://.godot/imported/Gemini_Generated_Image_hiizlxhiizlxhiiz.png-55ebbbc62ee032dff3762148ea50dada.etc2.ctex"]
 
 [params]
 

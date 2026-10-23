@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://b14pdw3md2ya2"
 path.s3tc="res://.godot/imported/colormap.png-fe84a6662656d3b41421ae8536b1af1d.s3tc.ctex"
+path.etc2="res://.godot/imported/colormap.png-fe84a6662656d3b41421ae8536b1af1d.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Downloads/city-industrial/Models/FBX format/Textures/colormap.png"
-dest_files=["res://.godot/imported/colormap.png-fe84a6662656d3b41421ae8536b1af1d.s3tc.ctex"]
+dest_files=["res://.godot/imported/colormap.png-fe84a6662656d3b41421ae8536b1af1d.s3tc.ctex", "res://.godot/imported/colormap.png-fe84a6662656d3b41421ae8536b1af1d.etc2.ctex"]
 
 [params]
 

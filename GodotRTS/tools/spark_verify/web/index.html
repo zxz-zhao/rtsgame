@@ -1,0 +1,1658 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SparkVerify 极验网络验证中枢 - 软件授权 & 卡密管理</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            cyber: {
+              900: '#0b0f19',
+              800: '#111827',
+              700: '#1f293d',
+              border: 'rgba(255, 255, 255, 0.08)',
+              accent: '#38bdf8',
+              purple: '#818cf8',
+              emerald: '#10b981'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background: radial-gradient(circle at 15% 15%, #131a2b 0%, #090d16 100%);
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .glass-card {
+      background: rgba(17, 24, 39, 0.7);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+    .glow-cyan {
+      box-shadow: 0 0 20px -3px rgba(56, 189, 248, 0.25);
+    }
+    .glow-purple {
+      box-shadow: 0 0 20px -3px rgba(129, 140, 248, 0.25);
+    }
+    .glow-emerald {
+      box-shadow: 0 0 20px -3px rgba(16, 185, 129, 0.25);
+    }
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0f19;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #27354f;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #38bdf8;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased select-none">
+
+  <!-- 熔断停用提示条 (当普通管理端被超管停止加密端工作时展示) -->
+  <div id="stoppedPackerAlert" class="bg-red-950/95 border-b border-red-800 text-red-200 px-6 py-2.5 text-xs flex items-center justify-between hidden sticky top-0 z-50">
+    <div class="flex items-center space-x-2">
+      <i class="fa-solid fa-triangle-exclamation text-red-400 text-base animate-pulse"></i>
+      <span><strong>平台总控风控提示：</strong>您的加密端工作已被超级管理员停止！当前禁止加壳打包新软件，已上线卡密验证及设备保活不受影响。</span>
+    </div>
+    <span class="text-xs text-red-300/80 font-mono">CODE: ENCRYPT_SUSPENDED</span>
+  </div>
+
+  <!-- 顶部导航栏 -->
+  <header class="h-16 glass-card border-b border-cyber-border px-6 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/20">
+        <i class="fa-solid fa-shield-halved text-lg"></i>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <span class="font-extrabold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 text-lg">SPARK VERIFY</span>
+          <span id="headerBrandBadge" class="text-xs px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-400 border border-cyan-800/50">极验云 1.0</span>
+        </div>
+        <p class="text-xs text-slate-400">一机一码 · 心跳保活 · 高并发卡密授权中枢</p>
+      </div>
+    </div>
+
+    <!-- 运行软件选择器与快捷指标 -->
+    <div class="flex items-center space-x-4">
+      <!-- 角色标识徽章 -->
+      <div id="headerRoleBadge" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-300">
+        <i class="fa-solid fa-user-gear text-cyan-400"></i>
+        <span id="headerRoleText">开发者端: admin</span>
+      </div>
+
+      <div id="appSelectorContainer" class="flex items-center space-x-2 bg-slate-900/80 border border-slate-700/60 rounded-lg px-3 py-1.5 text-sm">
+        <i class="fa-solid fa-cubes text-cyan-400"></i>
+        <span class="text-slate-400">软件:</span>
+        <select id="activeAppSelect" onchange="onAppChanged()" class="bg-transparent text-slate-200 outline-none cursor-pointer font-medium">
+          <option value="APP_DEMO_001" class="bg-slate-900">极验演示软件套件 (APP_DEMO_001)</option>
+        </select>
+      </div>
+
+      <div class="flex items-center space-x-2 bg-emerald-950/40 border border-emerald-800/40 rounded-lg px-3 py-1.5 text-sm text-emerald-400">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        </span>
+        <span>在线: <strong id="headerOnlineCount" class="font-bold text-white">0</strong> 人</span>
+      </div>
+
+      <button onclick="refreshCurrentTab()" title="刷新数据" class="w-9 h-9 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 flex items-center justify-center transition">
+        <i class="fa-solid fa-rotate-right"></i>
+      </button>
+
+      <button onclick="logoutAdmin()" title="退出管理" class="w-9 h-9 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 flex items-center justify-center transition">
+        <i class="fa-solid fa-arrow-right-from-bracket"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- 主体工作区 (左侧菜单 + 右侧视图) -->
+  <div class="flex flex-1 overflow-hidden">
+    
+    <!-- 左侧菜单栏 -->
+    <aside class="w-64 glass-card border-r border-cyber-border p-4 flex flex-col justify-between hidden md:flex">
+      <div class="space-y-1">
+        <div id="sidebarTitle" class="text-xs font-semibold uppercase text-slate-500 px-3 py-2">中枢控制</div>
+        
+        <!-- 超级管理员专用导航条 -->
+        <div id="superNavGroup" class="space-y-1 hidden">
+          <button onclick="switchTab('super-admins')" id="nav-super-admins" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition bg-purple-950/50 text-purple-300 border border-purple-800/40">
+            <i class="fa-solid fa-user-shield w-5 text-center text-purple-400"></i>
+            <span>下级管理端管控</span>
+          </button>
+          <button onclick="switchTab('dashboard')" id="nav-super-dashboard" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/40">
+            <i class="fa-solid fa-chart-pie w-5 text-center"></i>
+            <span>全网数据大盘</span>
+          </button>
+          <button onclick="switchTab('logs')" id="nav-super-logs" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/40">
+            <i class="fa-solid fa-scroll w-5 text-center"></i>
+            <span>全网审计日志</span>
+          </button>
+        </div>
+
+        <!-- 普通管理员导航条 -->
+        <div id="adminNavGroup" class="space-y-1">
+          <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition bg-cyan-950/40 text-cyan-400 border border-cyan-800/30">
+            <i class="fa-solid fa-chart-line w-5 text-center"></i>
+            <span>系统大盘</span>
+          </button>
+
+          <button onclick="switchTab('cards')" id="nav-cards" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/40">
+            <i class="fa-solid fa-ticket w-5 text-center"></i>
+            <span>卡密管理</span>
+          </button>
+
+          <button onclick="switchTab('sessions')" id="nav-sessions" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/40">
+            <i class="fa-solid fa-bolt w-5 text-center"></i>
+            <span>在线心跳监控</span>
+          </button>
+
+          <button onclick="switchTab('apps')" id="nav-apps" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/40">
+            <i class="fa-solid fa-sliders w-5 text-center"></i>
+            <span>软件策略配置</span>
+          </button>
+
+          <button onclick="switchTab('cloudvars')" id="nav-cloudvars" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/40">
+            <i class="fa-solid fa-cloud w-5 text-center"></i>
+            <span>云端下发变量</span>
+          </button>
+
+          <button onclick="switchTab('logs')" id="nav-logs" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/40">
+            <i class="fa-solid fa-scroll w-5 text-center"></i>
+            <span>操作与安全日志</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 底部提示 -->
+      <div id="sidebarFooterTip" class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-xs space-y-2">
+        <div class="flex items-center text-slate-300 font-semibold space-x-1.5">
+          <i class="fa-solid fa-code text-cyan-400"></i>
+          <span>多语言客户端支持</span>
+        </div>
+        <p class="text-slate-400 leading-relaxed">
+          已附带 Python / C++ / C# / Java / 易语言 开箱即用验证与心跳保活接入源码。
+        </p>
+      </div>
+    </aside>
+
+      <!-- ================= TAB 0: 超级管理员总控 (SUPER ADMIN ONLY) ================= -->
+      <section id="tab-super-admins" class="space-y-6 hidden">
+        <!-- 权限说明提示卡 -->
+        <div class="glass-card rounded-2xl p-5 border border-purple-800/40 bg-gradient-to-r from-purple-950/40 via-indigo-950/20 to-slate-900/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div class="flex items-center space-x-4">
+            <div class="w-12 h-12 rounded-xl bg-purple-900/50 border border-purple-700/60 flex items-center justify-center text-purple-300 text-2xl shadow-lg shadow-purple-500/20 flex-shrink-0">
+              <i class="fa-solid fa-crown"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <h3 class="text-base font-bold text-white">平台超级管理员 · 总控与风控中心</h3>
+                <span class="px-2 py-0.5 rounded text-[11px] bg-purple-950 text-purple-300 border border-purple-700 font-mono">SUPER_ADMIN</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-1">
+                最高监督总控：查阅全网所有管理端使用信息与运行大盘；行使 <span class="text-red-400 font-semibold">【一键停止/恢复加密端工作 (熔断)】</span> 最高制裁权；不干预下级具体制卡。
+              </p>
+            </div>
+          </div>
+          <button onclick="openCreateAdminModal()" class="px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 rounded-xl text-white font-bold text-xs shadow-lg shadow-cyan-500/20 flex items-center space-x-2 transition self-start md:self-auto flex-shrink-0">
+            <i class="fa-solid fa-user-plus"></i>
+            <span>开通新管理端</span>
+          </button>
+        </div>
+
+        <!-- 5 核心全网全局大盘卡片 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div class="glass-card rounded-2xl p-4 glow-purple">
+            <p class="text-xs text-slate-400 uppercase font-medium">全网管理端总数</p>
+            <h3 id="superStatTotalAdmins" class="text-2xl font-black text-purple-400 mt-2">0</h3>
+            <p class="text-[11px] text-slate-500 mt-2">开发者/代理商端</p>
+          </div>
+          <div class="glass-card rounded-2xl p-4 glow-emerald">
+            <p class="text-xs text-slate-400 uppercase font-medium">加密端允许工作</p>
+            <h3 id="superStatActivePackers" class="text-2xl font-black text-emerald-400 mt-2">0</h3>
+            <p class="text-[11px] text-emerald-400/80 mt-2">可正常打包加验证</p>
+          </div>
+          <div class="glass-card rounded-2xl p-4 border border-red-800/40">
+            <p class="text-xs text-slate-400 uppercase font-medium">加密端停止工作 (已熔断)</p>
+            <h3 id="superStatStoppedPackers" class="text-2xl font-black text-red-400 mt-2">0</h3>
+            <p class="text-[11px] text-red-400/80 mt-2">已被总控停止打包</p>
+          </div>
+          <div class="glass-card rounded-2xl p-4 glow-cyan">
+            <p class="text-xs text-slate-400 uppercase font-medium">全网总软件数</p>
+            <h3 id="superStatTotalApps" class="text-2xl font-black text-cyan-400 mt-2">0</h3>
+            <p class="text-[11px] text-slate-500 mt-2">名下授权项目总计</p>
+          </div>
+          <div class="glass-card rounded-2xl p-4">
+            <p class="text-xs text-slate-400 uppercase font-medium">全网制卡总数</p>
+            <h3 id="superStatTotalCards" class="text-2xl font-black text-white mt-2">0</h3>
+            <p class="text-[11px] text-indigo-400 mt-2">全网卡密总额度</p>
+          </div>
+        </div>
+
+        <!-- 下级管理端列表与启停管控表 -->
+        <div class="glass-card rounded-2xl p-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-users-gear text-cyan-400 text-lg"></i>
+              <h4 class="text-sm font-bold text-white uppercase tracking-wider">下级管理端使用信息与加密端启停管控</h4>
+            </div>
+            <button onclick="loadSuperAdmins()" class="text-xs text-slate-400 hover:text-cyan-400 transition flex items-center space-x-1">
+              <i class="fa-solid fa-rotate-right"></i>
+              <span>刷新列表</span>
+            </button>
+          </div>
+
+          <div class="overflow-x-auto rounded-xl border border-slate-800">
+            <table class="w-full text-left text-sm text-slate-300">
+              <thead class="bg-slate-900/80 text-[11px] uppercase text-slate-400 font-semibold border-b border-slate-800">
+                <tr>
+                  <th class="p-4">管理端账号</th>
+                  <th class="p-4">角色</th>
+                  <th class="p-4">备注说明</th>
+                  <th class="p-4 text-center">名下软件数</th>
+                  <th class="p-4 text-center">制作卡密数</th>
+                  <th class="p-4 text-center">当前在线终端</th>
+                  <th class="p-4 text-center">加密端工作状态</th>
+                  <th class="p-4 text-center">超级管理员最高裁决操作</th>
+                </tr>
+              </thead>
+              <tbody id="superAdminsTableBody" class="divide-y divide-slate-800/60 font-mono text-xs">
+                <!-- 动态渲染 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 1: 仪表大盘 ================= -->
+      <section id="tab-dashboard" class="space-y-6">
+        <!-- 4 核心指标卡 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <!-- 在线人数 -->
+          <div class="glass-card rounded-2xl p-5 glow-cyan relative overflow-hidden group">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-xs uppercase font-medium text-slate-400">实时在线终端</p>
+                <h3 id="statOnline" class="text-3xl font-extrabold text-white mt-2">0</h3>
+              </div>
+              <div class="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-800/40 flex items-center justify-center text-cyan-400 text-xl group-hover:scale-110 transition">
+                <i class="fa-solid fa-signal"></i>
+              </div>
+            </div>
+            <div class="mt-4 flex items-center text-xs text-cyan-400 space-x-1.5">
+              <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+              <span>心跳保活检测正常 (30s)</span>
+            </div>
+          </div>
+
+          <!-- 总卡密数 -->
+          <div class="glass-card rounded-2xl p-5 glow-purple relative overflow-hidden group">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-xs uppercase font-medium text-slate-400">卡密总数</p>
+                <h3 id="statTotal" class="text-3xl font-extrabold text-white mt-2">0</h3>
+              </div>
+              <div class="w-12 h-12 rounded-xl bg-indigo-950/60 border border-indigo-800/40 flex items-center justify-center text-indigo-400 text-xl group-hover:scale-110 transition">
+                <i class="fa-solid fa-id-card"></i>
+              </div>
+            </div>
+            <div class="mt-4 flex items-center text-xs text-indigo-300">
+              <span>未使用卡密: <strong id="statUnused" class="text-white">0</strong> 张</span>
+            </div>
+          </div>
+
+          <!-- 今日激活 -->
+          <div class="glass-card rounded-2xl p-5 glow-emerald relative overflow-hidden group">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-xs uppercase font-medium text-slate-400">今日激活授权</p>
+                <h3 id="statToday" class="text-3xl font-extrabold text-emerald-400 mt-2">0</h3>
+              </div>
+              <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-emerald-800/40 flex items-center justify-center text-emerald-400 text-xl group-hover:scale-110 transition">
+                <i class="fa-solid fa-user-check"></i>
+              </div>
+            </div>
+            <div class="mt-4 flex items-center text-xs text-emerald-300">
+              <i class="fa-solid fa-arrow-trend-up mr-1"></i>
+              <span>设备指纹自动匹配绑定</span>
+            </div>
+          </div>
+
+          <!-- 冻结管控 -->
+          <div class="glass-card rounded-2xl p-5 relative overflow-hidden group">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-xs uppercase font-medium text-slate-400">黑名单 / 冻结卡密</p>
+                <h3 id="statFrozen" class="text-3xl font-extrabold text-red-400 mt-2">0</h3>
+              </div>
+              <div class="w-12 h-12 rounded-xl bg-red-950/60 border border-red-800/40 flex items-center justify-center text-red-400 text-xl group-hover:scale-110 transition">
+                <i class="fa-solid fa-user-slash"></i>
+              </div>
+            </div>
+            <div class="mt-4 flex items-center text-xs text-slate-400">
+              <span>防多开防盗版锁定防护</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 快速功能入口与系统状态 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- 快捷操作面板 -->
+          <div class="glass-card rounded-2xl p-6 lg:col-span-2 space-y-4">
+            <h4 class="text-base font-bold text-white flex items-center space-x-2">
+              <i class="fa-solid fa-wand-magic-sparkles text-cyan-400"></i>
+              <span>快捷中枢指令</span>
+            </h4>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+              <button onclick="openGenerateModal()" class="flex flex-col items-center justify-center p-5 rounded-xl bg-gradient-to-b from-cyan-950/40 to-slate-900 border border-cyan-800/40 hover:border-cyan-400 hover:shadow-lg hover:shadow-cyan-500/10 transition group">
+                <i class="fa-solid fa-plus-circle text-2xl text-cyan-400 mb-2 group-hover:scale-110 transition"></i>
+                <span class="font-bold text-white text-sm">批量生成卡密</span>
+                <span class="text-xs text-slate-400 mt-1">天卡/月卡/永久/计次</span>
+              </button>
+
+              <button onclick="switchTab('sessions')" class="flex flex-col items-center justify-center p-5 rounded-xl bg-gradient-to-b from-indigo-950/40 to-slate-900 border border-indigo-800/40 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 transition group">
+                <i class="fa-solid fa-desktop text-2xl text-indigo-400 mb-2 group-hover:scale-110 transition"></i>
+                <span class="font-bold text-white text-sm">实时在线查控</span>
+                <span class="text-xs text-slate-400 mt-1">一键下线或踢出</span>
+              </button>
+
+              <button onclick="switchTab('cloudvars')" class="flex flex-col items-center justify-center p-5 rounded-xl bg-gradient-to-b from-purple-950/40 to-slate-900 border border-purple-800/40 hover:border-purple-400 hover:shadow-lg hover:shadow-purple-500/10 transition group">
+                <i class="fa-solid fa-key text-2xl text-purple-400 mb-2 group-hover:scale-110 transition"></i>
+                <span class="font-bold text-white text-sm">远程动态云变量</span>
+                <span class="text-xs text-slate-400 mt-1">无需更新EXE下发参数</span>
+              </button>
+            </div>
+
+            <!-- 公告预览与当前配置摘要 -->
+            <div class="mt-6 pt-4 border-t border-slate-800 text-sm space-y-2">
+              <div class="flex items-center justify-between text-slate-400 text-xs">
+                <span>当前下发公告:</span>
+                <span id="dashVersionBadge" class="text-cyan-400 font-mono">v1.0.0</span>
+              </div>
+              <div id="dashNoticeText" class="p-3 bg-slate-900/80 rounded-xl border border-slate-800/80 text-slate-300 text-xs font-sans">
+                加载中...
+              </div>
+            </div>
+          </div>
+
+          <!-- 安全引擎特性概览 -->
+          <div class="glass-card rounded-2xl p-6 space-y-4">
+            <h4 class="text-base font-bold text-white flex items-center space-x-2">
+              <i class="fa-solid fa-shield-cat text-emerald-400"></i>
+              <span>安全防御引擎规格</span>
+            </h4>
+            <div class="space-y-3 text-xs pt-1">
+              <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-start space-x-3">
+                <i class="fa-solid fa-fingerprint text-cyan-400 text-base mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-slate-200">一机一码 (HWID 硬件特征)</div>
+                  <div class="text-slate-400 mt-0.5">采集 CPU ID + 主板 UUID + 硬盘序列号组合散列，首次验证即刻绑定。</div>
+                </div>
+              </div>
+
+              <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-start space-x-3">
+                <i class="fa-solid fa-heart-pulse text-red-400 text-base mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-slate-200">心跳保活与防多开拦截</div>
+                  <div class="text-slate-400 mt-0.5">客户端每隔 30 秒递增心跳，服务端超时 60 秒自动置离线，拒绝并发多登。</div>
+                </div>
+              </div>
+
+              <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-start space-x-3">
+                <i class="fa-solid fa-lock text-purple-400 text-base mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-slate-200">HMAC-SHA256 签名与时间戳</div>
+                  <div class="text-slate-400 mt-0.5">有效抵御 Fiddler / Charles 抓包重放修改，防止数据封包篡改伪造。</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 2: 卡密管理 ================= -->
+      <section id="tab-cards" class="space-y-6 hidden">
+        <!-- 顶部工具栏 -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div class="flex items-center space-x-3 w-full md:w-auto">
+            <div class="relative flex-1 md:w-80">
+              <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-500 text-xs"></i>
+              <input type="text" id="cardSearchInput" placeholder="搜索卡密、机器码或备注..." onkeyup="if(event.key==='Enter') loadCards(1)"
+                     class="w-full bg-slate-900/90 border border-slate-700/60 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-cyan-400 outline-none">
+            </div>
+
+            <select id="cardStatusFilter" onchange="loadCards(1)" class="bg-slate-900/90 border border-slate-700/60 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none cursor-pointer">
+              <option value="">全部状态</option>
+              <option value="0">未使用</option>
+              <option value="1">正常使用中</option>
+              <option value="2">已冻结</option>
+              <option value="3">已过期</option>
+            </select>
+          </div>
+
+          <div class="flex items-center space-x-3 w-full md:w-auto justify-end">
+            <button onclick="exportCards()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm font-medium transition flex items-center space-x-2">
+              <i class="fa-solid fa-file-export"></i>
+              <span>导出当前列表</span>
+            </button>
+
+            <button onclick="openGenerateModal()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-sm font-bold shadow-lg shadow-cyan-500/20 transition flex items-center space-x-2">
+              <i class="fa-solid fa-plus"></i>
+              <span>批量生成卡密</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 卡密列表表格 -->
+        <div class="glass-card rounded-2xl overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-900/80 border-b border-cyber-border text-xs uppercase text-slate-400 font-semibold">
+                <tr>
+                  <th class="p-4">卡密密钥 (Key)</th>
+                  <th class="p-4">类型</th>
+                  <th class="p-4">状态</th>
+                  <th class="p-4">绑定设备 (HWID)</th>
+                  <th class="p-4">激活 / 到期时间</th>
+                  <th class="p-4">换绑</th>
+                  <th class="p-4">备注</th>
+                  <th class="p-4 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody id="cardsTableBody" class="divide-y divide-cyber-border text-slate-300">
+                <!-- 动态填充 -->
+                <tr>
+                  <td colspan="8" class="p-8 text-center text-slate-500">正在拉取卡密数据...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 分页器 -->
+          <div class="p-4 bg-slate-900/60 border-t border-cyber-border flex items-center justify-between text-xs text-slate-400">
+            <div>共 <strong id="cardsTotalCount" class="text-slate-200">0</strong> 条记录</div>
+            <div class="flex items-center space-x-2">
+              <button onclick="prevCardsPage()" id="btnPrevPage" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200">上一页</button>
+              <span id="cardsPageIndicator" class="px-2">第 1 页</span>
+              <button onclick="nextCardsPage()" id="btnNextPage" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200">下一页</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 3: 在线监控 ================= -->
+      <section id="tab-sessions" class="space-y-6 hidden">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+              <i class="fa-solid fa-tower-broadcast text-cyan-400"></i>
+              <span>在线终端实时监控</span>
+            </h3>
+            <p class="text-xs text-slate-400 mt-1">显示当前所有保持正常心跳（30s~60s）的在线客户端，支持一键踢出或封禁</p>
+          </div>
+          <button onclick="loadSessions()" class="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs flex items-center space-x-1.5">
+            <i class="fa-solid fa-arrows-rotate"></i>
+            <span>手动刷新</span>
+          </button>
+        </div>
+
+        <div class="glass-card rounded-2xl overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-900/80 border-b border-cyber-border text-xs uppercase text-slate-400 font-semibold">
+                <tr>
+                  <th class="p-4">会话令牌 (Token)</th>
+                  <th class="p-4">关联卡密</th>
+                  <th class="p-4">客户端 IP</th>
+                  <th class="p-4">机器码 (HWID)</th>
+                  <th class="p-4">登录时间</th>
+                  <th class="p-4">最近心跳时间</th>
+                  <th class="p-4 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody id="sessionsTableBody" class="divide-y divide-cyber-border text-slate-300">
+                <tr>
+                  <td colspan="7" class="p-8 text-center text-slate-500">暂无在线客户端</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 4: 软件策略配置 ================= -->
+      <section id="tab-apps" class="space-y-6 hidden">
+        <div class="glass-card rounded-2xl p-6 max-w-4xl space-y-6">
+          <div class="border-b border-slate-800 pb-4">
+            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+              <i class="fa-solid fa-gear text-indigo-400"></i>
+              <span>软件应用与安全策略参数</span>
+            </h3>
+            <p class="text-xs text-slate-400 mt-1">管理版本更新、通信密钥、换绑限制与心跳周期</p>
+          </div>
+
+          <form id="appConfigForm" onsubmit="saveAppConfig(event)" class="space-y-5 text-sm">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">应用名称</label>
+                <input type="text" id="cfgAppName" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 outline-none focus:border-cyan-400">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">应用通信密钥 (App Secret)</label>
+                <div class="flex space-x-2">
+                  <input type="text" id="cfgAppSecret" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 font-mono text-xs outline-none focus:border-cyan-400">
+                  <button type="button" onclick="copyText(document.getElementById('cfgAppSecret').value)" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs">复制</button>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">当前发布版本号 (Version)</label>
+                <input type="text" id="cfgVersion" placeholder="1.0.0" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 font-mono outline-none focus:border-cyan-400">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">心跳超时容限 (秒)</label>
+                <input type="number" id="cfgHeartbeatTimeout" value="60" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 outline-none focus:border-cyan-400">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">允许换绑设备次数 (Max Unbind)</label>
+                <input type="number" id="cfgMaxUnbind" value="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 outline-none focus:border-cyan-400">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">换绑冷却间隔 (小时)</label>
+                <input type="number" id="cfgUnbindCooldown" value="24" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 outline-none focus:border-cyan-400">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">新版本更新直链 (Download URL)</label>
+              <input type="text" id="cfgDownloadUrl" placeholder="https://..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 outline-none focus:border-cyan-400">
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">软件启动弹出公告 (Notice)</label>
+              <textarea id="cfgNotice" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 outline-none focus:border-cyan-400 text-xs leading-relaxed"></textarea>
+            </div>
+
+            <div class="flex items-center space-x-6 pt-2">
+              <label class="flex items-center space-x-2.5 cursor-pointer">
+                <input type="checkbox" id="cfgForceUpdate" class="w-4 h-4 accent-cyan-500 rounded">
+                <span class="text-xs text-slate-300">强制版本更新 (旧版本无法通过验证)</span>
+              </label>
+
+              <label class="flex items-center space-x-2.5 cursor-pointer">
+                <input type="checkbox" id="cfgAppStatus" class="w-4 h-4 accent-emerald-500 rounded">
+                <span class="text-xs text-slate-300">软件对外开放服务 (取消即进入维护停用)</span>
+              </label>
+            </div>
+
+            <div class="pt-4 flex justify-end">
+              <button type="submit" class="px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/20 text-sm">
+                保存配置策略
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ================= TAB 5: 云端变量 ================= -->
+      <section id="tab-cloudvars" class="space-y-6 hidden">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+              <i class="fa-solid fa-cloud-arrow-down text-purple-400"></i>
+              <span>远程机密云端变量</span>
+            </h3>
+            <p class="text-xs text-slate-400 mt-1">仅在卡密验证通过后动态加密下发至客户端内存，无需重新打包 EXE</p>
+          </div>
+          <button onclick="openCloudVarModal()" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-purple-600/20">
+            <i class="fa-solid fa-plus"></i>
+            <span>添加云端变量</span>
+          </button>
+        </div>
+
+        <div class="glass-card rounded-2xl overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-900/80 border-b border-cyber-border text-xs uppercase text-slate-400 font-semibold">
+                <tr>
+                  <th class="p-4">变量名 (Key)</th>
+                  <th class="p-4">变量值 (Value)</th>
+                  <th class="p-4">用途描述</th>
+                  <th class="p-4 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody id="cloudVarsTableBody" class="divide-y divide-cyber-border text-slate-300">
+                <tr>
+                  <td colspan="4" class="p-8 text-center text-slate-500">正在获取云端变量...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 6: 审计日志 ================= -->
+      <section id="tab-logs" class="space-y-6 hidden">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+              <i class="fa-solid fa-shield-halved text-cyan-400"></i>
+              <span>安全事件与操作审计</span>
+            </h3>
+            <p class="text-xs text-slate-400 mt-1">记录验证、心跳、换绑与管理员操作轨迹</p>
+          </div>
+          <button onclick="loadLogs()" class="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs">刷新日志</button>
+        </div>
+
+        <div class="glass-card rounded-2xl overflow-hidden">
+          <div class="overflow-x-auto max-h-[600px]">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-900/80 border-b border-cyber-border text-xs uppercase text-slate-400 font-semibold sticky top-0">
+                <tr>
+                  <th class="p-4">时间</th>
+                  <th class="p-4">事件</th>
+                  <th class="p-4">关联卡密</th>
+                  <th class="p-4">机器码 / 客户端 IP</th>
+                  <th class="p-4">详细详情</th>
+                </tr>
+              </thead>
+              <tbody id="logsTableBody" class="divide-y divide-cyber-border text-slate-300 font-mono text-xs">
+                <tr>
+                  <td colspan="5" class="p-8 text-center text-slate-500">正在载入日志...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ================= 弹窗: 批量生成卡密 ================= -->
+  <div id="generateModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="glass-card w-full max-w-lg rounded-2xl p-6 border border-slate-700 space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+        <h4 class="text-base font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-sparkles text-cyan-400"></i>
+          <span>批量生成卡密</span>
+        </h4>
+        <button onclick="closeGenerateModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <form id="genCardForm" onsubmit="submitGenerateCards(event)" class="space-y-4 text-sm">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-slate-300 mb-1">卡密类型</label>
+            <select id="genCardType" onchange="onCardTypeChange()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 outline-none">
+              <option value="day">天卡 (1 天)</option>
+              <option value="week">周卡 (7 天)</option>
+              <option value="month" selected>月卡 (30 天)</option>
+              <option value="quarter">季卡 (90 天)</option>
+              <option value="year">年卡 (365 天)</option>
+              <option value="forever">永久卡 (永久有效)</option>
+              <option value="count">计次卡 (自定义次数)</option>
+              <option value="custom">自定义天数</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs text-slate-300 mb-1">生成数量</label>
+            <input type="number" id="genCount" value="10" min="1" max="500" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-slate-300 mb-1">卡密前缀 (可为空)</label>
+            <input type="text" id="genPrefix" value="SV" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 outline-none">
+          </div>
+
+          <div id="customDaysDiv" class="hidden">
+            <label class="block text-xs text-slate-300 mb-1">有效天数</label>
+            <input type="number" id="genCustomDays" value="30" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 outline-none">
+          </div>
+
+          <div id="customCountDiv" class="hidden">
+            <label class="block text-xs text-slate-300 mb-1">可用次数</label>
+            <input type="number" id="genCustomCount" value="100" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 outline-none">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">制卡备注</label>
+          <input type="text" id="genNote" placeholder="例如: 代理商A批发 / 官网活动赠卡" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 outline-none">
+        </div>
+
+        <div class="pt-2 flex justify-end space-x-3">
+          <button type="button" onclick="closeGenerateModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs">取消</button>
+          <button type="submit" class="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs shadow-lg shadow-cyan-500/20">立即生成</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗: 生成结果展示 ================= -->
+  <div id="resultModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="glass-card w-full max-w-lg rounded-2xl p-6 border border-slate-700 space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+        <h4 class="text-base font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-circle-check text-emerald-400"></i>
+          <span>卡密生成成功</span>
+        </h4>
+        <button onclick="closeResultModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <div>
+        <p class="text-xs text-slate-400 mb-2">已成功生成以下卡密列表（每行一张）：</p>
+        <textarea id="resultTextarea" rows="10" readonly class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-cyan-300 font-mono text-xs select-all outline-none"></textarea>
+      </div>
+
+      <div class="flex justify-between items-center pt-2">
+        <button onclick="copyGeneratedResult()" class="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center space-x-1.5">
+          <i class="fa-solid fa-copy"></i>
+          <span>一键复制全部卡密</span>
+        </button>
+        <button onclick="closeResultModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗: 添加云变量 ================= -->
+  <div id="cloudVarModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="glass-card w-full max-w-md rounded-2xl p-6 border border-slate-700 space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+        <h4 class="text-base font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-cloud text-purple-400"></i>
+          <span>配置远程云端变量</span>
+        </h4>
+        <button onclick="closeCloudVarModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <form id="cloudVarForm" onsubmit="submitCloudVar(event)" class="space-y-4 text-sm">
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">变量键名 (Key)</label>
+          <input type="text" id="cvKey" placeholder="例如: VIP_API_KEY" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono outline-none">
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">变量值 (Value)</label>
+          <textarea id="cvValue" rows="3" placeholder="例如: sk_live_8912389123..." required class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 font-mono text-xs outline-none"></textarea>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">功能描述 (可选)</label>
+          <input type="text" id="cvDesc" placeholder="核心算法密钥或接口地址" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 outline-none">
+        </div>
+
+        <div class="pt-2 flex justify-end space-x-3">
+          <button type="button" onclick="closeCloudVarModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs">取消</button>
+          <button type="submit" class="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-lg shadow-purple-600/20">保存变量</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗: 开通新管理端 (SUPER ADMIN) ================= -->
+  <div id="createAdminModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="glass-card w-full max-w-md rounded-2xl p-6 border border-slate-700 space-y-4">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+        <h3 class="font-bold text-white text-base flex items-center space-x-2">
+          <i class="fa-solid fa-user-plus text-cyan-400"></i>
+          <span>开通新管理端 (开发者/代理商账号)</span>
+        </h3>
+        <button onclick="closeCreateAdminModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <form onsubmit="submitCreateAdmin(event)" class="space-y-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">管理端账号 (用户名)</label>
+          <input type="text" id="newAdminUser" required placeholder="如: dev_agent_03" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-xs">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">登录初始密码</label>
+          <input type="text" id="newAdminPwd" required placeholder="请输入初始密码" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-xs">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">备注说明</label>
+          <input type="text" id="newAdminNote" placeholder="如: 华东区代理开发者" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-xs">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">初始加密端状态</label>
+          <select id="newAdminCanEncrypt" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-xs">
+            <option value="1">🟢 允许正常工作打包 (默认)</option>
+            <option value="0">🛑 停止加密端工作 (熔断锁定)</option>
+          </select>
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2">
+          <button type="button" onclick="closeCreateAdminModal()" class="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs hover:bg-slate-700">取消</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-lg shadow-cyan-600/30">立即创建</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗: 管理员登录 ================= -->
+  <div id="loginModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="glass-card w-full max-w-sm rounded-3xl p-8 border border-cyan-800/40 glow-cyan space-y-6">
+      <div class="text-center space-y-2">
+        <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-white mx-auto shadow-lg shadow-cyan-500/30 text-2xl">
+          <i class="fa-solid fa-fingerprint"></i>
+        </div>
+        <h3 class="text-xl font-extrabold text-white">SparkVerify 极验</h3>
+        <p class="text-xs text-slate-400">网络验证管理中心 · 请登录</p>
+      </div>
+
+      <!-- 快捷填充角色账号 -->
+      <div class="grid grid-cols-2 gap-2 text-[11px]">
+        <button type="button" onclick="quickFillAccount('superadmin', 'super123')" class="p-2 rounded-xl bg-purple-950/60 hover:bg-purple-900 border border-purple-800/60 text-purple-300 font-bold flex items-center justify-center space-x-1 transition">
+          <i class="fa-solid fa-crown text-amber-400"></i>
+          <span>超级管理员总控</span>
+        </button>
+        <button type="button" onclick="quickFillAccount('admin', 'admin123')" class="p-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-800/60 text-cyan-300 font-bold flex items-center justify-center space-x-1 transition">
+          <i class="fa-solid fa-user-gear"></i>
+          <span>普通开发者端</span>
+        </button>
+      </div>
+
+      <form onsubmit="submitAdminLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1 font-medium">管理员用户名</label>
+          <input type="text" id="loginUsername" value="superadmin" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 outline-none text-sm">
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1 font-medium">访问密码</label>
+          <input type="password" id="loginPassword" value="super123" placeholder="默认密码: super123 / admin123" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 outline-none text-sm">
+        </div>
+
+        <button type="submit" class="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/25 transition">
+          进入管理控制台
+        </button>
+      </form>
+      <div class="text-center">
+        <span class="text-xs text-slate-500">超管: superadmin/super123 ｜ 管理端: admin/admin123</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 提示浮层 Toast -->
+  <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none px-4 py-3 rounded-xl shadow-xl border text-sm flex items-center space-x-2">
+    <i id="toastIcon" class="fa-solid fa-circle-check"></i>
+    <span id="toastMsg">通知信息</span>
+  </div>
+
+  <!-- JavaScript 交互与接口联动 -->
+  <script>
+    let currentAppId = "APP_DEMO_001";
+    let currentTab = "dashboard";
+    let cardsCurrentPage = 1;
+    let cardsTotal = 0;
+    const cardsPageLimit = 20;
+
+    function quickFillAccount(u, p) {
+      document.getElementById("loginUsername").value = u;
+      document.getElementById("loginPassword").value = p;
+    }
+
+    // 存储与解析认证会话 (支持多角色与熔断标识)
+    function getAuth() {
+      return {
+        token: localStorage.getItem("spark_admin_token") || "",
+        role: localStorage.getItem("spark_admin_role") || "ADMIN",
+        username: localStorage.getItem("spark_admin_user") || "admin",
+        canEncrypt: localStorage.getItem("spark_admin_can_encrypt") !== "0"
+      };
+    }
+
+    function setAuth(data) {
+      if (data && data.token) {
+        localStorage.setItem("spark_admin_token", data.token);
+        localStorage.setItem("spark_admin_role", data.role || "ADMIN");
+        localStorage.setItem("spark_admin_user", data.username || "admin");
+        localStorage.setItem("spark_admin_can_encrypt", (data.can_encrypt !== undefined ? data.can_encrypt : 1).toString());
+      } else {
+        localStorage.removeItem("spark_admin_token");
+        localStorage.removeItem("spark_admin_role");
+        localStorage.removeItem("spark_admin_user");
+        localStorage.removeItem("spark_admin_can_encrypt");
+      }
+    }
+
+    function getToken() {
+      return localStorage.getItem("spark_admin_token") || "";
+    }
+
+    function setToken(token) {
+      if (token) localStorage.setItem("spark_admin_token", token);
+      else localStorage.removeItem("spark_admin_token");
+    }
+
+    // 统跳 API 请求
+    async function apiRequest(endpoint, method = "GET", data = null) {
+      const headers = { "Content-Type": "application/json" };
+      const token = getToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const opts = { method, headers };
+      if (data && (method === "POST" || method === "PUT")) {
+        opts.body = JSON.stringify(data);
+      }
+
+      try {
+        const res = await fetch(endpoint, opts);
+        if (res.status === 401) {
+          showLoginModal();
+          throw new Error("请先登录后台");
+        }
+        return await res.json();
+      } catch (err) {
+        console.error("API Error:", err);
+        throw err;
+      }
+    }
+
+    // Toast 提示
+    function showToast(msg, type = "success") {
+      const toast = document.getElementById("toast");
+      const icon = document.getElementById("toastIcon");
+      const text = document.getElementById("toastMsg");
+
+      text.innerText = msg;
+      if (type === "success") {
+        toast.className = "fixed bottom-6 right-6 z-50 opacity-100 translate-y-0 transition-all duration-300 px-4 py-3 rounded-xl shadow-xl border text-sm flex items-center space-x-2 bg-emerald-950/90 border-emerald-800 text-emerald-300";
+        icon.className = "fa-solid fa-circle-check text-emerald-400";
+      } else {
+        toast.className = "fixed bottom-6 right-6 z-50 opacity-100 translate-y-0 transition-all duration-300 px-4 py-3 rounded-xl shadow-xl border text-sm flex items-center space-x-2 bg-red-950/90 border-red-800 text-red-300";
+        icon.className = "fa-solid fa-circle-exclamation text-red-400";
+      }
+
+      setTimeout(() => {
+        toast.classList.add("translate-y-20", "opacity-0");
+      }, 3000);
+    }
+
+    function copyText(str) {
+      navigator.clipboard.writeText(str).then(() => {
+        showToast("已成功复制到剪贴板！");
+      });
+    }
+
+    // 登录处理
+    function showLoginModal() {
+      document.getElementById("loginModal").classList.remove("hidden");
+    }
+
+    async function submitAdminLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById("loginUsername").value;
+      const p = document.getElementById("loginPassword").value;
+      try {
+        const res = await apiRequest("/api/v1/admin/login", "POST", { username: u, password: p });
+        if (res.code === 200 && res.token) {
+          setAuth(res);
+          document.getElementById("loginModal").classList.add("hidden");
+          showToast(`登录成功，欢迎 ${res.role === 'SUPER_ADMIN' ? '平台超级管理员' : res.username}！`);
+          initApp();
+        } else {
+          showToast(res.msg || "登录凭据错误", "error");
+        }
+      } catch (err) {
+        showToast("登录请求失败", "error");
+      }
+    }
+
+    function logoutAdmin() {
+      setAuth(null);
+      showLoginModal();
+    }
+
+    // Tab 切换
+    function switchTab(tabId) {
+      currentTab = tabId;
+      document.querySelectorAll("main > section").forEach(sec => sec.classList.add("hidden"));
+      const targetSec = document.getElementById(`tab-${tabId}`);
+      if (targetSec) targetSec.classList.remove("hidden");
+
+      document.querySelectorAll(".nav-item").forEach(btn => {
+        btn.className = "nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/40";
+      });
+      const activeNav = document.getElementById(`nav-${tabId}`) || document.getElementById(`nav-super-${tabId}`);
+      if (activeNav) {
+        if (tabId === "super-admins") {
+          activeNav.className = "nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition bg-purple-950/50 text-purple-300 border border-purple-800/40";
+        } else {
+          activeNav.className = "nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition bg-cyan-950/40 text-cyan-400 border border-cyan-800/30";
+        }
+      }
+
+      refreshCurrentTab();
+    }
+
+    function refreshCurrentTab() {
+      if (currentTab === "super-admins") {
+        loadSuperOverview();
+        loadSuperAdmins();
+      }
+      else if (currentTab === "dashboard") loadDashboard();
+      else if (currentTab === "cards") loadCards(cardsCurrentPage);
+      else if (currentTab === "sessions") loadSessions();
+      else if (currentTab === "apps") loadAppConfig();
+      else if (currentTab === "cloudvars") loadCloudVars();
+      else if (currentTab === "logs") loadLogs();
+    }
+
+    function onAppChanged() {
+      currentAppId = document.getElementById("activeAppSelect").value;
+      refreshCurrentTab();
+    }
+
+    // 1. 仪表盘数据
+    async function loadDashboard() {
+      try {
+        const res = await apiRequest(`/api/v1/admin/overview?app_id=${currentAppId}`);
+        if (res.code === 200) {
+          const d = res.data;
+          document.getElementById("statOnline").innerText = d.online_count;
+          document.getElementById("headerOnlineCount").innerText = d.online_count;
+          document.getElementById("statTotal").innerText = d.total_cards;
+          document.getElementById("statUnused").innerText = d.unused_cards;
+          document.getElementById("statToday").innerText = d.today_activated;
+          document.getElementById("statFrozen").innerText = d.frozen_cards;
+        }
+
+        // 加载当前软件简报
+        const appRes = await apiRequest("/api/v1/admin/apps");
+        if (appRes.code === 200) {
+          const app = appRes.data.find(a => a.app_id === currentAppId);
+          if (app) {
+            document.getElementById("dashVersionBadge").innerText = `v${app.current_version}`;
+            document.getElementById("dashNoticeText").innerText = app.notice || "暂无系统公告";
+          }
+        }
+      } catch (err) {}
+    }
+
+    // 2. 卡密管理
+    async function loadCards(page = 1) {
+      cardsCurrentPage = page;
+      const status = document.getElementById("cardStatusFilter").value;
+      const search = document.getElementById("cardSearchInput").value;
+      let url = `/api/v1/admin/cards?app_id=${currentAppId}&page=${page}&limit=${cardsPageLimit}`;
+      if (status !== "") url += `&status=${status}`;
+      if (search) url += `&search=${encodeURIComponent(search)}`;
+
+      try {
+        const res = await apiRequest(url);
+        if (res.code === 200) {
+          const list = res.data.list;
+          cardsTotal = res.data.total;
+          renderCardsTable(list);
+          document.getElementById("cardsTotalCount").innerText = cardsTotal;
+          document.getElementById("cardsPageIndicator").innerText = `第 ${cardsCurrentPage} 页`;
+          document.getElementById("btnPrevPage").disabled = (cardsCurrentPage <= 1);
+          document.getElementById("btnNextPage").disabled = (cardsCurrentPage * cardsPageLimit >= cardsTotal);
+        }
+      } catch (err) {}
+    }
+
+    function renderCardsTable(list) {
+      const tbody = document.getElementById("cardsTableBody");
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-500">暂无匹配的卡密</td></tr>`;
+        return;
+      }
+
+      const statusMap = {
+        0: `<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs border border-slate-700">未使用</span>`,
+        1: `<span class="px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 text-xs border border-emerald-800/60">使用中</span>`,
+        2: `<span class="px-2 py-0.5 rounded-full bg-red-950/80 text-red-400 text-xs border border-red-800/60">已冻结</span>`,
+        3: `<span class="px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-400 text-xs border border-amber-800/60">已过期</span>`
+      };
+
+      const typeMap = {
+        day: "天卡 (1天)",
+        week: "周卡 (7天)",
+        month: "月卡 (30天)",
+        quarter: "季卡 (90天)",
+        year: "年卡 (365天)",
+        forever: "永久卡",
+        count: "计次卡",
+        custom: "自定义天"
+      };
+
+      tbody.innerHTML = list.map(c => `
+        <tr class="hover:bg-slate-800/30 transition">
+          <td class="p-4 font-mono font-bold text-xs text-cyan-300">
+            <span class="cursor-pointer hover:underline" onclick="copyText('${c.card_key}')" title="点击复制">${c.card_key}</span>
+          </td>
+          <td class="p-4 text-xs">${typeMap[c.card_type] || c.card_type}</td>
+          <td class="p-4">${statusMap[c.status] || c.status}</td>
+          <td class="p-4 font-mono text-xs text-slate-400">
+            ${c.bound_hwid ? `<span title="${c.bound_hwid}" class="text-indigo-300 cursor-pointer" onclick="copyText('${c.bound_hwid}')">${c.bound_hwid.substring(0, 10)}...</span>` : '<span class="text-slate-600">未绑定</span>'}
+          </td>
+          <td class="p-4 text-xs text-slate-400">
+            <div>${c.activated_at || '-'}</div>
+            <div class="text-slate-500 text-[11px]">${c.expires_at || '-'}</div>
+          </td>
+          <td class="p-4 text-xs text-center">${c.unbind_count}</td>
+          <td class="p-4 text-xs text-slate-400 max-w-[120px] truncate" title="${c.note}">${c.note || '-'}</td>
+          <td class="p-4 text-center space-x-1">
+            ${c.bound_hwid ? `<button onclick="adminUnbind('${c.card_key}')" title="解绑设备" class="p-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/50"><i class="fa-solid fa-link-slash"></i></button>` : ''}
+            <button onclick="toggleCardFreeze('${c.card_key}', ${c.status === 2 ? 1 : 2})" title="${c.status === 2 ? '解冻' : '冻结'}" class="p-1.5 rounded-lg ${c.status === 2 ? 'bg-emerald-950 hover:bg-emerald-900 text-emerald-300' : 'bg-amber-950 hover:bg-amber-900 text-amber-300'} border border-slate-700">
+              <i class="fa-solid ${c.status === 2 ? 'fa-lock-open' : 'fa-lock'}"></i>
+            </button>
+            <button onclick="adminDeleteCard('${c.card_key}')" title="删除" class="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 border border-red-800/50">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function prevCardsPage() {
+      if (cardsCurrentPage > 1) loadCards(cardsCurrentPage - 1);
+    }
+    function nextCardsPage() {
+      if (cardsCurrentPage * cardsPageLimit < cardsTotal) loadCards(cardsCurrentPage + 1);
+    }
+
+    async function adminUnbind(cardKey) {
+      if (!confirm(`确定强制解绑卡密 [${cardKey}] 绑定的设备吗？`)) return;
+      const res = await apiRequest(`/api/v1/admin/cards/unbind?card_key=${cardKey}`, "POST");
+      showToast(res.msg);
+      loadCards(cardsCurrentPage);
+    }
+
+    async function toggleCardFreeze(cardKey, newStatus) {
+      const res = await apiRequest(`/api/v1/admin/cards/status`, "POST", { card_key: cardKey, status: newStatus });
+      showToast(res.msg);
+      loadCards(cardsCurrentPage);
+    }
+
+    async function adminDeleteCard(cardKey) {
+      if (!confirm(`警告：确定永久删除卡密 [${cardKey}] 吗？`)) return;
+      const res = await apiRequest(`/api/v1/admin/cards/delete?card_key=${cardKey}`, "POST");
+      showToast(res.msg);
+      loadCards(cardsCurrentPage);
+    }
+
+    async function exportCards() {
+      const status = document.getElementById("cardStatusFilter").value;
+      const search = document.getElementById("cardSearchInput").value;
+      let url = `/api/v1/admin/cards?app_id=${currentAppId}&page=1&limit=2000`;
+      if (status !== "") url += `&status=${status}`;
+      if (search) url += `&search=${encodeURIComponent(search)}`;
+      const res = await apiRequest(url);
+      if (res.code === 200 && res.data.list) {
+        const text = res.data.list.map(c => `${c.card_key}\t${c.card_type}\t${c.expires_at || ''}\t${c.note || ''}`).join("\n");
+        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `spark_cards_${new Date().toISOString().slice(0, 10)}.txt`;
+        a.click();
+        showToast("已成功导出卡密 TXT 文件！");
+      }
+    }
+
+    // 生成弹窗逻辑
+    function openGenerateModal() {
+      document.getElementById("generateModal").classList.remove("hidden");
+    }
+    function closeGenerateModal() {
+      document.getElementById("generateModal").classList.add("hidden");
+    }
+    function onCardTypeChange() {
+      const t = document.getElementById("genCardType").value;
+      document.getElementById("customDaysDiv").classList.toggle("hidden", t !== "custom");
+      document.getElementById("customCountDiv").classList.toggle("hidden", t !== "count");
+    }
+
+    async function submitGenerateCards(e) {
+      e.preventDefault();
+      const payload = {
+        app_id: currentAppId,
+        card_type: document.getElementById("genCardType").value,
+        count: parseInt(document.getElementById("genCount").value) || 10,
+        prefix: document.getElementById("genPrefix").value || "SV",
+        custom_days: parseFloat(document.getElementById("genCustomDays").value) || 30,
+        custom_count: parseInt(document.getElementById("genCustomCount").value) || 100,
+        note: document.getElementById("genNote").value || ""
+      };
+
+      try {
+        const res = await apiRequest("/api/v1/admin/cards/generate", "POST", payload);
+        if (res.code === 200) {
+          closeGenerateModal();
+          showToast(res.msg);
+          document.getElementById("resultTextarea").value = res.data.join("\n");
+          document.getElementById("resultModal").classList.remove("hidden");
+          loadCards(1);
+          loadDashboard();
+        } else {
+          showToast(res.msg || "生成失败", "error");
+        }
+      } catch (err) {
+        showToast("请求失败", "error");
+      }
+    }
+
+    function closeResultModal() {
+      document.getElementById("resultModal").classList.add("hidden");
+    }
+    function copyGeneratedResult() {
+      copyText(document.getElementById("resultTextarea").value);
+    }
+
+    // 3. 在线会话监控
+    async function loadSessions() {
+      try {
+        const res = await apiRequest(`/api/v1/admin/sessions?app_id=${currentAppId}`);
+        if (res.code === 200) {
+          renderSessionsTable(res.data);
+          document.getElementById("statOnline").innerText = res.data.length;
+          document.getElementById("headerOnlineCount").innerText = res.data.length;
+        }
+      } catch (err) {}
+    }
+
+    function renderSessionsTable(list) {
+      const tbody = document.getElementById("sessionsTableBody");
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-500">当前没有在线设备</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map(s => `
+        <tr class="hover:bg-slate-800/30 transition">
+          <td class="p-4 font-mono text-xs text-slate-300">${s.session_token}</td>
+          <td class="p-4 font-mono font-bold text-xs text-cyan-400">${s.card_key}</td>
+          <td class="p-4 font-mono text-xs text-slate-400">${s.client_ip}</td>
+          <td class="p-4 font-mono text-xs text-indigo-300" title="${s.hwid}">${s.hwid.substring(0, 12)}...</td>
+          <td class="p-4 text-xs text-slate-400">${s.started_at}</td>
+          <td class="p-4 text-xs text-emerald-400 flex items-center space-x-1.5 pt-4">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>${s.last_heartbeat}</span>
+          </td>
+          <td class="p-4 text-center">
+            <button onclick="kickSession('${s.session_token}')" class="px-2.5 py-1 rounded-lg bg-red-950 hover:bg-red-900 border border-red-800/60 text-red-300 text-xs">
+              <i class="fa-solid fa-ban mr-1"></i>踢下线
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function kickSession(sessionToken) {
+      if (!confirm("确定强制将该客户端踢下线吗？")) return;
+      const res = await apiRequest(`/api/v1/admin/sessions/kick?session_token=${sessionToken}`, "POST");
+      showToast(res.msg);
+      loadSessions();
+    }
+
+    // 4. 软件配置策略
+    async function loadAppConfig() {
+      try {
+        const res = await apiRequest("/api/v1/admin/apps");
+        if (res.code === 200) {
+          const app = res.data.find(a => a.app_id === currentAppId);
+          if (app) {
+            document.getElementById("cfgAppName").value = app.app_name;
+            document.getElementById("cfgAppSecret").value = app.app_secret;
+            document.getElementById("cfgVersion").value = app.current_version;
+            document.getElementById("cfgHeartbeatTimeout").value = app.heartbeat_timeout_sec;
+            document.getElementById("cfgMaxUnbind").value = app.max_unbind_count;
+            document.getElementById("cfgUnbindCooldown").value = app.unbind_cooldown_hours;
+            document.getElementById("cfgDownloadUrl").value = app.download_url;
+            document.getElementById("cfgNotice").value = app.notice;
+            document.getElementById("cfgForceUpdate").checked = !!app.force_update;
+            document.getElementById("cfgAppStatus").checked = (app.status === 1);
+          }
+        }
+      } catch (err) {}
+    }
+
+    async function saveAppConfig(e) {
+      e.preventDefault();
+      const payload = {
+        app_name: document.getElementById("cfgAppName").value,
+        app_secret: document.getElementById("cfgAppSecret").value,
+        current_version: document.getElementById("cfgVersion").value,
+        heartbeat_timeout_sec: parseInt(document.getElementById("cfgHeartbeatTimeout").value) || 60,
+        max_unbind_count: parseInt(document.getElementById("cfgMaxUnbind").value) || 3,
+        unbind_cooldown_hours: parseInt(document.getElementById("cfgUnbindCooldown").value) || 24,
+        download_url: document.getElementById("cfgDownloadUrl").value,
+        notice: document.getElementById("cfgNotice").value,
+        force_update: document.getElementById("cfgForceUpdate").checked ? 1 : 0,
+        status: document.getElementById("cfgAppStatus").checked ? 1 : 0
+      };
+
+      const res = await apiRequest(`/api/v1/admin/apps/update?app_id=${currentAppId}`, "POST", payload);
+      showToast(res.msg);
+    }
+
+    // 5. 云变量管理
+    async function loadCloudVars() {
+      try {
+        const res = await apiRequest(`/api/v1/admin/cloud_vars?app_id=${currentAppId}`);
+        if (res.code === 200) {
+          renderCloudVarsTable(res.data);
+        }
+      } catch (err) {}
+    }
+
+    function renderCloudVarsTable(list) {
+      const tbody = document.getElementById("cloudVarsTableBody");
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-500">暂无云端变量</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map(v => `
+        <tr class="hover:bg-slate-800/30 transition">
+          <td class="p-4 font-mono font-bold text-xs text-purple-300">${v.var_key}</td>
+          <td class="p-4 font-mono text-xs text-slate-300 max-w-[200px] truncate" title="${v.var_value}">${v.var_value}</td>
+          <td class="p-4 text-xs text-slate-400">${v.description || '-'}</td>
+          <td class="p-4 text-center space-x-2">
+            <button onclick="copyText('${v.var_value}')" class="p-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs" title="复制变量值"><i class="fa-solid fa-copy"></i></button>
+            <button onclick="deleteCloudVar(${v.id})" class="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 text-xs" title="删除"><i class="fa-solid fa-trash-can"></i></button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openCloudVarModal() {
+      document.getElementById("cloudVarModal").classList.remove("hidden");
+    }
+    function closeCloudVarModal() {
+      document.getElementById("cloudVarModal").classList.add("hidden");
+    }
+
+    async function submitCloudVar(e) {
+      e.preventDefault();
+      const payload = {
+        app_id: currentAppId,
+        var_key: document.getElementById("cvKey").value.trim(),
+        var_value: document.getElementById("cvValue").value.trim(),
+        description: document.getElementById("cvDesc").value.trim()
+      };
+      const res = await apiRequest("/api/v1/admin/cloud_vars/save", "POST", payload);
+      showToast(res.msg);
+      closeCloudVarModal();
+      loadCloudVars();
+    }
+
+    async function deleteCloudVar(varId) {
+      if (!confirm("确定删除该云端变量吗？")) return;
+      const res = await apiRequest(`/api/v1/admin/cloud_vars/delete?var_id=${varId}`, "POST");
+      showToast(res.msg);
+      loadCloudVars();
+    }
+
+    // 6. 操作日志
+    async function loadLogs() {
+      try {
+        const res = await apiRequest(`/api/v1/admin/logs?app_id=${currentAppId}&limit=50`);
+        if (res.code === 200) {
+          renderLogsTable(res.data);
+        }
+      } catch (err) {}
+    }
+
+    function renderLogsTable(list) {
+      const tbody = document.getElementById("logsTableBody");
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-500">暂无系统操作日志</td></tr>`;
+        return;
+      }
+
+      const badgeMap = {
+        VERIFY: `<span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">VERIFY</span>`,
+        HEARTBEAT: `<span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">HEARTBEAT</span>`,
+        UNBIND: `<span class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-400 border border-indigo-800">UNBIND</span>`,
+        GENERATE: `<span class="px-2 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800">GENERATE</span>`,
+        KICK: `<span class="px-2 py-0.5 rounded bg-red-950 text-red-400 border border-red-800">KICK</span>`
+      };
+
+      tbody.innerHTML = list.map(l => `
+        <tr class="hover:bg-slate-800/30 transition">
+          <td class="p-4 text-slate-400 text-[11px]">${l.created_at}</td>
+          <td class="p-4">${badgeMap[l.event_type] || l.event_type}</td>
+          <td class="p-4 text-cyan-300">${l.card_key || '-'}</td>
+          <td class="p-4 text-slate-400">${l.ip} / ${l.hwid ? l.hwid.substring(0, 8) + '...' : '-'}</td>
+          <td class="p-4 text-slate-300 font-sans">${l.detail}</td>
+        </tr>
+      `).join('');
+    }
+
+    // ================= 超级管理员数据与启停逻辑 =================
+    async function loadSuperOverview() {
+      try {
+        const res = await apiRequest("/api/v1/super/overview");
+        if (res.code === 200) {
+          const d = res.data;
+          document.getElementById("superStatTotalAdmins").innerText = d.total_admins;
+          document.getElementById("superStatActivePackers").innerText = d.active_packers;
+          document.getElementById("superStatStoppedPackers").innerText = d.stopped_packers;
+          document.getElementById("superStatTotalApps").innerText = d.total_apps;
+          document.getElementById("superStatTotalCards").innerText = d.total_cards;
+          document.getElementById("headerOnlineCount").innerText = d.online_count;
+        }
+      } catch (err) {}
+    }
+
+    async function loadSuperAdmins() {
+      try {
+        const res = await apiRequest("/api/v1/super/admins");
+        if (res.code === 200) {
+          renderSuperAdminsTable(res.data);
+        }
+      } catch (err) {}
+    }
+
+    function renderSuperAdminsTable(list) {
+      const tbody = document.getElementById("superAdminsTableBody");
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-500">暂无下级管理端</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map(a => {
+        const isSuper = (a.role === "SUPER_ADMIN");
+        const canPack = (a.can_encrypt === 1);
+        const isActive = (a.status === 1);
+
+        const statusBadge = canPack
+          ? `<span class="px-2.5 py-1 rounded-full bg-emerald-950/90 text-emerald-400 border border-emerald-800/60 font-sans text-xs flex items-center justify-center space-x-1.5 mx-auto w-fit"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>允许正常工作</span></span>`
+          : `<span class="px-2.5 py-1 rounded-full bg-red-950/90 text-red-400 border border-red-800/60 font-sans text-xs flex items-center justify-center space-x-1.5 mx-auto w-fit animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-red-400"></span><span class="font-bold">已停止工作 (熔断)</span></span>`;
+
+        let actionBtn = "";
+        if (isSuper) {
+          actionBtn = `<span class="text-slate-500 text-xs font-sans">平台最高总控</span>`;
+        } else {
+          const toggleBtn = canPack
+            ? `<button onclick="toggleEncrypt('${a.username}', 0)" class="px-3 py-1.5 rounded-lg bg-red-950/80 hover:bg-red-900 border border-red-700/80 text-red-300 font-bold text-xs transition shadow-sm flex items-center space-x-1"><i class="fa-solid fa-power-off"></i><span>停止加密端工作</span></button>`
+            : `<button onclick="toggleEncrypt('${a.username}', 1)" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/80 text-emerald-300 font-bold text-xs transition shadow-sm flex items-center space-x-1"><i class="fa-solid fa-circle-check"></i><span>恢复加密端工作</span></button>`;
+          
+          const freezeBtn = isActive
+            ? `<button onclick="toggleAdminStatus('${a.username}', 0)" title="冻结账号登录" class="p-1.5 rounded-lg bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-300 transition text-xs"><i class="fa-solid fa-user-slash"></i></button>`
+            : `<button onclick="toggleAdminStatus('${a.username}', 1)" title="解冻账号登录" class="p-1.5 rounded-lg bg-amber-950 hover:bg-amber-900 text-amber-300 transition text-xs"><i class="fa-solid fa-user-check"></i></button>`;
+
+          actionBtn = `<div class="flex items-center justify-center space-x-2">${toggleBtn}${freezeBtn}</div>`;
+        }
+
+        return `
+          <tr class="hover:bg-slate-800/30 transition">
+            <td class="p-4 font-bold text-xs ${isSuper ? 'text-purple-300' : 'text-cyan-300'}">
+              <i class="fa-solid ${isSuper ? 'fa-crown text-amber-400' : 'fa-user-gear text-slate-400'} mr-1.5"></i>
+              ${a.username}
+            </td>
+            <td class="p-4 text-xs font-sans">
+              <span class="px-2 py-0.5 rounded text-[10px] ${isSuper ? 'bg-purple-950 text-purple-300 border border-purple-800' : 'bg-slate-800 text-slate-300 border border-slate-700'}">${a.role}</span>
+            </td>
+            <td class="p-4 text-xs font-sans text-slate-400 max-w-[150px] truncate" title="${a.note || ''}">${a.note || '-'}</td>
+            <td class="p-4 text-center font-bold text-slate-200">${a.apps_count}</td>
+            <td class="p-4 text-center font-bold text-indigo-300">${a.cards_count}</td>
+            <td class="p-4 text-center font-bold ${a.online_count > 0 ? 'text-emerald-400' : 'text-slate-500'}">${a.online_count}</td>
+            <td class="p-4 text-center">${statusBadge}</td>
+            <td class="p-4 text-center">${actionBtn}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function toggleEncrypt(username, canEncrypt) {
+      const act = (canEncrypt === 0 ? "🛑 停止该管理端的加密端工作 (熔断打包权限)" : "✅ 恢复该管理端的加密端工作");
+      if (!confirm(`确定要执行操作: ${act} [${username}] 吗？`)) return;
+      try {
+        const res = await apiRequest("/api/v1/super/admins/toggle_encrypt", "POST", { username, can_encrypt: canEncrypt });
+        showToast(res.msg);
+        loadSuperOverview();
+        loadSuperAdmins();
+      } catch (err) {
+        showToast("操作失败", "error");
+      }
+    }
+
+    async function toggleAdminStatus(username, newStatus) {
+      const act = (newStatus === 0 ? "冻结该管理端登录" : "解除冻结");
+      if (!confirm(`确定要 ${act} [${username}] 吗？`)) return;
+      try {
+        const res = await apiRequest("/api/v1/super/admins/status", "POST", { username, status: newStatus });
+        showToast(res.msg);
+        loadSuperAdmins();
+      } catch (err) {
+        showToast("操作失败", "error");
+      }
+    }
+
+    function openCreateAdminModal() {
+      document.getElementById("createAdminModal").classList.remove("hidden");
+    }
+    function closeCreateAdminModal() {
+      document.getElementById("createAdminModal").classList.add("hidden");
+    }
+
+    async function submitCreateAdmin(e) {
+      e.preventDefault();
+      const payload = {
+        username: document.getElementById("newAdminUser").value.trim(),
+        password: document.getElementById("newAdminPwd").value.trim(),
+        note: document.getElementById("newAdminNote").value.trim(),
+        can_encrypt: parseInt(document.getElementById("newAdminCanEncrypt").value) || 1
+      };
+      try {
+        const res = await apiRequest("/api/v1/super/admins/create", "POST", payload);
+        if (res.code === 200) {
+          showToast(res.msg);
+          closeCreateAdminModal();
+          loadSuperOverview();
+          loadSuperAdmins();
+        } else {
+          showToast(res.msg || "创建失败", "error");
+        }
+      } catch (err) {
+        showToast("创建请求失败", "error");
+      }
+    }
+
+    // 初始化系统
+    async function initApp() {
+      const auth = getAuth();
+      if (!auth.token) {
+        showLoginModal();
+        return;
+      }
+      document.getElementById("loginModal").classList.add("hidden");
+
+      const isSuper = (auth.role === "SUPER_ADMIN");
+
+      // 调整 Header 角色徽章与下拉
+      const roleBadge = document.getElementById("headerRoleBadge");
+      const roleText = document.getElementById("headerRoleText");
+      const brandBadge = document.getElementById("headerBrandBadge");
+      const appSelector = document.getElementById("appSelectorContainer");
+      const stoppedAlert = document.getElementById("stoppedPackerAlert");
+
+      if (isSuper) {
+        roleBadge.className = "flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-purple-950/80 border border-purple-700/80 text-xs font-bold text-purple-300";
+        roleText.innerHTML = `<i class="fa-solid fa-crown text-amber-400 mr-1"></i>超级管理员 (总控)`;
+        brandBadge.innerText = "总控中心";
+        brandBadge.className = "text-xs px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-700 font-mono";
+        appSelector.classList.add("hidden");
+        stoppedAlert.classList.add("hidden");
+
+        // 切换侧边栏
+        document.getElementById("superNavGroup").classList.remove("hidden");
+        document.getElementById("adminNavGroup").classList.add("hidden");
+        document.getElementById("sidebarTitle").innerText = "👑 最高总控管理";
+
+        // 超管默认进入 super-admins
+        switchTab("super-admins");
+      } else {
+        roleBadge.className = "flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-950/80 border border-cyan-800/80 text-xs font-semibold text-cyan-300";
+        roleText.innerHTML = `<i class="fa-solid fa-user-gear text-cyan-400 mr-1"></i>开发者端: ${auth.username}`;
+        brandBadge.innerText = "极验云 1.0";
+        brandBadge.className = "text-xs px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-400 border border-cyan-800/50";
+        appSelector.classList.remove("hidden");
+
+        // 如果被停止工作，展示顶部熔断警示条
+        if (!auth.canEncrypt) {
+          stoppedAlert.classList.remove("hidden");
+        } else {
+          stoppedAlert.classList.add("hidden");
+        }
+
+        // 切换侧边栏
+        document.getElementById("superNavGroup").classList.add("hidden");
+        document.getElementById("adminNavGroup").classList.remove("hidden");
+        document.getElementById("sidebarTitle").innerText = "开发者中枢";
+
+        switchTab("dashboard");
+      }
+
+      // 启动定时刷新 (10s)
+      if (!window._sparkTimer) {
+        window._sparkTimer = setInterval(() => {
+          if (currentTab === "super-admins") {
+            loadSuperOverview();
+            loadSuperAdmins();
+          } else if (currentTab === "dashboard") {
+            loadDashboard();
+          } else if (currentTab === "sessions") {
+            loadSessions();
+          }
+        }, 10000);
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", initApp);
+  </script>
+</body>
+</html>

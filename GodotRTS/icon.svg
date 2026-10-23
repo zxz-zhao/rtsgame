@@ -1,6 +1,26 @@
-<svg height="128" viewBox="0 0 128 128" width="128" xmlns="http://www.w3.org/2000/svg">
-  <rect fill="#111827" height="128" rx="18" width="128"/>
-  <path d="M22 82 L64 20 L106 82 Z" fill="#60a5fa"/>
-  <path d="M36 88 H92 V104 H36 Z" fill="#f59e0b"/>
-  <path d="M54 76 H74 V104 H54 Z" fill="#111827"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0c1524"/>
+      <stop offset="100%" stop-color="#18263d"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffd54f"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Shield -->
+  <polygon points="18,12 110,12 118,20 118,104 104,116 24,116 10,104 10,20" fill="url(#bg)" stroke="#00c8ff" stroke-width="2.5"/>
+  <polygon points="22,16 106,16 114,23 114,101 101,112 27,112 14,101 14,23" fill="none" stroke="#f59e0b" stroke-width="1.2" opacity="0.6"/>
+  
+  <!-- Radar circles -->
+  <circle cx="64" cy="62" r="38" fill="none" stroke="#00c8ff" stroke-width="1" opacity="0.4"/>
+  <circle cx="64" cy="62" r="26" fill="none" stroke="#ffd54f" stroke-width="1.5" opacity="0.6"/>
+  <line x1="64" y1="20" x2="64" y2="104" stroke="#00c8ff" stroke-width="1" opacity="0.3"/>
+  <line x1="22" y1="62" x2="106" y2="62" stroke="#00c8ff" stroke-width="1" opacity="0.3"/>
+
+  <!-- Military Star / Tank Emblem -->
+  <polygon points="64,36 71,53 89,53 74,64 80,81 64,70 48,81 54,64 39,53 57,53" fill="url(#gold)" stroke="#fff" stroke-width="1"/>
+  <!-- Tactical Chevron -->
+  <polygon points="36,92 64,78 92,92 86,98 64,87 42,98" fill="#00c8ff"/>
 </svg>

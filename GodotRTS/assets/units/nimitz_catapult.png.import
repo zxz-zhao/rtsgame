@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bm1ymqgo6oxln"
 path.s3tc="res://.godot/imported/nimitz_catapult.png-9bfb53c281eed884d9953a6067e3676f.s3tc.ctex"
+path.etc2="res://.godot/imported/nimitz_catapult.png-9bfb53c281eed884d9953a6067e3676f.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/nimitz_catapult.png"
-dest_files=["res://.godot/imported/nimitz_catapult.png-9bfb53c281eed884d9953a6067e3676f.s3tc.ctex"]
+dest_files=["res://.godot/imported/nimitz_catapult.png-9bfb53c281eed884d9953a6067e3676f.s3tc.ctex", "res://.godot/imported/nimitz_catapult.png-9bfb53c281eed884d9953a6067e3676f.etc2.ctex"]
 
 [params]
 

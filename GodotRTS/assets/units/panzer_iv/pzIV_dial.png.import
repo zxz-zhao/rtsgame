@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://ddh3dwsry4vfx"
 path.s3tc="res://.godot/imported/pzIV_dial.png-0a967399db377f4573ea0b84afdf97b8.s3tc.ctex"
+path.etc2="res://.godot/imported/pzIV_dial.png-0a967399db377f4573ea0b84afdf97b8.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/panzer_iv/pzIV_dial.png"
-dest_files=["res://.godot/imported/pzIV_dial.png-0a967399db377f4573ea0b84afdf97b8.s3tc.ctex"]
+dest_files=["res://.godot/imported/pzIV_dial.png-0a967399db377f4573ea0b84afdf97b8.s3tc.ctex", "res://.godot/imported/pzIV_dial.png-0a967399db377f4573ea0b84afdf97b8.etc2.ctex"]
 
 [params]
 

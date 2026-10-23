@@ -1,6 +1,44 @@
-[gd_scene load_steps=2 format=3 uid="uid://radar_callout_panel_tscn"]
+[gd_scene load_steps=6 format=3 uid="uid://radar_callout_panel_tscn"]
 
 [ext_resource type="Script" path="res://scripts/ui/RadarCalloutPanel.cs" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.05, 0.08, 0.15, 0.94)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0, 0.8, 1, 0.8)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0.5, 0.8, 0.35)
+shadow_size = 16
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_confirm"]
+bg_color = Color(0, 0.5, 0.75, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0, 0.95, 1, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_cancel"]
+bg_color = Color(0.1, 0.15, 0.22, 0.8)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.4, 0.5, 0.6)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [node name="RadarCalloutPanel" type="Control"]
 layout_mode = 3
@@ -11,48 +49,70 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_script")
 
-[node name="MarginContainer" type="MarginContainer" parent="-"]
+[node name="MarginContainer" type="MarginContainer" parent="."]
+custom_minimum_size = Vector2(460, 220)
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -160.0
+offset_left = -230.0
 offset_top = -110.0
-offset_right = 160.0
+offset_right = 230.0
 offset_bottom = 110.0
 grow_horizontal = 2
 grow_vertical = 2
 
 [node name="PanelContainer" type="PanelContainer" parent="MarginContainer"]
 layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
 
-[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer/PanelContainer"]
+[node name="Padding" type="MarginContainer" parent="MarginContainer/PanelContainer"]
 layout_mode = 2
-theme_override_constants/separation = 12
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
 
-[node name="TitleLabel" type="Label" parent="MarginContainer/PanelContainer/VBoxContainer"]
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer/PanelContainer/Padding"]
 layout_mode = 2
-text = "📡 战术雷达侦察呼叫"
+theme_override_constants/separation = 16
+
+[node name="TitleLabel" type="Label" parent="MarginContainer/PanelContainer/Padding/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 20
+text = "📡 战术高空雷达侦察"
 horizontal_alignment = 1
 
-[node name="DescLabel" type="Label" parent="MarginContainer/PanelContainer/VBoxContainer"]
+[node name="DescLabel" type="Label" parent="MarginContainer/PanelContainer/Padding/VBoxContainer"]
 layout_mode = 2
-text = "消耗 150 能量点，对指定区域进行 30 秒高频扫描，揭露战争迷雾。"
+theme_override_colors/font_color = Color(0.78, 0.88, 0.98, 1)
+theme_override_font_sizes/font_size = 14
+text = "消耗 150 战术能量，对目标战区执行 30 秒高轨微波透视扫描，揭示迷雾与潜行编队。"
+horizontal_alignment = 1
 autowrap_mode = 3
 
-[node name="HBoxContainer" type="HBoxContainer" parent="MarginContainer/PanelContainer/VBoxContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="MarginContainer/PanelContainer/Padding/VBoxContainer"]
 layout_mode = 2
-align = 1
-theme_override_constants/separation = 20
+alignment = 1
+theme_override_constants/separation = 24
 
-[node name="ConfirmButton" type="Button" parent="MarginContainer/PanelContainer/VBoxContainer/HBoxContainer"]
-custom_minimum_size = Vector2(120, 40)
+[node name="ConfirmButton" type="Button" parent="MarginContainer/PanelContainer/Padding/VBoxContainer/HBoxContainer"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 42)
 layout_mode = 2
-text = "确认呼叫"
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_confirm")
+text = "⚡ 立即呼叫侦察"
 
-[node name="CancelButton" type="Button" parent="MarginContainer/PanelContainer/VBoxContainer/HBoxContainer"]
-custom_minimum_size = Vector2(120, 40)
+[node name="CancelButton" type="Button" parent="MarginContainer/PanelContainer/Padding/VBoxContainer/HBoxContainer"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(120, 42)
 layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.85, 0.9, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_cancel")
 text = "取消"

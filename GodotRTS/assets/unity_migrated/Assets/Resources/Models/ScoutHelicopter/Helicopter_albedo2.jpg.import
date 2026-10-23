@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bo5kq7dkwmwj"
 path.s3tc="res://.godot/imported/Helicopter_albedo2.jpg-ac463e29572018c8addc1fceac8c31ba.s3tc.ctex"
+path.etc2="res://.godot/imported/Helicopter_albedo2.jpg-ac463e29572018c8addc1fceac8c31ba.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/Resources/Models/ScoutHelicopter/Helicopter_albedo2.jpg"
-dest_files=["res://.godot/imported/Helicopter_albedo2.jpg-ac463e29572018c8addc1fceac8c31ba.s3tc.ctex"]
+dest_files=["res://.godot/imported/Helicopter_albedo2.jpg-ac463e29572018c8addc1fceac8c31ba.s3tc.ctex", "res://.godot/imported/Helicopter_albedo2.jpg-ac463e29572018c8addc1fceac8c31ba.etc2.ctex"]
 
 [params]
 

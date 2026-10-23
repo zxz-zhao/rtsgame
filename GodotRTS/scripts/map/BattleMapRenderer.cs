@@ -22,6 +22,8 @@ public partial class BattleMapRenderer : Node3D
 	const string RiverScenePath = "res://assets/unity_migrated/Assets/External/Kenney/NatureKit/Models/FBX format/ground_riverStraight.fbx";
 	const string SnowRiverScenePath = "res://assets/unity_migrated/Assets/External/Kenney/TowerDefenseKit/Models/FBX format/snow-tile-river-straight.fbx";
 	const string RuinWallScenePath = MilitaryExtractedRoot + "castle-wall.fbx";
+	const string KenneyMilitaryRoot = "res://assets/props/kenney/military/";
+	const string KenneyNatureRoot = "res://assets/props/kenney/nature/";
 
 	[Export] public string PreviewMapName { get; set; } = BattleMapCatalog.DefaultMapName;
 	[Export(PropertyHint.File, "*.tres,*.res")] public string AuthoredMapResourcePath { get; set; } = string.Empty;
@@ -34,6 +36,21 @@ public partial class BattleMapRenderer : Node3D
 	[Export] public NodePath EnemyUnitPath { get; set; } = new("");
 	[Export] public NodePath SunPath { get; set; } = new("");
 	[Export] public NodePath CameraPath { get; set; } = new("");
+
+	public static BattleMapRenderer? Instance { get; private set; }
+	BattleMapDefinition? currentBuiltMap;
+	public BattleMapDefinition? CurrentBuiltMap => currentBuiltMap ?? ResolveMap();
+
+	public override void _EnterTree()
+	{
+		Instance = this;
+	}
+
+	public override void _ExitTree()
+	{
+		if (Instance == this)
+			Instance = null;
+	}
 
 	Node3D? generatedRoot;
 	BattleMapResource? authoredMapResourceCache;
@@ -57,8 +74,11 @@ public partial class BattleMapRenderer : Node3D
 
 	readonly string[] temperateTreeScenes =
 	{
-		"res://assets/third_party/polyhaven/EnvironmentModels/tree_small_02/tree_small_02_1k.fbx",
-        "res://assets/third_party/polyhaven/EnvironmentModels/fir_tree_01/fir_tree_01_1k.fbx"
+		NatureKitRoot + "tree_detailed.fbx",
+		NatureKitRoot + "tree_oak.fbx",
+		NatureKitRoot + "tree_default.fbx",
+		NatureKitRoot + "tree_tall.fbx",
+		NatureKitRoot + "tree_pineDefaultA.fbx"
 	};
 	readonly string[] jungleTreeScenes =
 	{
@@ -102,13 +122,15 @@ public partial class BattleMapRenderer : Node3D
 	};
 	readonly string[] bushScenes =
 	{
-		"res://assets/third_party/polyhaven/EnvironmentModels/shrub_01/shrub_01_1k.fbx",
-        "res://assets/third_party/polyhaven/EnvironmentModels/fern_02/fern_02_1k.fbx"
+		NatureKitRoot + "plant_bush.fbx",
+		NatureKitRoot + "plant_bushDetailed.fbx",
+		NatureKitRoot + "plant_bushLarge.fbx"
 	};
 	readonly string[] grassScenes =
 	{
-		"res://assets/third_party/polyhaven/EnvironmentModels/grass_medium_01/grass_medium_01_1k.fbx",
-        "res://assets/third_party/polyhaven/EnvironmentModels/grass_bermuda_01/grass_bermuda_01_1k.fbx"
+		NatureKitRoot + "grass.fbx",
+		NatureKitRoot + "grass_leafs.fbx",
+		NatureKitRoot + "grass_large.fbx"
 	};
 	readonly (string Path, Vector3 Position, float Yaw, float Height, float Span)[] cityRuinPlacements =
 	{
@@ -167,6 +189,7 @@ public partial class BattleMapRenderer : Node3D
 
 	public void Build(BattleMapDefinition map)
 	{
+		currentBuiltMap = map;
 		generatedRoot?.QueueFree();
 		generatedRoot = new Node3D { Name = "GeneratedMap" };
 		AddChild(generatedRoot);
@@ -175,6 +198,8 @@ public partial class BattleMapRenderer : Node3D
 
 		ApplyWorldEnvironment(map);
 		AddGround(map);
+		AddElevatedPlateaus(map);
+		AddBridges(map);
 		AddWater(map);
 		AddUnderwaterFish(map);
 		AddStrips(map, map.Roads, map.RoadColor, RoadHeight, "Road");
@@ -242,47 +267,33 @@ public partial class BattleMapRenderer : Node3D
 			// 🌟 开启全场景战斗辉光 (Glow / Bloom) 🌟
 			// 让高能粒子（枪口火光、穿甲弹自发光、火箭马赫尾焰、爆炸火球、火星破片）产生惊艳的高光溢出外晕
 			GlowEnabled = true,
-			GlowIntensity = 0.85f,
-			GlowStrength = 1.05f,
-			GlowBloom = 0.28f,
+			GlowIntensity = 0.45f,
+			GlowStrength = 0.85f,
+			GlowBloom = 0.15f,
 			GlowBlendMode = Godot.Environment.GlowBlendModeEnum.Screen,
-			GlowHdrThreshold = 0.95f,
-			GlowHdrScale = 1.8f,
+			GlowHdrThreshold = 1.35f,
+			GlowHdrScale = 1.4f,
 			TonemapMode = Godot.Environment.ToneMapper.Aces,
 
-			FogEnabled = true,
+			FogEnabled = map.MapHalfSize <= 250f,
 			FogLightColor = map.FogColor,
-			FogDensity = 0.0028f
+			FogDensity = 0.00003f
 		};
 		world.Environment = env;
 		generatedRoot!.AddChild(world);
 
 		if (!string.IsNullOrEmpty(SunPath.ToString()) && GetNodeOrNull<DirectionalLight3D>(SunPath) is { } sun)
 		{
-			sun.LightColor = map.AmbientSkyColor.Lerp(Colors.White, 0.45f);
-			sun.LightEnergy = map.Name == BattleMapCatalog.JungleName ? 1.75f : 2.35f;
+			sun.LightColor = new Color(1.0f, 0.97f, 0.92f);
+			sun.LightEnergy = map.Name == BattleMapCatalog.JungleName ? 1.55f : 1.75f;
+			sun.ShadowEnabled = true;
 		}
 	}
 
-	float GetTerrainHeightAt(Vector3 pos)
+	public float GetTerrainHeightAt(Vector3 pos)
 	{
-		var viewport = GetViewport();
-		if (viewport is null) return 0f;
-		var world3D = viewport.World3D;
-		if (world3D is null) return 0f;
-		var spaceState = world3D.DirectSpaceState;
-		if (spaceState is null) return 0f;
-
-		var from = new Vector3(pos.X, 500f, pos.Z);
-		var to = new Vector3(pos.X, -100f, pos.Z);
-		var query = PhysicsRayQueryParameters3D.Create(from, to);
-		query.CollisionMask = 1;
-		var hit = spaceState.IntersectRay(query);
-		if (hit.Count > 0 && hit.ContainsKey("position"))
-		{
-			return hit["position"].AsVector3().Y;
-		}
-		return 0f;
+		var map = currentBuiltMap ?? ResolveMap();
+		return BattleMapCatalog.GetTerrainHeightAt(map, pos.X, pos.Z, includeBridges: true);
 	}
 
 	void AddGround(BattleMapDefinition map)
@@ -297,13 +308,25 @@ public partial class BattleMapRenderer : Node3D
 			var carvedMesh = BuildCarvedTerrainMesh(map, mapSize);
 			generatedRoot.AddChild(carvedMesh);
 
-			// 为 3D 开凿地形生成 100% 精确的 Trimesh 物理碰撞体
+			// 为 3D 开凿地形生成精确的物理碰撞体
 			if (carvedMesh.Mesh is ArrayMesh am)
 			{
-				var trimeshShape = am.CreateTrimeshShape();
-				if (trimeshShape != null)
+				try
 				{
-					body.AddChild(new CollisionShape3D { Shape = trimeshShape });
+					var trimeshShape = am.CreateTrimeshShape();
+					if (trimeshShape != null)
+					{
+						body.AddChild(new CollisionShape3D { Shape = trimeshShape });
+					}
+				}
+				catch (Exception ex)
+				{
+					GD.PrintErr($"[BattleMapRenderer] Fallback to box collision: {ex.Message}");
+					body.AddChild(new CollisionShape3D
+					{
+						Position = new Vector3(0, -0.5f, 0),
+						Shape = new BoxShape3D { Size = new Vector3(mapSize, 1f, mapSize) }
+					});
 				}
 			}
 			return;
@@ -331,63 +354,30 @@ public partial class BattleMapRenderer : Node3D
 		var st = new SurfaceTool();
 		st.Begin(Mesh.PrimitiveType.Triangles);
 
-		int gridRes = 96;
+		int gridRes = map.MapHalfSize >= 280f ? 80 : 60;
 		float halfSize = mapSize * 0.60f;
 		float step = (halfSize * 2.0f) / gridRes;
 
 		float GetHeightAt(float gx, float gz)
 		{
-			const float LandY = GroundHeight;
-			const float BedY = -3.5f;
-
-			if (map.Waters == null || map.Waters.Length == 0) return LandY;
-
-			float minH = LandY;
-			foreach (var strip in map.Waters)
-			{
-				var riverLike = IsRiverLike(strip);
-				var rad = Mathf.DegToRad(-strip.Angle);
-				var cosA = Mathf.Cos(rad);
-				var sinA = Mathf.Sin(rad);
-
-				float dx = gx - strip.Center.X;
-				float dz = gz - strip.Center.Z;
-				float localX = dx * cosA - dz * sinA;
-				float localZ = dx * sinA + dz * cosA;
-
-				if (Mathf.Abs(localZ) > strip.Size.Y * 0.60f) continue;
-
-				float halfW = strip.Size.X * 0.5f;
-				float bankW = riverLike ? 6.0f : 10.0f;
-				float absX = Mathf.Abs(localX);
-
-				float h;
-				if (absX > halfW + bankW)
-				{
-					h = LandY;
-				}
-				else if (absX > halfW)
-				{
-					float t = (absX - halfW) / bankW;
-					float smoothT = t * t * (3.0f - 2.0f * t);
-					h = BedY + smoothT * (LandY - BedY); // 3D 陡峭石质护坡 Cliff Wall 平滑过渡
-				}
-				else
-				{
-					h = BedY; // 凹陷开阔河床底面 Riverbed Floor Y = -3.5m
-				}
-
-				if (h < minH) minH = h;
-			}
-			return minH;
+			return BattleMapCatalog.GetTerrainHeightAt(map, gx, gz, includeBridges: false);
 		}
 
 		Color GetVertexColor(float y)
 		{
-			if (y >= -0.15f) return map.GroundColor; // 1. 顶层鲜艳绿洲/陆地草地 (Emerald Green)
-			if (y <= -3.00f) return new Color(0.88f, 0.76f, 0.52f); // 3. 坑底明亮金沙/浅色石质河床 (Golden Sand Riverbed!)
-			float t = (-0.15f - y) / 2.85f;
-			return map.GroundColor.Lerp(new Color(0.42f, 0.42f, 0.45f), t); // 2. 中层岩石护坡崖壁 (Steel Grey Rock)
+			if (y <= -1.80f) return new Color(0.68f, 0.62f, 0.48f); // 坑底浅滩细砂
+			if (y < -0.30f)
+			{
+				float t = (-0.30f - y) / 1.50f;
+				return map.GroundColor.Lerp(new Color(0.50f, 0.46f, 0.38f), t); // 水岸斜坡砂石
+			}
+			if (y <= 2.0f) return map.GroundColor; // 平原地表草坪
+			if (y <= 7.0f)
+			{
+				float t = (y - 2.0f) / 5.0f;
+				return map.GroundColor.Lerp(map.RockColor.Darkened(0.12f), t); // 高地山腰岩壁
+			}
+			return map.RockColor.Lightened(0.08f); // 高台绝壁岩峰
 		}
 
 		float uvSpan = halfSize * 2.0f;
@@ -429,6 +419,7 @@ public partial class BattleMapRenderer : Node3D
 
 		st.GenerateNormals();
 		st.GenerateTangents();
+		st.Index();
 		var arrayMesh = st.Commit();
 
 		var carvedMat = CreateGroundMaterial(map.GroundColor);
@@ -440,6 +431,301 @@ public partial class BattleMapRenderer : Node3D
 			Mesh = arrayMesh,
 			MaterialOverride = carvedMat
 		};
+	}
+
+	void AddElevatedPlateaus(BattleMapDefinition map)
+	{
+		if (map.ElevatedPlateaus == null || map.ElevatedPlateaus.Length == 0)
+			return;
+
+		bool isCarvedMap = map.Waters != null && map.Waters.Length > 0;
+
+		for (var i = 0; i < map.ElevatedPlateaus.Length; i++)
+		{
+			var plateau = map.ElevatedPlateaus[i];
+			var root = new Node3D
+			{
+				Name = $"Plateau_{i:00}_{plateau.Name}",
+				Position = plateau.Center,
+				Rotation = new Vector3(0f, Mathf.DegToRad(plateau.Angle), 0f)
+			};
+			generatedRoot!.AddChild(root);
+
+			if (isCarvedMap)
+			{
+				// 3D 开凿连续网格：高台山体与斜坡已直接由地形网格生成且拥有 Trimesh 碰撞，只添加要塞顶层地表铺装
+				if (plateau.StyleIndex > 0)
+				{
+					var capMat = plateau.StyleIndex switch
+					{
+						1 => CreateRockCliffMaterial(map.RockColor.Darkened(0.10f)),
+						2 => CreateGroundMaterial(map.RoadEdgeColor),
+						3 => CreateGroundMaterial(map.GroundColor.Darkened(0.25f)),
+						4 => CreateRoadMaterial(map.RoadColor, plateau.Size),
+						_ => CreateGroundMaterial(map.PatchAColor)
+					};
+					var carvedCapMesh = new MeshInstance3D
+					{
+						Name = "PlateauTopDeck",
+						Position = new Vector3(0f, plateau.Height + 0.02f, 0f),
+						Mesh = new PlaneMesh { Size = plateau.Size * 0.88f },
+						MaterialOverride = capMat
+					};
+					root.AddChild(carvedCapMesh);
+				}
+				continue;
+			}
+
+			// 1. 实体静态物理碰撞体 (StaticBody3D on Layer 1)
+			// 让地面单位、坦克与射线检测 (GetTerrainHeightAt) 精确感知高台表面
+			var body = new StaticBody3D
+			{
+				Name = "PlateauCollision",
+				CollisionLayer = 1u,
+				CollisionMask = 0u
+			};
+			root.AddChild(body);
+			body.AddChild(new CollisionShape3D
+			{
+				Position = new Vector3(0f, plateau.Height * 0.5f, 0f),
+				Shape = new BoxShape3D
+				{
+					Size = new Vector3(plateau.Size.X, plateau.Height, plateau.Size.Y)
+				}
+			});
+
+			// 2. 高台四周陡峭岩壁 Base Box
+			var cliffMat = CreateRockCliffMaterial(map.RockColor);
+			var baseMesh = new MeshInstance3D
+			{
+				Name = "PlateauCliffBody",
+				Position = new Vector3(0f, plateau.Height * 0.5f, 0f),
+				Mesh = new BoxMesh { Size = new Vector3(plateau.Size.X, plateau.Height, plateau.Size.Y) },
+				MaterialOverride = cliffMat
+			};
+			root.AddChild(baseMesh);
+
+			// 3. 高台顶部平坦甲板/草地 (Top Deck Surface)
+			var topMat = plateau.StyleIndex switch
+			{
+				1 => CreateRockCliffMaterial(map.RockColor.Darkened(0.10f)),
+				2 => CreateGroundMaterial(map.RoadEdgeColor),
+				3 => CreateGroundMaterial(map.GroundColor.Darkened(0.25f)),
+				4 => CreateRoadMaterial(map.RoadColor, plateau.Size),
+				_ => CreateGroundMaterial(map.PatchAColor)
+			};
+			var topMesh = new MeshInstance3D
+			{
+				Name = "PlateauTopDeck",
+				Position = new Vector3(0f, plateau.Height + 0.02f, 0f),
+				Mesh = new PlaneMesh { Size = plateau.Size },
+				MaterialOverride = topMat
+			};
+			root.AddChild(topMesh);
+
+			// 4. 高台边缘倒角边框 (Beveled Top Edge Border)
+			var edgeMat = Material(map.RockColor.Darkened(0.2f), 0.9f);
+			var rimNorth = new MeshInstance3D
+			{
+				Name = "RimNorth",
+				Position = new Vector3(0f, plateau.Height + 0.15f, plateau.Size.Y * 0.5f),
+				Mesh = new BoxMesh { Size = new Vector3(plateau.Size.X, 0.3f, 0.8f) },
+				MaterialOverride = edgeMat
+			};
+			var rimSouth = new MeshInstance3D
+			{
+				Name = "RimSouth",
+				Position = new Vector3(0f, plateau.Height + 0.15f, -plateau.Size.Y * 0.5f),
+				Mesh = new BoxMesh { Size = new Vector3(plateau.Size.X, 0.3f, 0.8f) },
+				MaterialOverride = edgeMat
+			};
+			root.AddChild(rimNorth);
+			root.AddChild(rimSouth);
+
+			// 5. 战术上下坡道 (Sloped Access Ramp)，便于战车沿缓坡登上高台
+			var rampWidth = Mathf.Min(plateau.Size.X * 0.35f, 22f);
+			var rampLength = plateau.Height * 2.8f;
+			var rampAngle = Mathf.Atan2(plateau.Height, rampLength);
+			var rampHypot = Mathf.Sqrt(plateau.Height * plateau.Height + rampLength * rampLength);
+
+			var rampMesh = new MeshInstance3D
+			{
+				Name = "AccessRampNorth",
+				Position = new Vector3(0f, plateau.Height * 0.5f, plateau.Size.Y * 0.5f + rampLength * 0.5f),
+				Rotation = new Vector3(-rampAngle, 0f, 0f),
+				Mesh = new BoxMesh { Size = new Vector3(rampWidth, 0.4f, rampHypot) },
+				MaterialOverride = CreateRoadMaterial(map.RoadColor, new Vector2(rampWidth, rampLength))
+			};
+			root.AddChild(rampMesh);
+
+			// 坡道物理碰撞体
+			var rampBody = new StaticBody3D
+			{
+				Name = "RampCollision",
+				CollisionLayer = 1u,
+				CollisionMask = 0u,
+				Position = rampMesh.Position,
+				Rotation = rampMesh.Rotation
+			};
+			root.AddChild(rampBody);
+			rampBody.AddChild(new CollisionShape3D
+			{
+				Shape = new BoxShape3D { Size = new Vector3(rampWidth, 0.4f, rampHypot) }
+			});
+		}
+	}
+
+	void AddBridges(BattleMapDefinition map)
+	{
+		if (map.Bridges == null || map.Bridges.Length == 0)
+			return;
+
+		for (var i = 0; i < map.Bridges.Length; i++)
+		{
+			var bridge = map.Bridges[i];
+			var root = new Node3D
+			{
+				Name = $"Bridge_{i:00}_{bridge.Name}",
+				Position = bridge.Center,
+				Rotation = new Vector3(0f, Mathf.DegToRad(bridge.Angle), 0f)
+			};
+			generatedRoot!.AddChild(root);
+
+			// 桥面基准高度 Y = 0.35m，高于常规陆地 (-0.05m) 与水面 (-0.25m)
+			const float DeckY = 0.35f;
+			const float DeckThickness = 0.45f;
+
+			// 1. 桥面物理碰撞体 (StaticBody3D on Layer 1)
+			// 使重型坦克与步兵单位能无阻碍横穿大河与峡谷
+			var body = new StaticBody3D
+			{
+				Name = "BridgeCollision",
+				Position = new Vector3(0f, DeckY, 0f),
+				CollisionLayer = 1u,
+				CollisionMask = 0u
+			};
+			root.AddChild(body);
+			body.AddChild(new CollisionShape3D
+			{
+				Shape = new BoxShape3D
+				{
+					Size = new Vector3(bridge.Width, DeckThickness + 0.1f, bridge.Length)
+				}
+			});
+
+			// 2. 桥梁材质定制 (根据 bridge.BridgeType)
+			Material deckMat;
+			Material railMat;
+			Material pierMat;
+			switch (bridge.BridgeType)
+			{
+				case "steel":
+					deckMat = new StandardMaterial3D { AlbedoColor = new Color(0.24f, 0.28f, 0.32f), Metallic = 0.92f, Roughness = 0.28f };
+					railMat = new StandardMaterial3D { AlbedoColor = new Color(0.78f, 0.72f, 0.18f), Metallic = 0.75f, Roughness = 0.35f };
+					pierMat = new StandardMaterial3D { AlbedoColor = new Color(0.32f, 0.35f, 0.38f), Metallic = 0.65f, Roughness = 0.45f };
+					break;
+				case "wood":
+					deckMat = new StandardMaterial3D { AlbedoColor = new Color(0.45f, 0.32f, 0.18f), Roughness = 0.82f };
+					railMat = new StandardMaterial3D { AlbedoColor = new Color(0.35f, 0.24f, 0.14f), Roughness = 0.85f };
+					pierMat = new StandardMaterial3D { AlbedoColor = new Color(0.30f, 0.20f, 0.12f), Roughness = 0.90f };
+					break;
+				case "basalt":
+					deckMat = new StandardMaterial3D { AlbedoColor = new Color(0.20f, 0.18f, 0.18f), Roughness = 0.75f, Metallic = 0.25f };
+					railMat = new StandardMaterial3D { AlbedoColor = new Color(0.55f, 0.20f, 0.12f), Roughness = 0.70f };
+					pierMat = new StandardMaterial3D { AlbedoColor = new Color(0.18f, 0.15f, 0.15f), Roughness = 0.85f };
+					break;
+				case "ice":
+					deckMat = new StandardMaterial3D { AlbedoColor = new Color(0.80f, 0.92f, 0.98f), Roughness = 0.18f, Metallic = 0.15f };
+					railMat = new StandardMaterial3D { AlbedoColor = new Color(0.92f, 0.96f, 1.0f), Roughness = 0.25f };
+					pierMat = new StandardMaterial3D { AlbedoColor = new Color(0.65f, 0.80f, 0.92f), Roughness = 0.35f };
+					break;
+				default: // "stone"
+					deckMat = new StandardMaterial3D { AlbedoColor = map.RockColor.Lightened(0.1f), Roughness = 0.85f };
+					railMat = new StandardMaterial3D { AlbedoColor = map.RockColor.Darkened(0.15f), Roughness = 0.88f };
+					pierMat = new StandardMaterial3D { AlbedoColor = map.RockColor.Darkened(0.25f), Roughness = 0.90f };
+					break;
+			}
+
+			// 3. 桥面主梁 (Deck Slab)
+			var deck = new MeshInstance3D
+			{
+				Name = "BridgeDeck",
+				Position = new Vector3(0f, DeckY, 0f),
+				Mesh = new BoxMesh { Size = new Vector3(bridge.Width, DeckThickness, bridge.Length) },
+				MaterialOverride = deckMat
+			};
+			root.AddChild(deck);
+
+			// 4. 桥面行车沥青/石板车道 (Road Overlay on Deck)
+			var roadway = new MeshInstance3D
+			{
+				Name = "BridgeRoadway",
+				Position = new Vector3(0f, DeckY + DeckThickness * 0.5f + 0.02f, 0f),
+				Mesh = new PlaneMesh { Size = new Vector2(bridge.Width * 0.82f, bridge.Length) },
+				MaterialOverride = CreateRoadMaterial(map.RoadColor, new Vector2(bridge.Width, bridge.Length))
+			};
+			root.AddChild(roadway);
+
+			// 5. 左右防护栏杆 (Left & Right Safety Railings)
+			var halfW = bridge.Width * 0.48f;
+			var railHeight = 0.85f;
+			var railLeft = new MeshInstance3D
+			{
+				Name = "RailLeft",
+				Position = new Vector3(-halfW, DeckY + DeckThickness * 0.5f + railHeight * 0.5f, 0f),
+				Mesh = new BoxMesh { Size = new Vector3(0.24f, railHeight, bridge.Length) },
+				MaterialOverride = railMat
+			};
+			var railRight = new MeshInstance3D
+			{
+				Name = "RailRight",
+				Position = new Vector3(halfW, DeckY + DeckThickness * 0.5f + railHeight * 0.5f, 0f),
+				Mesh = new BoxMesh { Size = new Vector3(0.24f, railHeight, bridge.Length) },
+				MaterialOverride = railMat
+			};
+			root.AddChild(railLeft);
+			root.AddChild(railRight);
+
+			// 6. 下沉式重型桥墩 (Bridge Piers sinking into deep riverbed Y = -6.5m)
+			var pierCount = Mathf.Max(2, Mathf.RoundToInt(bridge.Length / 22f));
+			var pierStep = bridge.Length / (pierCount + 1);
+			for (var p = 1; p <= pierCount; p++)
+			{
+				var pierZ = -bridge.Length * 0.5f + p * pierStep;
+				var pier = new MeshInstance3D
+				{
+					Name = $"Pier_{p}",
+					Position = new Vector3(0f, -3.2f, pierZ),
+					Mesh = new BoxMesh { Size = new Vector3(bridge.Width * 0.72f, 7.5f, 2.2f) },
+					MaterialOverride = pierMat
+				};
+				root.AddChild(pier);
+			}
+
+			// 7. 两端平滑衔接引桥坡 (Transition Approach Ramps)
+			var rampLen = 8.0f;
+			var rampAngle = Mathf.Atan2(DeckY - GroundHeight, rampLen);
+			var rampHypot = Mathf.Sqrt((DeckY - GroundHeight) * (DeckY - GroundHeight) + rampLen * rampLen);
+
+			var rampSouth = new MeshInstance3D
+			{
+				Name = "ApproachRampSouth",
+				Position = new Vector3(0f, (DeckY + GroundHeight) * 0.5f, -bridge.Length * 0.5f - rampLen * 0.5f),
+				Rotation = new Vector3(-rampAngle, 0f, 0f),
+				Mesh = new BoxMesh { Size = new Vector3(bridge.Width * 0.95f, 0.3f, rampHypot) },
+				MaterialOverride = CreateRoadMaterial(map.RoadColor, new Vector2(bridge.Width, rampLen))
+			};
+			var rampNorth = new MeshInstance3D
+			{
+				Name = "ApproachRampNorth",
+				Position = new Vector3(0f, (DeckY + GroundHeight) * 0.5f, bridge.Length * 0.5f + rampLen * 0.5f),
+				Rotation = new Vector3(rampAngle, 0f, 0f),
+				Mesh = new BoxMesh { Size = new Vector3(bridge.Width * 0.95f, 0.3f, rampHypot) },
+				MaterialOverride = CreateRoadMaterial(map.RoadColor, new Vector2(bridge.Width, rampLen))
+			};
+			root.AddChild(rampSouth);
+			root.AddChild(rampNorth);
+		}
 	}
 
 	void AddWaterColliders(BattleMapDefinition map)
@@ -466,23 +752,92 @@ public partial class BattleMapRenderer : Node3D
 		}
 	}
 
+	MeshInstance3D BuildConformingRoadMesh(BattleMapDefinition map, TerrainStripSpec strip, Color color)
+	{
+		var st = new SurfaceTool();
+		st.Begin(Mesh.PrimitiveType.Triangles);
+
+		float halfW = strip.Size.X * 0.5f;
+		float halfL = strip.Size.Y * 0.5f;
+
+		// 沿道路长度方向每 3.0m 进行网格细分，确保与起伏地形完全贴合
+		int segs = Mathf.Max(6, Mathf.RoundToInt(strip.Size.Y / 3.0f));
+		float stepZ = strip.Size.Y / segs;
+
+		var rad = Mathf.DegToRad(strip.Angle);
+		float cosA = Mathf.Cos(rad);
+		float sinA = Mathf.Sin(rad);
+
+		Vector3 ToWorld(float lx, float lz)
+		{
+			float wx = strip.Center.X + lx * cosA + lz * sinA;
+			float wz = strip.Center.Z - lx * sinA + lz * cosA;
+			float wy = BattleMapCatalog.GetTerrainHeightAt(map, wx, wz, includeBridges: true) + 0.035f;
+			return new Vector3(wx, wy, wz);
+		}
+
+		for (int i = 0; i < segs; i++)
+		{
+			float lz0 = -halfL + i * stepZ;
+			float lz1 = -halfL + (i + 1) * stepZ;
+
+			Vector3 v00 = ToWorld(-halfW, lz0);
+			Vector3 v10 = ToWorld(halfW, lz0);
+			Vector3 v01 = ToWorld(-halfW, lz1);
+			Vector3 v11 = ToWorld(halfW, lz1);
+
+			float vU0 = (float)i / segs * (strip.Size.Y / 8f);
+			float vU1 = (float)(i + 1) / segs * (strip.Size.Y / 8f);
+
+			Vector2 uv00 = new Vector2(0f, vU0);
+			Vector2 uv10 = new Vector2(1f, vU0);
+			Vector2 uv01 = new Vector2(0f, vU1);
+			Vector2 uv11 = new Vector2(1f, vU1);
+
+			// Quad 1 (CCW 朝上): v00 -> v01 -> v10
+			st.SetUV(uv00); st.AddVertex(v00);
+			st.SetUV(uv01); st.AddVertex(v01);
+			st.SetUV(uv10); st.AddVertex(v10);
+
+			// Quad 2 (CCW 朝上): v01 -> v11 -> v10
+			st.SetUV(uv01); st.AddVertex(v01);
+			st.SetUV(uv11); st.AddVertex(v11);
+			st.SetUV(uv10); st.AddVertex(v10);
+		}
+
+		st.GenerateNormals();
+		st.GenerateTangents();
+		var arrayMesh = st.Commit();
+
+		var mat = CreateRoadMaterial(color, strip.Size);
+		return new MeshInstance3D
+		{
+			Name = $"Road_{strip.Name}",
+			Position = Vector3.Zero,
+			Mesh = arrayMesh,
+			MaterialOverride = mat
+		};
+	}
+
 	void AddStrips(BattleMapDefinition map, TerrainStripSpec[] strips, Color color, float height, string prefix)
 	{
 		for (var i = 0; i < strips.Length; i++)
 		{
 			var strip = strips[i];
 
-			// 如果是 Road 且它穿过了地图的水域 (Water Channel / Ocean)，跳过在水面上放置平贴道路，防止道路穿越海面阻挡潜艇与舰船
-			if (prefix == "Road" && BattleMapCatalog.IsPointInWater(map, strip.Center, 0f))
+			if (prefix == "Road")
 			{
+				if (BattleMapCatalog.IsPointInWater(map, strip.Center, 0f))
+					continue;
+
+				var roadMesh = BuildConformingRoadMesh(map, strip, color);
+				generatedRoot!.AddChild(roadMesh);
 				continue;
 			}
 
-			Material matOverride = prefix == "Road"
-				? CreateRoadMaterial(color, strip.Size)
-				: prefix == "Water"
-					? CreateWaterMaterial(color, false)
-					: Material(color, 0.82f);
+			Material matOverride = prefix == "Water"
+				? CreateWaterMaterial(color, false)
+				: Material(color, 0.82f);
 
 			var mesh = new MeshInstance3D
 			{
@@ -536,27 +891,29 @@ public partial class BattleMapRenderer : Node3D
 		var rad = Mathf.DegToRad(strip.Angle);
 		var cosA = Mathf.Cos(rad);
 		var sinA = Mathf.Sin(rad);
+		float waterBankWidth = riverLike ? 12.0f : 18.0f;
 
-		// 1. 3D 广阔深海/海底地壳底面 (Deep Seabed Base at Y = -12.5m)
+		// 1. 3D 广阔深海/海底地壳底面 (Deep Seabed Base at Y = -6.0m)
 		var seabed = new MeshInstance3D
 		{
 			Name = $"Waterbed_{strip.Name}",
-			Position = new Vector3(strip.Center.X, -12.5f, strip.Center.Z),
+			Position = new Vector3(strip.Center.X, -6.0f, strip.Center.Z),
 			Rotation = new Vector3(0f, rad, 0f),
-			Mesh = new PlaneMesh { Size = strip.Size * 1.5f },
+			Mesh = new PlaneMesh { Size = new Vector2(strip.Size.X + waterBankWidth * 2.5f, strip.Size.Y + waterBankWidth * 2.5f) },
 			MaterialOverride = CreateGroundMaterial(map.GroundColor.Darkened(0.85f))
 		};
 		generatedRoot!.AddChild(seabed);
 
-		// 2. 在 3D 海槽上融入 3D 湛蓝半透明水面 (Water Surface Y = -0.25m resting inside deep sea channel!)
-		float waterPlaneWidth = strip.Size.X * 0.95f;
+		// 2. 在 3D 海槽上融入 3D 湛蓝半透明水面 (Water Surface Y = -0.75m resting naturally inside carved channel!)
+		float waterPlaneWidth = strip.Size.X + waterBankWidth * 2.2f;
+		float waterPlaneLength = strip.Size.Y + waterBankWidth * 2.2f;
 		var surface = new MeshInstance3D
 		{
 			Name = $"WaterSurface_{strip.Name}",
-			Position = new Vector3(strip.Center.X, -0.25f, strip.Center.Z),
+			Position = new Vector3(strip.Center.X, -0.75f, strip.Center.Z),
 			Rotation = new Vector3(0f, rad, 0f),
-			Mesh = new PlaneMesh { Size = new Vector2(waterPlaneWidth, strip.Size.Y), SubdivideWidth = 64, SubdivideDepth = 64 },
-			MaterialOverride = CreateWaterMaterial(map.WaterColor, riverLike)
+			Mesh = new PlaneMesh { Size = new Vector2(waterPlaneWidth, waterPlaneLength), SubdivideWidth = 64, SubdivideDepth = 64 },
+			MaterialOverride = CreateWaterMaterial(map, riverLike)
 		};
 		generatedRoot!.AddChild(surface);
 
@@ -981,18 +1338,83 @@ public partial class BattleMapRenderer : Node3D
 		}
 	}
 
+	MeshInstance3D BuildConformingPatchMesh(BattleMapDefinition map, TerrainPatchSpec patch)
+	{
+		var st = new SurfaceTool();
+		st.Begin(Mesh.PrimitiveType.Triangles);
+
+		float halfW = patch.Size.X * 0.5f;
+		float halfL = patch.Size.Y * 0.5f;
+
+		// 将基地地皮/色块细分为网格，使大面积地皮完全平滑贴合地面起伏
+		int resX = Mathf.Clamp(Mathf.RoundToInt(patch.Size.X / 7.0f), 4, 16);
+		int resZ = Mathf.Clamp(Mathf.RoundToInt(patch.Size.Y / 7.0f), 4, 16);
+		float stepX = patch.Size.X / resX;
+		float stepZ = patch.Size.Y / resZ;
+
+		var rad = Mathf.DegToRad(patch.Angle);
+		float cosA = Mathf.Cos(rad);
+		float sinA = Mathf.Sin(rad);
+
+		Vector3 ToWorld(float lx, float lz)
+		{
+			float wx = patch.Center.X + lx * cosA + lz * sinA;
+			float wz = patch.Center.Z - lx * sinA + lz * cosA;
+			float wy = BattleMapCatalog.GetTerrainHeightAt(map, wx, wz, includeBridges: false) + 0.025f;
+			return new Vector3(wx, wy, wz);
+		}
+
+		for (int z = 0; z < resZ; z++)
+		{
+			float lz0 = -halfL + z * stepZ;
+			float lz1 = -halfL + (z + 1) * stepZ;
+
+			for (int x = 0; x < resX; x++)
+			{
+				float lx0 = -halfW + x * stepX;
+				float lx1 = -halfW + (x + 1) * stepX;
+
+				Vector3 v00 = ToWorld(lx0, lz0);
+				Vector3 v10 = ToWorld(lx1, lz0);
+				Vector3 v01 = ToWorld(lx0, lz1);
+				Vector3 v11 = ToWorld(lx1, lz1);
+
+				Vector2 uv00 = new Vector2((float)x / resX, (float)z / resZ);
+				Vector2 uv10 = new Vector2((float)(x + 1) / resX, (float)z / resZ);
+				Vector2 uv01 = new Vector2((float)x / resX, (float)(z + 1) / resZ);
+				Vector2 uv11 = new Vector2((float)(x + 1) / resX, (float)(z + 1) / resZ);
+
+				// Quad 1: v00 -> v01 -> v10
+				st.SetUV(uv00); st.AddVertex(v00);
+				st.SetUV(uv01); st.AddVertex(v01);
+				st.SetUV(uv10); st.AddVertex(v10);
+
+				// Quad 2: v01 -> v11 -> v10
+				st.SetUV(uv01); st.AddVertex(v01);
+				st.SetUV(uv11); st.AddVertex(v11);
+				st.SetUV(uv10); st.AddVertex(v10);
+			}
+		}
+
+		st.GenerateNormals();
+		st.GenerateTangents();
+		var arrayMesh = st.Commit();
+
+		var mat = CreateGroundMaterial(map.GetPatchColor(patch.PaletteIndex));
+		return new MeshInstance3D
+		{
+			Name = $"TerrainPatch_{patch.Name}",
+			Position = Vector3.Zero,
+			Mesh = arrayMesh,
+			MaterialOverride = mat
+		};
+	}
+
 	void AddPatches(BattleMapDefinition map)
 	{
 		foreach (var patch in map.Patches)
 		{
-			var mesh = new MeshInstance3D
-			{
-				Name = $"TerrainPatch_{patch.Name}",
-				Position = new Vector3(patch.Center.X, GetTerrainHeightAt(patch.Center) + PatchHeight, patch.Center.Z),
-				Rotation = new Vector3(0f, Mathf.DegToRad(patch.Angle), 0f),
-				Mesh = new PlaneMesh { Size = patch.Size },
-				MaterialOverride = CreateGroundMaterial(map.GetPatchColor(patch.PaletteIndex))
-			};
+			var mesh = BuildConformingPatchMesh(map, patch);
 			generatedRoot!.AddChild(mesh);
 		}
 	}
@@ -1020,7 +1442,7 @@ public partial class BattleMapRenderer : Node3D
 			var rock = new MeshInstance3D
 			{
 				Name = $"Rock_{i:00}",
-				Position = new Vector3(pos.X, 0.35f, pos.Z),
+				Position = new Vector3(pos.X, GetTerrainHeightAt(pos) + 0.35f, pos.Z),
 				Rotation = new Vector3(rng.RandfRange(-0.1f, 0.1f), rng.RandfRange(0f, Mathf.Tau), rng.RandfRange(-0.1f, 0.1f)),
 				Scale = Vector3.One * rng.RandfRange(2.5f, 5.8f),
 				Mesh = new SphereMesh { Radius = 1f, Height = 1.1f, RadialSegments = 7, Rings = 4 },
@@ -1194,7 +1616,7 @@ public partial class BattleMapRenderer : Node3D
 			if (TryAddImportedScenery(
 				scenePath,
 				$"{(useGrass ? "Grass" : "Bush")}_{i:00}",
-				new Vector3(pos.X, 0.02f, pos.Z),
+				new Vector3(pos.X, pos.Y + 0.02f, pos.Z),
 				new Vector3(0f, rng.RandfRange(0f, Mathf.Tau), 0f),
 				targetHeight,
 				targetSpan,
@@ -1207,7 +1629,7 @@ public partial class BattleMapRenderer : Node3D
 			generatedRoot!.AddChild(new MeshInstance3D
 			{
 				Name = $"Bush_{i:00}",
-				Position = new Vector3(pos.X, 0.05f, pos.Z),
+				Position = new Vector3(pos.X, pos.Y + 0.05f, pos.Z),
 				Rotation = new Vector3(0f, rng.RandfRange(0f, Mathf.Tau), 0f),
 				Scale = Vector3.One * rng.RandfRange(0.9f, 1.4f),
 				Mesh = new SphereMesh { Radius = 0.45f, Height = 0.7f, RadialSegments = 7, Rings = 4 },
@@ -1279,6 +1701,12 @@ public partial class BattleMapRenderer : Node3D
 		var playerBase = FindPatchCenter(map, 2, new Vector3(-map.BaseSpawnOffset, 0f, -map.BaseSpawnOffset));
 		var enemyBase = FindPatchCenter(map, 3, new Vector3(map.BaseSpawnOffset, 0f, map.BaseSpawnOffset));
 		var center = FindPatchCenter(map, 1, Vector3.Zero);
+
+		if (map.Name == BattleMapCatalog.TriLaneWarfareName)
+		{
+			AddTriLaneBattlefieldProps(map);
+			return;
+		}
 
 		AddBaseProps(playerBase, false);
 		AddBaseProps(enemyBase, true);
@@ -1527,15 +1955,17 @@ public partial class BattleMapRenderer : Node3D
 
 	void AddSimpleProp(string path, string name, Vector3 position, float yaw, float height, float span, Color tint)
 	{
+		var groundY = GetTerrainHeightAt(position);
+		var snappedPos = new Vector3(position.X, groundY, position.Z);
 		_ = TryAddImportedScenery(
 			path,
 			name,
-			position,
+			snappedPos,
 			new Vector3(0f, Mathf.DegToRad(yaw), 0f),
 			height,
 			span,
 			tint,
-			preserveMaterials: true);
+			preserveMaterials: tint == Colors.White);
 	}
 
 	void AddCompoundProp(
@@ -1544,10 +1974,12 @@ public partial class BattleMapRenderer : Node3D
 		float yaw,
 		params (string Path, Vector3 LocalPosition, float LocalYaw, float Height, float Span, Color Tint, bool PreserveMaterials)[] parts)
 	{
+		var groundY = GetTerrainHeightAt(position);
+		var snappedPos = new Vector3(position.X, groundY, position.Z);
 		var root = new Node3D
 		{
 			Name = name,
-			Position = position,
+			Position = snappedPos,
 			Rotation = new Vector3(0f, Mathf.DegToRad(yaw), 0f)
 		};
 
@@ -1704,12 +2136,19 @@ public partial class BattleMapRenderer : Node3D
 		camera.Far = 800f; // Prevent ground culling/clipping on larger maps
 
 		var playerBase = FindSpawn(map, "PlayerBase", new Vector3(-map.BaseSpawnOffset, 0f, -map.BaseSpawnOffset));
-		var playerForward = FindSpawn(map, "PlayerForward", new Vector3(-map.ForwardSpawnOffset, 0f, -map.ForwardSpawnOffset));
-		var cameraScale = Mathf.Max(1f, ResolveMapScale(map));
-		var focus = (playerBase * 0.62f + playerForward * 0.38f) + new Vector3(8f, 1.2f, 8f);
-		camera.GlobalPosition = focus + new Vector3(0f, 34f * cameraScale, -44f * cameraScale);
-		camera.LookAt(focus, Vector3.Up);
-		camera.Fov = Mathf.Lerp(42f, 46f, Mathf.Clamp(cameraScale - 1f, 0f, 1f));
+		if (camera.GetParent() is RtsCamera rtsCam)
+		{
+			rtsCam.EnsureCameraConfigured();
+			rtsCam.JumpTo(playerBase);
+		}
+		else
+		{
+			var cameraScale = Mathf.Max(1f, ResolveMapScale(map));
+			var focus = playerBase + new Vector3(8f, 1.2f, 8f);
+			camera.GlobalPosition = focus + new Vector3(0f, 34f * cameraScale, -44f * cameraScale);
+			camera.LookAt(focus, Vector3.Up);
+			camera.Fov = Mathf.Lerp(42f, 46f, Mathf.Clamp(cameraScale - 1f, 0f, 1f));
+		}
 	}
 
 	static float ResolveMapSize(BattleMapDefinition map)
@@ -1951,10 +2390,24 @@ public partial class BattleMapRenderer : Node3D
 		if (combinedTextureCache.TryGetValue(cacheKey, out var cachedTex))
 			return cachedTex;
 
-		var diffImg = Image.LoadFromFile(ProjectSettings.GlobalizePath(diffPath));
-		var alphaImg = Image.LoadFromFile(ProjectSettings.GlobalizePath(alphaPath));
+		var diffTex = ResourceLoader.Exists(diffPath) ? GD.Load<Texture2D>(diffPath) : null;
+		var alphaTex = ResourceLoader.Exists(alphaPath) ? GD.Load<Texture2D>(alphaPath) : null;
+		var diffImg = diffTex?.GetImage();
+		var alphaImg = alphaTex?.GetImage();
+
+		if (diffImg is null && ResourceLoader.Exists(diffPath))
+		{
+			try { diffImg = Image.LoadFromFile(ProjectSettings.GlobalizePath(diffPath)); } catch { }
+		}
+		if (alphaImg is null && ResourceLoader.Exists(alphaPath))
+		{
+			try { alphaImg = Image.LoadFromFile(ProjectSettings.GlobalizePath(alphaPath)); } catch { }
+		}
+
 		if (diffImg is not null && alphaImg is not null)
 		{
+			if (diffImg.IsCompressed()) diffImg.Decompress();
+			if (alphaImg.IsCompressed()) alphaImg.Decompress();
 			diffImg.Convert(Image.Format.Rgba8);
 			var size = diffImg.GetSize();
 			if (alphaImg.GetSize() != size)
@@ -1976,9 +2429,10 @@ public partial class BattleMapRenderer : Node3D
 			combinedTextureCache[cacheKey] = tex;
 			return tex;
 		}
-		var fallbackTex = GD.Load<Texture2D>(diffPath);
-		combinedTextureCache[cacheKey] = fallbackTex;
-		return fallbackTex;
+		var fallbackTex = diffTex ?? (ResourceLoader.Exists(diffPath) ? GD.Load<Texture2D>(diffPath) : null);
+		if (fallbackTex is not null)
+			combinedTextureCache[cacheKey] = fallbackTex;
+		return fallbackTex!;
 	}
 
 	static void ApplyMeshMaterials(Node node, Material trunk, Material foliage, Material? branch)
@@ -2006,9 +2460,16 @@ public partial class BattleMapRenderer : Node3D
 		}
 	}
 
+	static readonly System.Collections.Generic.Dictionary<string, Resource> resourceCache = new();
+
 	static Node3D? TryInstanceScene(string path, string name)
 	{
-		var resource = GD.Load<Resource>(path);
+		if (!resourceCache.TryGetValue(path, out var resource))
+		{
+			resource = GD.Load<Resource>(path);
+			if (resource != null)
+				resourceCache[path] = resource;
+		}
 		Node3D? node = resource switch
 		{
 			PackedScene packed => packed.Instantiate<Node3D>(),
@@ -2143,6 +2604,37 @@ public partial class BattleMapRenderer : Node3D
 		return mat;
 	}
 
+	static StandardMaterial3D CreateRockCliffMaterial(Color color)
+	{
+		var mat = new StandardMaterial3D();
+		mat.AlbedoColor = color;
+		mat.Roughness = 0.92f;
+
+		const string diffPath = "res://assets/unity_migrated/Assets/External/PolyHaven/EnvironmentTextures/rocky_trail/rocky_trail_diff_1k.jpg";
+		const string norPath = "res://assets/unity_migrated/Assets/External/PolyHaven/EnvironmentTextures/rocky_trail/rocky_trail_nor_gl_1k.png";
+		const string roughPath = "res://assets/unity_migrated/Assets/External/PolyHaven/EnvironmentTextures/rocky_trail/rocky_trail_rough_1k.jpg";
+
+		if (ResourceLoader.Exists(diffPath))
+		{
+			mat.AlbedoTexture = GD.Load<Texture2D>(diffPath);
+			mat.Uv1Triplanar = true;
+			mat.Uv1Scale = new Vector3(0.06f, 0.06f, 0.06f);
+		}
+		if (ResourceLoader.Exists(norPath))
+		{
+			mat.NormalEnabled = true;
+			mat.NormalTexture = GD.Load<Texture2D>(norPath);
+			mat.Uv1Triplanar = true;
+		}
+		if (ResourceLoader.Exists(roughPath))
+		{
+			mat.RoughnessTexture = GD.Load<Texture2D>(roughPath);
+			mat.Uv1Triplanar = true;
+		}
+
+		return mat;
+	}
+
 	static StandardMaterial3D CreateRoadMaterial(Color color, Vector2 size)
 	{
 		var mat = new StandardMaterial3D();
@@ -2182,29 +2674,189 @@ public partial class BattleMapRenderer : Node3D
 			Shader = shader
 		};
 
-		var highlight = map.Name == BattleMapCatalog.IceFortressName
-			? new Color(0.72f, 0.95f, 0.98f)
-			: new Color(0.35f, 0.98f, 0.45f); // 竹青高光 (Bamboo Green Highlight)
-		var deepColor = map.Name == BattleMapCatalog.IceFortressName
-			? map.WaterColor.Lerp(new Color(0.20f, 0.50f, 0.76f), 0.45f)
-			: map.WaterColor.Lerp(new Color(0.02f, 0.65f, 0.18f), 0.35f); // 浓郁竹青深水区 (Deep Bamboo Green)
-		var waterColor = deepColor.Lerp(highlight, riverLike ? 0.58f : 0.24f);
-		var foamColor = new Color(0.65f, 0.98f, 0.60f); // 翠绿浪花
+		Color waterColor;
+		Color shallowColor;
+		Color foamColor;
 
-		material.SetShaderParameter("water_color", new Color(0.04f, 0.88f, 0.35f, 0.70f));
+		if (map.Name == BattleMapCatalog.SeaChartName)
+		{
+			// 海图群岛：清澈热带碧玉翠绿海洋 (Tropical Emerald Ocean)
+			waterColor = new Color(0.03f, 0.42f, 0.24f, 0.95f);       // 深海碧绿/深竹青
+			shallowColor = new Color(0.08f, 0.70f, 0.46f, 0.85f);     // 近岸浅海清透翡翠绿
+			foamColor = new Color(0.88f, 0.98f, 0.94f, 0.90f);        // 纯白浪花带微翠
+		}
+		else if (map.Name == BattleMapCatalog.IceFortressName)
+		{
+			// 冰雪要塞：冰川寒蓝水体
+			waterColor = new Color(0.12f, 0.35f, 0.58f, 0.92f);
+			shallowColor = new Color(0.45f, 0.78f, 0.92f, 0.85f);
+			foamColor = new Color(0.92f, 0.96f, 1.0f, 0.92f);
+		}
+		else if (map.Name == BattleMapCatalog.VolcanoFortressName)
+		{
+			// 火山要塞：赤红流淌熔岩
+			waterColor = new Color(0.85f, 0.18f, 0.04f, 0.98f);
+			shallowColor = new Color(1.0f, 0.45f, 0.10f, 0.92f);
+			foamColor = new Color(1.0f, 0.85f, 0.35f, 0.95f);
+		}
+		else if (map.Name == BattleMapCatalog.TriLaneWarfareName)
+		{
+			// 三路对抗：深蓝大河
+			waterColor = new Color(0.05f, 0.28f, 0.48f, 0.92f);
+			shallowColor = new Color(0.18f, 0.55f, 0.75f, 0.85f);
+			foamColor = new Color(0.88f, 0.95f, 1.0f, 0.88f);
+		}
+		else
+		{
+			// 通用/沙漠绿洲等：以地图配置的 WaterColor 为基准计算深浅梯度
+			var baseC = map.WaterColor;
+			waterColor = new Color(baseC.R * 0.75f, baseC.G * 0.75f, baseC.B * 0.75f, 0.92f);
+			shallowColor = new Color(
+				Mathf.Clamp(baseC.R * 1.35f + 0.05f, 0f, 1f),
+				Mathf.Clamp(baseC.G * 1.35f + 0.08f, 0f, 1f),
+				Mathf.Clamp(baseC.B * 1.35f + 0.10f, 0f, 1f),
+				0.85f
+			);
+			foamColor = new Color(0.90f, 0.96f, 1.0f, 0.90f);
+		}
+
+		material.SetShaderParameter("water_color", waterColor);
+		material.SetShaderParameter("shallow_color", shallowColor);
 		material.SetShaderParameter("foam_color", foamColor);
-		// flow_speed: how fast the entire wave pattern scrolls downstream
-		material.SetShaderParameter("flow_speed", riverLike ? 1.10f : 0.42f);
-		// wave_scale / wave_strength: low-frequency FBM chop
-		material.SetShaderParameter("wave_scale", riverLike ? 0.55f : 0.32f);
-		material.SetShaderParameter("wave_strength", riverLike ? 0.55f : 0.28f);
-		// ripple_scale / ripple_strength: high-frequency direction-aware scrolling ripples
-		material.SetShaderParameter("ripple_scale", riverLike ? 0.18f : 0.09f);
-		material.SetShaderParameter("ripple_strength", riverLike ? 0.38f : 0.15f);
-		material.SetShaderParameter("edge_fade", riverLike ? 0.28f : 0.12f);
-		material.SetShaderParameter("shine_strength", riverLike ? 0.28f : 0.12f);
-		material.SetShaderParameter("foam_scale", riverLike ? 0.45f : 0.28f);
+		material.SetShaderParameter("flow_speed", riverLike ? 0.85f : 0.38f);
+		material.SetShaderParameter("wave_scale", riverLike ? 0.48f : 0.28f);
+		material.SetShaderParameter("wave_strength", riverLike ? 0.42f : 0.22f);
+		material.SetShaderParameter("wave_height", riverLike ? 0.22f : 0.32f);
+		material.SetShaderParameter("ripple_scale", riverLike ? 14f : 8.5f);
+		material.SetShaderParameter("ripple_strength", 0.14f);
+		material.SetShaderParameter("edge_fade", 0.16f);
+		material.SetShaderParameter("shine_strength", 0.20f);
+		material.SetShaderParameter("foam_scale", 0.35f);
+		material.SetShaderParameter("roughness", 0.12f);
+		material.SetShaderParameter("metallic", 0.0f);
+		material.SetShaderParameter("specular", 0.5f);
 		return material;
+	}
+
+	void AddTriLaneBattlefieldProps(BattleMapDefinition map)
+	{
+		// 1. 蓝方 (盟军) 5 大基地群前沿军备设施
+		AddBaseProps(new Vector3(-200f, 0f, -200f), false); // P1: 中央总指挥主基地
+		AddBaseStagingProps(new Vector3(-200f, 0f, -200f), false);
+
+		AddBaseProps(new Vector3(-270f, 0f, -90f), false);  // P2: 上路装甲突破阵地
+		AddSandbagWallProp("PlayerTopSandbag", new Vector3(-255f, 0f, -75f), 45f, 1.25f);
+		AddBarrierProp("PlayerTopBarrier", new Vector3(-250f, 0f, -70f), 45f, 1.2f);
+		AddSupplyCrateProp("PlayerTopCrate", new Vector3(-285f, 0f, -105f), 30f);
+
+		AddBaseProps(new Vector3(-90f, 0f, -270f), false);  // P3: 下路深水军港
+		AddNavalHarborProps(new Vector3(-90f, 0f, -270f), false);
+
+		AddBaseProps(new Vector3(-235f, 0f, -145f), false); // P4: 中左战术空军基地
+		AddAmmoCrateProp("PlayerAirfieldAmmo", new Vector3(-225f, 0f, -135f), 30f);
+		AddSupplyCrateProp("PlayerAirfieldSupply", new Vector3(-245f, 0f, -155f), 120f);
+
+		AddBaseProps(new Vector3(-145f, 0f, -235f), false); // P5: 中右后勤防空基地
+		AddSandbagWallProp("PlayerAaSandbag", new Vector3(-135f, 0f, -225f), -45f, 1.2f);
+		AddAmmoCrateProp("PlayerAaAmmo", new Vector3(-155f, 0f, -245f), 70f);
+
+		// 2. 红方 (反抗军) 5 大基地群前沿军备设施
+		AddBaseProps(new Vector3(200f, 0f, 200f), true);   // E1: 中央总指挥主基地
+		AddBaseStagingProps(new Vector3(200f, 0f, 200f), true);
+
+		AddBaseProps(new Vector3(90f, 0f, 270f), true);    // E2: 上路装甲突破阵地
+		AddSandbagWallProp("EnemyTopSandbag", new Vector3(75f, 0f, 255f), -135f, 1.25f);
+		AddBarrierProp("EnemyTopBarrier", new Vector3(70f, 0f, 250f), -135f, 1.2f);
+		AddSupplyCrateProp("EnemyTopCrate", new Vector3(105f, 0f, 285f), -150f);
+
+		AddBaseProps(new Vector3(270f, 0f, 90f), true);    // E3: 下路深水军港
+		AddNavalHarborProps(new Vector3(270f, 0f, 90f), true);
+
+		AddBaseProps(new Vector3(145f, 0f, 235f), true);   // E4: 中左战术空军基地
+		AddAmmoCrateProp("EnemyAirfieldAmmo", new Vector3(135f, 0f, 225f), -150f);
+		AddSupplyCrateProp("EnemyAirfieldSupply", new Vector3(155f, 0f, 245f), -60f);
+
+		AddBaseProps(new Vector3(235f, 0f, 145f), true);   // E5: 中右后勤防空基地
+		AddSandbagWallProp("EnemyAaSandbag", new Vector3(225f, 0f, 135f), 135f, 1.2f);
+		AddAmmoCrateProp("EnemyAaAmmo", new Vector3(245f, 0f, 155f), -110f);
+
+		// 3. 中路大干道双侧对称路灯与桥头堡关卡
+		for (float d = 45f; d <= 185f; d += 35f)
+		{
+			var pSw = new Vector3(-d, 0f, -d);
+			AddStreetLightProp($"AvenueLight_SW_L_{d:0}", pSw + new Vector3(-14f, 0f, 14f), 45f);
+			AddStreetLightProp($"AvenueLight_SW_R_{d:0}", pSw + new Vector3(14f, 0f, -14f), -135f);
+
+			var pNe = new Vector3(d, 0f, d);
+			AddStreetLightProp($"AvenueLight_NE_L_{d:0}", pNe + new Vector3(14f, 0f, -14f), -135f);
+			AddStreetLightProp($"AvenueLight_NE_R_{d:0}", pNe + new Vector3(-14f, 0f, 14f), 45f);
+		}
+
+		// 4. 中央十字要塞岛核心争夺战区 (Central Fortress Island)
+		AddCentralFortressProps(Vector3.Zero);
+
+		// 5. 上路高峡险隘与西峡大钢桥前线 (Top Canyon Armored Corridor)
+		AddTopCanyonBattlefieldProps();
+
+		// 6. 下路深水三角洲航道海战场与滨海群岛 (Bottom Naval Channel & Delta)
+		AddBottomDeltaBattlefieldProps();
+	}
+
+	void AddNavalHarborProps(Vector3 baseCenter, bool enemy)
+	{
+		var side = enemy ? -1f : 1f;
+		var dockPos = baseCenter + new Vector3(side * 25f, 0f, -side * 25f);
+		AddSimpleProp(KenneyMilitaryRoot + "structure-platform-dock.obj", $"NavalDock_{(enemy ? "Enemy" : "Player")}", dockPos, enemy ? -135f : 45f, 1.8f, 12f, new Color(0.36f, 0.32f, 0.28f));
+		AddSimpleProp(KenneyMilitaryRoot + "tower-watch.obj", $"NavalWatchtower_{(enemy ? "Enemy" : "Player")}", baseCenter + new Vector3(side * 18f, 0f, -side * 36f), enemy ? -135f : 45f, 7.5f, 4f, new Color(0.30f, 0.34f, 0.30f));
+		AddSimpleProp(KenneyMilitaryRoot + "barrel.obj", $"NavalFuelA_{(enemy ? "Enemy" : "Player")}", dockPos + new Vector3(3f, 0f, 0f), 0f, 1.2f, 0.9f, new Color(0.24f, 0.36f, 0.22f));
+		AddSimpleProp(KenneyMilitaryRoot + "barrel.obj", $"NavalFuelB_{(enemy ? "Enemy" : "Player")}", dockPos + new Vector3(4f, 0f, 1.5f), 45f, 1.2f, 0.9f, new Color(0.55f, 0.22f, 0.18f));
+		AddSimpleProp(KenneyMilitaryRoot + "crate.obj", $"NavalCrate_{(enemy ? "Enemy" : "Player")}", dockPos + new Vector3(2f, 0f, 3f), 20f, 1.4f, 1.4f, new Color(0.48f, 0.40f, 0.28f));
+	}
+
+	void AddCentralFortressProps(Vector3 center)
+	{
+		const float IslandH = 4.8f;
+		var islandCenter = center + new Vector3(0f, IslandH, 0f);
+
+		// 中央核心雷达指挥塔与空投补给
+		AddSimpleProp(KenneyMilitaryRoot + "tower-watch.obj", "FortressRadarTower", islandCenter + new Vector3(0f, 0f, 0f), 45f, 10.5f, 5f, new Color(0.28f, 0.32f, 0.34f));
+		AddSupplyCrateProp("FortressSupplyA", islandCenter + new Vector3(-8f, 0f, 6f), 30f);
+		AddAmmoCrateProp("FortressAmmoA", islandCenter + new Vector3(8f, 0f, -6f), -45f);
+
+		// 桥头堡防线：双桥入口处反坦克石阵与重机枪沙袋环
+		AddBarrierProp("FortressNorthBarrierA", islandCenter + new Vector3(-24f, 0f, -24f), 135f, 1.35f);
+		AddBarrierProp("FortressNorthBarrierB", islandCenter + new Vector3(-28f, 0f, -18f), 135f, 1.35f);
+		AddSandbagWallProp("FortressNorthSandbag", islandCenter + new Vector3(-20f, 0f, -26f), 135f, 1.25f);
+
+		AddBarrierProp("FortressSouthBarrierA", islandCenter + new Vector3(24f, 0f, 24f), -45f, 1.35f);
+		AddBarrierProp("FortressSouthBarrierB", islandCenter + new Vector3(28f, 0f, 18f), -45f, 1.35f);
+		AddSandbagWallProp("FortressSouthSandbag", islandCenter + new Vector3(20f, 0f, 26f), -45f, 1.25f);
+
+		// 四角防御瞭望台
+		AddSimpleProp(KenneyMilitaryRoot + "tower-watch.obj", "FortressCornerNW", islandCenter + new Vector3(-32f, 0f, 32f), -45f, 6.5f, 3.5f, new Color(0.30f, 0.34f, 0.30f));
+		AddSimpleProp(KenneyMilitaryRoot + "tower-watch.obj", "FortressCornerSE", islandCenter + new Vector3(32f, 0f, -32f), 135f, 6.5f, 3.5f, new Color(0.30f, 0.34f, 0.30f));
+	}
+
+	void AddTopCanyonBattlefieldProps()
+	{
+		// 上路高峡钢桥 (-115, 0, 115) 附近装甲残骸与反坦克拒马
+		var bridgePos = new Vector3(-115f, 0f, 115f);
+		AddVehicleWreckProp("CanyonTankWreckA", bridgePos + new Vector3(-26f, 0f, -12f), 65f, 1.4f);
+		AddVehicleWreckProp("CanyonTankWreckB", bridgePos + new Vector3(24f, 0f, 14f), -115f, 1.3f);
+		AddBarrierProp("CanyonChokeBarrierA", bridgePos + new Vector3(-35f, 0f, 18f), 45f, 1.3f);
+		AddBarrierProp("CanyonChokeBarrierB", bridgePos + new Vector3(35f, 0f, -18f), -135f, 1.3f);
+		AddSimpleProp(KenneyMilitaryRoot + "tower-watch.obj", "CanyonOverlookPost", new Vector3(-160f, 8.5f, 85f), 15f, 7.5f, 4f, new Color(0.30f, 0.34f, 0.30f));
+	}
+
+	void AddBottomDeltaBattlefieldProps()
+	{
+		// 下路深水三角洲航道 (115, 0, -115) 搁浅战舰残骸与水运浮标
+		var deltaCenter = new Vector3(155f, -0.6f, -155f);
+		AddSimpleProp(KenneyMilitaryRoot + "ship-wreck.obj", "DeltaShipwreckHero", deltaCenter, 35f, 8.5f, 22f, new Color(0.38f, 0.28f, 0.24f));
+		AddSimpleProp(KenneyMilitaryRoot + "tower-watch.obj", "DeltaLighthouse", new Vector3(70f, 5.5f, -170f), -45f, 9.0f, 4.5f, new Color(0.32f, 0.36f, 0.32f));
+		AddSimpleProp(NatureKitRoot + "tree_palmDetailedTall.fbx", "DeltaPalm_01", new Vector3(145f, 0f, -95f), 0f, 7.5f, 5f, new Color(0.22f, 0.55f, 0.25f));
+		AddSimpleProp(NatureKitRoot + "tree_palmDetailedTall.fbx", "DeltaPalm_02", new Vector3(175f, 0f, -125f), 45f, 8.2f, 5.5f, new Color(0.22f, 0.55f, 0.25f));
+		AddSimpleProp(NatureKitRoot + "tree_palmBend.fbx", "DeltaPalm_03", new Vector3(135f, 0f, -135f), -30f, 7.0f, 4.8f, new Color(0.22f, 0.55f, 0.25f));
 	}
 
 	BattleMapDefinition ResolveMap()
@@ -2215,9 +2867,10 @@ public partial class BattleMapRenderer : Node3D
 		var preferredMap = string.IsNullOrWhiteSpace(PreviewMapName)
 			? null
 			: PreviewMapName;
-		var fallback = Engine.IsEditorHint()
-			? preferredMap
-			: GameState.Instance?.SelectedMapName;
+		var selected = GameState.Instance?.SelectedMapName;
+		var fallback = !string.IsNullOrWhiteSpace(selected)
+			? selected
+			: preferredMap;
 		var mapName = BattleMapCatalog.RequestedMapName(fallback);
 		return BattleMapCatalog.Get(mapName);
 	}
@@ -2418,7 +3071,7 @@ public partial class BattleMapRenderer : Node3D
 
 	static string BuildPreviewSignature(BattleMapDefinition map)
 	{
-		var signature = $"{map.Name}|{map.RandomSeed}|{map.TreePositions.Length}|{map.RockClusters.Length}|{map.SpawnPoints.Length}|{map.Roads.Length}|{map.Waters.Length}|{map.Patches.Length}";
+		var signature = $"{map.Name}|{map.RandomSeed}|{map.TreePositions.Length}|{map.RockClusters.Length}|{map.SpawnPoints.Length}|{map.Roads.Length}|{map.Waters.Length}|{map.Patches.Length}|{map.Bridges.Length}|{map.ElevatedPlateaus.Length}";
 		for (var i = 0; i < map.SpawnPoints.Length; i++)
 		{
 			var spawn = map.SpawnPoints[i];

@@ -22,6 +22,7 @@ public partial class PreviewCapture : Node
     bool focusSpawnedUnits;
     bool disableAi;
     bool hideHud;
+    bool isCombatDemo;
     string focusUnitKey = "";
     bool selectLastBuilt;
     bool finishBuilt;
@@ -40,24 +41,47 @@ public partial class PreviewCapture : Node
     float focusZoom = 1.0f;
     string selectedMap = "";
     bool openBuildMenu;
+    int buildMenuSection = -1;
+    bool openTechMenu;
     bool parkSpawned;
     bool dumpPanzerNodes;
     string previewBuildKey = "";
     Vector3? previewBuildPosition;
     bool demoTurretRotations;
+    string sequenceDir = "";
+    int sequenceTotalFrames = 0;
+    int sequenceCurrentIndex = 0;
+
+    private static int globalFramesRemaining = -1;
+    private static bool globalFramesConfigured = false;
+    private static string globalOutputPath = "user://preview.png";
 
     public override void _Ready()
     {
         var args = CommandLineArgs.Get();
         GD.Print($"[PreviewCapture] Found {args.Length} args: {string.Join(", ", args)}");
+        if (!globalFramesConfigured)
+        {
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (args[i] == "--capture-preview" || args[i] == "--login-capture")
+                    globalFramesRemaining = 20;
+                else if (args[i] == "--capture-frames" && i + 1 < args.Length && int.TryParse(args[i + 1], out var parsedFrames))
+                    globalFramesRemaining = parsedFrames;
+                else if (args[i] == "--capture-path" && i + 1 < args.Length)
+                    globalOutputPath = args[i + 1];
+            }
+            globalFramesConfigured = true;
+        }
+        framesLeft = globalFramesRemaining;
+        outputPath = globalOutputPath;
+
         for (var i = 0; i < args.Length; i++)
         {
-            if (args[i] == "--capture-preview" || args[i] == "--login-capture")
-                framesLeft = 20;
-            else if (args[i] == "--capture-frames" && i + 1 < args.Length)
-                int.TryParse(args[i + 1], out framesLeft);
-            else if (args[i] == "--capture-path" && i + 1 < args.Length)
-                outputPath = args[i + 1];
+            if (args[i] == "--capture-sequence-dir" && i + 1 < args.Length)
+                sequenceDir = args[i + 1];
+            else if (args[i] == "--capture-sequence-count" && i + 1 < args.Length)
+                int.TryParse(args[i + 1], out sequenceTotalFrames);
             else if (args[i] == "--select-player-base")
                 selectPlayerBase = true;
             else if (args[i] == "--select-enemy-base")
@@ -185,6 +209,10 @@ public partial class PreviewCapture : Node
                 selectedMap = args[i + 1];
             else if (args[i] == "--open-build-menu")
                 openBuildMenu = true;
+            else if (args[i] == "--build-section" && i + 1 < args.Length && int.TryParse(args[i + 1], out var parsedSec))
+                buildMenuSection = parsedSec;
+            else if (args[i] == "--open-tech-menu")
+                openTechMenu = true;
             else if (args[i] == "--park-spawned")
                 parkSpawned = true;
             else if (args[i] == "--dump-panzer-nodes")
@@ -207,7 +235,21 @@ public partial class PreviewCapture : Node
         if (disableAi)
             CallDeferred(MethodName.DisableAiDeferred);
 
-        if (showGameOver || selectPlayerBase || selectEnemyBase || focusPoint is not null || !string.IsNullOrWhiteSpace(focusUnitKey) || !string.IsNullOrWhiteSpace(queueUnit) || !string.IsNullOrWhiteSpace(damageTarget) || buildOrders.Count > 0 || spawnOrders.Count > 0 || researchOrders.Count > 0 || techOrders.Count > 0 || repairSelectedUnit || upgradeSelectedBuilding || damageSpawnedPlayer > 0f || openBuildMenu || parkSpawned || dumpPanzerNodes || !string.IsNullOrWhiteSpace(previewBuildKey) || demoTurretRotations)
+        var hasCaptureFlag = System.Array.IndexOf(args, "--capture-preview") != -1
+            || System.Array.IndexOf(args, "--login-capture") != -1
+            || System.Array.IndexOf(args, "--capture-frames") != -1
+            || System.Array.IndexOf(args, "--capture-sequence-dir") != -1
+            || System.Array.IndexOf(args, "--combat-demo") != -1;
+
+        if (!hasCaptureFlag)
+        {
+            SetProcess(false);
+            return;
+        }
+
+        isCombatDemo = System.Array.IndexOf(args, "--combat-demo") != -1;
+
+        if (isCombatDemo || showGameOver || selectPlayerBase || selectEnemyBase || focusPoint is not null || !string.IsNullOrWhiteSpace(focusUnitKey) || !string.IsNullOrWhiteSpace(queueUnit) || !string.IsNullOrWhiteSpace(damageTarget) || buildOrders.Count > 0 || spawnOrders.Count > 0 || researchOrders.Count > 0 || techOrders.Count > 0 || repairSelectedUnit || upgradeSelectedBuilding || damageSpawnedPlayer > 0f || openBuildMenu || parkSpawned || dumpPanzerNodes || !string.IsNullOrWhiteSpace(previewBuildKey) || demoTurretRotations || System.Array.IndexOf(args, "--login-flow-test") != -1)
             _ = ApplyDebugActions();
         if (hideHud)
             CallDeferred(MethodName.HideHudDeferred);
@@ -248,7 +290,7 @@ public partial class PreviewCapture : Node
         if (openBuildMenu)
         {
             var hud = GetTree().CurrentScene?.GetNodeOrNull<BattleHud>("HUD");
-            hud?.DebugOpenBuildMenu();
+            hud?.DebugOpenBuildMenu(buildMenuSection);
         }
 
         var building = manager.FindMainBase(true);
@@ -321,6 +363,81 @@ public partial class PreviewCapture : Node
                 GD.Print($"[DEBUG_DUMP] === DUMP UNIT {unit.Name} ===");
                 DumpNodeTree(unit);
             }
+        }
+
+        var cmdArgs = CommandLineArgs.Get();
+        var isCombatDemo = System.Array.IndexOf(cmdArgs, "--combat-demo") != -1;
+
+        if (isCombatDemo)
+        {
+            GD.Print("[COMBAT_DEMO] Active battlefield movement & combat engagement scenario initializing on solid land corridor...");
+            // 部署在绝对坚固平坦的西南主战走廊（X: -102 ~ -68, Z: -94 ~ -66），避开水系深槽，紧贴地表大道
+            var pHeavy = manager.SpawnUnit("heavy_tank", new Vector3(-100f, 0f, -88f), true);
+            var pMedium = manager.SpawnUnit("tank", new Vector3(-105f, 0f, -94f), true);
+            var pArtillery = manager.SpawnUnit("artillery", new Vector3(-110f, 0f, -82f), true);
+            var pInfantry = manager.SpawnUnit("infantry_flamethrower", new Vector3(-96f, 0f, -92f), true);
+
+            var eHeavy = manager.SpawnUnit("heavy_tank", new Vector3(-76f, 0f, -68f), false);
+            var eMedium = manager.SpawnUnit("tank", new Vector3(-72f, 0f, -74f), false);
+            var eAntiAir = manager.SpawnUnit("anti_air_gun", new Vector3(-68f, 0f, -66f), false);
+            var eInfantry = manager.SpawnUnit("infantry", new Vector3(-78f, 0f, -76f), false);
+
+            var playerSquad = new System.Collections.Generic.List<RtsUnit>();
+            if (pHeavy is not null) { spawned.Add(pHeavy); playerSquad.Add(pHeavy); }
+            if (pMedium is not null) { spawned.Add(pMedium); playerSquad.Add(pMedium); }
+            if (pArtillery is not null) { spawned.Add(pArtillery); playerSquad.Add(pArtillery); }
+            if (pInfantry is not null) { spawned.Add(pInfantry); playerSquad.Add(pInfantry); }
+
+            var enemySquad = new System.Collections.Generic.List<RtsUnit>();
+            if (eHeavy is not null) { spawned.Add(eHeavy); enemySquad.Add(eHeavy); }
+            if (eMedium is not null) { spawned.Add(eMedium); enemySquad.Add(eMedium); }
+            if (eAntiAir is not null) { spawned.Add(eAntiAir); enemySquad.Add(eAntiAir); }
+            if (eInfantry is not null) { spawned.Add(eInfantry); enemySquad.Add(eInfantry); }
+
+            FocusCamera(new Vector3(-86f, 0f, -78f), 1.25f);
+            GameState.Instance?.SetSelection(playerSquad.ToArray());
+
+            Callable.From(new Action(async () =>
+            {
+                await ToSignal(GetTree().CreateTimer(0.6f), SceneTreeTimer.SignalName.Timeout);
+                foreach (var u in playerSquad)
+                {
+                    if (GodotObject.IsInstanceValid(u) && !u.IsDead)
+                    {
+                        u.AttackMoveTo(new Vector3(-72f, 0f, -70f));
+                    }
+                }
+                foreach (var eu in enemySquad)
+                {
+                    if (GodotObject.IsInstanceValid(eu) && !eu.IsDead)
+                    {
+                        eu.AttackMoveTo(new Vector3(-102f, 0f, -90f));
+                    }
+                }
+            })).CallDeferred();
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--login-flow-test") != -1)
+        {
+            GD.Print("[LOGIN_FLOW_TEST] Phase 4: 3D Battlefield active! Spawning combat units...");
+            var art = manager.SpawnUnit("artillery", new Vector3(-80f, 0f, -80f), true);
+            var tank = manager.SpawnUnit("tank", new Vector3(-86f, 0f, -74f), true);
+            var enemyTank = manager.SpawnUnit("tank", new Vector3(15f, 0f, 15f), false);
+            if (art != null) spawned.Add(art);
+            if (tank != null) spawned.Add(tank);
+
+            Callable.From(new Action(async () =>
+            {
+                await ToSignal(GetTree().CreateTimer(1.5f), SceneTreeTimer.SignalName.Timeout);
+                if (GodotObject.IsInstanceValid(art) && GodotObject.IsInstanceValid(enemyTank))
+                {
+                    GD.Print("[LOGIN_FLOW_TEST] Artillery elevating barrel and engaging enemy tank!");
+                    art.Attack(enemyTank);
+                }
+                if (GodotObject.IsInstanceValid(tank))
+                {
+                    tank.AttackMoveTo(new Vector3(5f, 0f, 5f));
+                }
+            })).CallDeferred();
         }
 
         foreach (var (key, position) in techOrders)
@@ -493,7 +610,19 @@ public partial class PreviewCapture : Node
                 unit.DebugDumpPanzerVisibleNodes();
         }
 
+        if (openBuildMenu)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            var hud = GetTree().CurrentScene?.GetNodeOrNull<BattleHud>("HUD");
+            hud?.DebugOpenBuildMenu(buildMenuSection);
+        }
 
+        if (openTechMenu)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            var hud = GetTree().CurrentScene?.GetNodeOrNull<BattleHud>("HUD");
+            hud?.DebugOpenTechMenu();
+        }
     }
 
     void FocusCamera(System.Collections.Generic.IEnumerable<RtsUnit> units, float zoom)
@@ -561,10 +690,55 @@ public partial class PreviewCapture : Node
 
     public override void _Process(double delta)
     {
-        if (framesLeft < 0)
+        if (!string.IsNullOrEmpty(sequenceDir) && sequenceTotalFrames > 0)
+        {
+            if (framesLeft > 0)
+            {
+                framesLeft--;
+                return;
+            }
+
+            var seqTexture = GetViewport().GetTexture();
+            var seqImage = seqTexture?.GetImage();
+            if (seqImage is not null && !seqImage.IsEmpty())
+            {
+                var seqDir = sequenceDir.StartsWith("res://") || sequenceDir.StartsWith("user://")
+                    ? ProjectSettings.GlobalizePath(sequenceDir)
+                    : sequenceDir;
+                if (!System.IO.Directory.Exists(seqDir))
+                    System.IO.Directory.CreateDirectory(seqDir);
+
+                string framePath = System.IO.Path.Combine(seqDir, $"frame_{sequenceCurrentIndex:D3}.png");
+                seqImage.SavePng(framePath);
+                sequenceCurrentIndex++;
+            }
+
+            if (sequenceCurrentIndex >= sequenceTotalFrames)
+            {
+                GD.Print($"[PREVIEW_SEQUENCE_SUCCESS] Saved {sequenceCurrentIndex} frames to {sequenceDir}");
+                GetTree().Quit();
+            }
+            return;
+        }
+
+        if (framesLeft < 0 && globalFramesRemaining < 0)
             return;
 
-        framesLeft--;
+        if (globalFramesRemaining > 0)
+        {
+            globalFramesRemaining--;
+            framesLeft = globalFramesRemaining;
+        }
+        else if (globalFramesRemaining == 0)
+        {
+            globalFramesRemaining = -1;
+            framesLeft = 0;
+        }
+        else
+        {
+            framesLeft--;
+        }
+
         if (framesLeft == 1)
         {
             if (demoTurretRotations)
@@ -604,9 +778,10 @@ public partial class PreviewCapture : Node
             return;
         }
 
-        var globalPath = outputPath.StartsWith("res://") || outputPath.StartsWith("user://")
-            ? ProjectSettings.GlobalizePath(outputPath)
-            : outputPath;
+        var targetPath = !string.IsNullOrEmpty(outputPath) ? outputPath : globalOutputPath;
+        var globalPath = targetPath.StartsWith("res://") || targetPath.StartsWith("user://")
+            ? ProjectSettings.GlobalizePath(targetPath)
+            : targetPath;
         GD.Print($"[PREVIEW_CAPTURE_SAVING] TargetPath: {globalPath}");
         var dir = System.IO.Path.GetDirectoryName(globalPath);
         if (!string.IsNullOrEmpty(dir) && !System.IO.Directory.Exists(dir))

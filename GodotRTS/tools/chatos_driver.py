@@ -181,6 +181,7 @@ async def chatos_stream_generator(body: Dict[str, Any]) -> AsyncGenerator[str, N
     # 2. Connect to SSE stream /go/api/event/see
     event_url = f"{base_url}/go/api/event/see?question_id={qid}&group_id={group_id}&user_id={user_id}&token={urllib.parse.quote(token)}&server_id=&model={upstream_model}"
     
+    has_received_content = False
     try:
         async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
             async with client.stream("GET", event_url, headers={"Accept": "text/event-stream", "User-Agent": headers["User-Agent"]}) as stream_resp:
@@ -199,6 +200,7 @@ async def chatos_stream_generator(body: Dict[str, Any]) -> AsyncGenerator[str, N
                             status = msg_obj.get("Status", "")
                             
                             if delta_text:
+                                has_received_content = True
                                 chunk_resp = {
                                     "id": completion_id,
                                     "object": "chat.completion.chunk",
@@ -231,6 +233,24 @@ async def chatos_stream_generator(body: Dict[str, Any]) -> AsyncGenerator[str, N
                             pass
                             
     except Exception as e:
+        err_msg = str(e).lower()
+        if has_received_content and ("incomplete read" in err_msg or "peer closed" in err_msg or "remoteprotocolerror" in type(e).__name__.lower()):
+            # Upstream completed response and abruptly closed socket; this is normal completion
+            stop_resp = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created_ts,
+                "model": model_req,
+                "choices": [{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop"
+                }]
+            }
+            yield f"data: {json.dumps(stop_resp)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+            
         err_chunk = {
             "id": completion_id,
             "object": "chat.completion.chunk",

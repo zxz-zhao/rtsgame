@@ -56,6 +56,38 @@ namespace GodotRTS.Scripts.UI
         private Button _btnCamera = null!;
         private Button _btnExit = null!;
 
+        // Mobile Drawer Toggle
+        private Button? _btnToggleDeck;
+        private Control _bottomCommandDeck = null!;
+        private bool _isDeckExpanded = false;
+
+        // Teammate Voice & Radio Communication
+        private Label _lblVoiceStatus = null!;
+        private Label _lblVoiceWave = null!;
+        private Label _lblVoiceSpeaker = null!;
+        private Button _btnVoiceMic = null!;
+        private Button _btnQuickRadio = null!;
+        private Control _quickRadioMenu = null!;
+        private Button _btnRadioCall1 = null!;
+        private Button _btnRadioCall2 = null!;
+        private Button _btnRadioCall3 = null!;
+
+        // Combat Log & Event Prompts
+        private VBoxContainer _logContainer = null!;
+        private float _radioChatterTimer = 3.5f;
+        private int _waveAnimFrame = 0;
+        private double _waveAnimTimer = 0.0;
+        private bool _isMicTransmitting = false;
+        private int _chatterIdx = 0;
+        private readonly (string name, string callout)[] _chatterPool = new[]
+        {
+            ("Alpha 侦察先锋", "发现敌装甲主力推进，正在标定前线坐标！"),
+            ("Bravo 铁甲先锋", "重型主战坦克已就绪，准备发起穿插破障！"),
+            ("Eagle 战鹰编队", "已越过中线水道，空对空制空权掌握中！"),
+            ("Ghost 潜艇中队", "北部水道巡航正常，战列舰主炮准备装填！"),
+            ("Charlie 突击队", "步兵已进入掩体射击位，火力压制有效！")
+        };
+
         public override void _Ready()
         {
             // Bind Telemetry
@@ -123,17 +155,99 @@ namespace GodotRTS.Scripts.UI
             _btnCamera.Pressed += () => EmitSignal(SignalName.CameraModeRequested);
             _btnExit.Pressed += () => EmitSignal(SignalName.ExitRequested);
 
+            // Bind Mobile Drawer
+            _bottomCommandDeck = GetNode<Control>("%BottomCommandDeck");
+            _btnToggleDeck = GetNodeOrNull<Button>("%BtnToggleDeck");
+            var cmdArgs = CommandLineArgs.Get();
+            if (_btnToggleDeck != null)
+            {
+                _btnToggleDeck.Pressed += ToggleDeck;
+                bool startExpanded = System.Array.Exists(cmdArgs, a => a == "--hud-expanded");
+                SetDeckExpanded(startExpanded, false);
+            }
+
+            // Bind Voice Comm & Combat Log
+            _lblVoiceStatus = GetNodeOrNull<Label>("%LblVoiceStatus")!;
+            _lblVoiceWave = GetNodeOrNull<Label>("%LblVoiceWave")!;
+            _lblVoiceSpeaker = GetNodeOrNull<Label>("%LblVoiceSpeaker")!;
+            _btnVoiceMic = GetNodeOrNull<Button>("%BtnVoiceMic")!;
+            _btnQuickRadio = GetNodeOrNull<Button>("%BtnQuickRadio")!;
+            _quickRadioMenu = GetNodeOrNull<Control>("%QuickRadioMenu")!;
+            _btnRadioCall1 = GetNodeOrNull<Button>("%BtnRadioCall1")!;
+            _btnRadioCall2 = GetNodeOrNull<Button>("%BtnRadioCall2")!;
+            _btnRadioCall3 = GetNodeOrNull<Button>("%BtnRadioCall3")!;
+            _logContainer = GetNodeOrNull<VBoxContainer>("%LogContainer")!;
+
+            if (_btnVoiceMic != null)
+                _btnVoiceMic.Pressed += ToggleMicTransmit;
+            if (_btnQuickRadio != null && _quickRadioMenu != null)
+                _btnQuickRadio.Pressed += () => _quickRadioMenu.Visible = !_quickRadioMenu.Visible;
+
+            if (_btnRadioCall1 != null)
+                _btnRadioCall1.Pressed += () => {
+                    TriggerVoiceTransmission("我方指挥", "全体集中火力打击敌方核心装甲！", true);
+                    if (_quickRadioMenu != null) _quickRadioMenu.Visible = false;
+                };
+            if (_btnRadioCall2 != null)
+                _btnRadioCall2.Pressed += () => {
+                    TriggerVoiceTransmission("我方指挥", "注意敌军侧翼迂回，立即回防掩护阵地！", true);
+                    if (_quickRadioMenu != null) _quickRadioMenu.Visible = false;
+                };
+            if (_btnRadioCall3 != null)
+                _btnRadioCall3.Pressed += () => {
+                    TriggerVoiceTransmission("我方指挥", "请求空军战鹰实施俯冲轰炸与对地扫射！", true);
+                    if (_quickRadioMenu != null) _quickRadioMenu.Visible = false;
+                };
+
+            AddCombatLog("📡", "战区加密无线电已连接，战术频道就绪", new Color(0.35f, 0.85f, 1f));
+
+            if (System.Array.Exists(cmdArgs, a => a == "--radio-open") && _quickRadioMenu != null)
+            {
+                _quickRadioMenu.Visible = true;
+            }
+
             // Fade Entrance Animation
             var topBar = GetNode<Control>("%TopTelemetryBar");
-            var bottomDeck = GetNode<Control>("%BottomCommandDeck");
-
             topBar.Modulate = new Color(1, 1, 1, 0);
-            bottomDeck.Modulate = new Color(1, 1, 1, 0);
-
             var tween = CreateTween();
-            tween.SetParallel(true);
             tween.TweenProperty(topBar, "modulate:a", 1.0f, 0.35f);
-            tween.TweenProperty(bottomDeck, "modulate:a", 1.0f, 0.35f);
+        }
+
+        public void ToggleDeck()
+        {
+            SetDeckExpanded(!_isDeckExpanded, true);
+        }
+
+        public void SetDeckExpanded(bool expanded, bool animate)
+        {
+            _isDeckExpanded = expanded;
+            if (_btnToggleDeck != null)
+            {
+                _btnToggleDeck.Text = _isDeckExpanded ? "✕ 隐藏控制 ▾" : "⚔️ 战术指令 ▴";
+            }
+            if (_bottomCommandDeck != null)
+            {
+                if (animate)
+                {
+                    var tween = CreateTween();
+                    if (_isDeckExpanded)
+                    {
+                        _bottomCommandDeck.Visible = true;
+                        _bottomCommandDeck.Modulate = new Color(1, 1, 1, 0);
+                        tween.TweenProperty(_bottomCommandDeck, "modulate:a", 1.0f, 0.2f);
+                    }
+                    else
+                    {
+                        tween.TweenProperty(_bottomCommandDeck, "modulate:a", 0.0f, 0.15f);
+                        tween.Finished += () => { if (!_isDeckExpanded) _bottomCommandDeck.Visible = false; };
+                    }
+                }
+                else
+                {
+                    _bottomCommandDeck.Visible = _isDeckExpanded;
+                    _bottomCommandDeck.Modulate = new Color(1, 1, 1, _isDeckExpanded ? 1.0f : 0.0f);
+                }
+            }
         }
 
         private void SwitchTab(bool isBlue)
@@ -178,6 +292,9 @@ namespace GodotRTS.Scripts.UI
                     break;
                 case Key.F:
                     EmitSignal(SignalName.AutoWaveToggled);
+                    break;
+                case Key.H:
+                    ToggleDeck();
                     break;
                 case Key.Space:
                     EmitSignal(SignalName.PauseToggled);
@@ -226,9 +343,139 @@ namespace GodotRTS.Scripts.UI
             }
         }
 
+        public override void _Process(double delta)
+        {
+            _waveAnimTimer += delta;
+            if (_waveAnimTimer >= 0.18)
+            {
+                _waveAnimTimer = 0.0;
+                _waveAnimFrame = (_waveAnimFrame + 1) % 4;
+                string[] waves = { " ▂▃ ", "▂▃▅", "▃▅▆", "▅▆▇" };
+                if (_lblVoiceWave != null)
+                {
+                    _lblVoiceWave.Text = waves[_waveAnimFrame];
+                }
+            }
+
+            _radioChatterTimer += (float)delta;
+            if (_radioChatterTimer >= 7.5f)
+            {
+                _radioChatterTimer = 0f;
+                TriggerRandomTeammateChatter();
+            }
+        }
+
+        public void TriggerVoiceTransmission(string speaker, string message, bool isPlayer = false)
+        {
+            if (_lblVoiceSpeaker != null)
+            {
+                _lblVoiceSpeaker.Text = $"{speaker}: {message}";
+                _lblVoiceSpeaker.AddThemeColorOverride("font_color", isPlayer ? new Color(0.4f, 1.0f, 0.7f) : new Color(0.35f, 0.9f, 1.0f));
+            }
+
+            AddCombatLog("📻", $"{speaker}: {message}", isPlayer ? new Color(0.4f, 1.0f, 0.7f) : new Color(0.35f, 0.9f, 1.0f));
+
+            if (_lblVoiceWave != null)
+            {
+                _lblVoiceWave.Modulate = new Color(0.3f, 1.0f, 0.5f, 1.0f);
+                var tw = CreateTween();
+                tw.TweenProperty(_lblVoiceWave, "modulate:a", 0.4f, 2.5f);
+            }
+        }
+
+        private void TriggerRandomTeammateChatter()
+        {
+            var item = _chatterPool[_chatterIdx % _chatterPool.Length];
+            _chatterIdx++;
+            TriggerVoiceTransmission(item.name, item.callout, false);
+        }
+
+        private void ToggleMicTransmit()
+        {
+            _isMicTransmitting = !_isMicTransmitting;
+            if (_isMicTransmitting)
+            {
+                _btnVoiceMic.Text = "🔴 说话中";
+                _btnVoiceMic.Modulate = new Color(0.3f, 1f, 0.4f);
+                TriggerVoiceTransmission("我方指挥 (您)", "已确认当前交火线，执行协同攻坚！", true);
+                GetTree().CreateTimer(2.0).Timeout += () =>
+                {
+                    if (_isMicTransmitting)
+                    {
+                        _isMicTransmitting = false;
+                        if (GodotObject.IsInstanceValid(_btnVoiceMic))
+                        {
+                            _btnVoiceMic.Text = "🎙️ 通话";
+                            _btnVoiceMic.Modulate = Colors.White;
+                        }
+                    }
+                };
+            }
+        }
+
+        public void AddCombatLog(string tag, string message, Color tagColor)
+        {
+            if (_logContainer == null || !GodotObject.IsInstanceValid(_logContainer)) return;
+
+            while (_logContainer.GetChildCount() >= 4)
+            {
+                var oldest = _logContainer.GetChild(0);
+                _logContainer.RemoveChild(oldest);
+                oldest.QueueFree();
+            }
+
+            var logItem = new PanelContainer();
+            logItem.MouseFilter = Control.MouseFilterEnum.Ignore;
+            logItem.AddThemeStyleboxOverride("panel", new StyleBoxEmpty());
+
+            var margin = new MarginContainer();
+            margin.AddThemeConstantOverride("margin_left", 2);
+            margin.AddThemeConstantOverride("margin_top", 1);
+            margin.AddThemeConstantOverride("margin_right", 6);
+            margin.AddThemeConstantOverride("margin_bottom", 1);
+            logItem.AddChild(margin);
+
+            var hbox = new HBoxContainer();
+            hbox.AddThemeConstantOverride("separation", 6);
+            margin.AddChild(hbox);
+
+            var lblTag = new Label { Text = tag };
+            lblTag.AddThemeColorOverride("font_color", tagColor);
+            lblTag.AddThemeFontSizeOverride("font_size", 9);
+            lblTag.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.9f));
+            lblTag.AddThemeConstantOverride("outline_size", 2);
+            hbox.AddChild(lblTag);
+
+            var lblMsg = new Label { Text = message };
+            lblMsg.AddThemeColorOverride("font_color", new Color(0.95f, 0.98f, 1f, 0.95f));
+            lblMsg.AddThemeFontSizeOverride("font_size", 9);
+            lblMsg.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.9f));
+            lblMsg.AddThemeConstantOverride("outline_size", 2);
+            lblMsg.AddThemeColorOverride("font_shadow_color", new Color(0f, 0f, 0f, 0.5f));
+            lblMsg.AddThemeConstantOverride("shadow_offset_x", 1);
+            lblMsg.AddThemeConstantOverride("shadow_offset_y", 1);
+            hbox.AddChild(lblMsg);
+
+            _logContainer.AddChild(logItem);
+
+            logItem.Modulate = new Color(1, 1, 1, 0);
+            var tween = logItem.CreateTween();
+            tween.TweenProperty(logItem, "modulate:a", 1.0f, 0.2f);
+            tween.TweenInterval(4.5f);
+            tween.TweenProperty(logItem, "modulate:a", 0.0f, 0.5f);
+            tween.TweenCallback(Callable.From(() =>
+            {
+                if (GodotObject.IsInstanceValid(logItem))
+                    logItem.QueueFree();
+            }));
+        }
+
         public override void _ExitTree()
         {
-            // Fully unhook all events to ensure zero leaks
+            if (_btnToggleDeck != null)
+                _btnToggleDeck.Pressed -= ToggleDeck;
+            if (_btnVoiceMic != null)
+                _btnVoiceMic.Pressed -= ToggleMicTransmit;
         }
     }
 }

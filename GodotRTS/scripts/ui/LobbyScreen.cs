@@ -291,7 +291,11 @@ public partial class LobbyScreen : Control
         _ = WarmSecondaryModalCaches();
 
         var cmdArgs = CommandLineArgs.Get();
-        if (System.Array.IndexOf(cmdArgs, "--open-invites-modal") != -1)
+        if (System.Array.IndexOf(cmdArgs, "--login-flow-test") != -1)
+        {
+            _ = RunAutomatedLobbyFlow();
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--open-invites-modal") != -1)
         {
             _ = ShowInvitesModal();
             var captureIndex = System.Array.IndexOf(cmdArgs, "--capture-path");
@@ -304,10 +308,26 @@ public partial class LobbyScreen : Control
         else if (System.Array.IndexOf(cmdArgs, "--open-research-modal") != -1)
         {
             ShowResearchModal();
+            var captureIndex = System.Array.IndexOf(cmdArgs, "--capture-path");
+            if (captureIndex != -1 && captureIndex + 1 < cmdArgs.Length)
+            {
+                var outputPath = cmdArgs[captureIndex + 1];
+                CaptureLobbyScreenDeferred(outputPath);
+            }
         }
         else if (System.Array.IndexOf(cmdArgs, "--open-matchmaking-modal") != -1)
         {
             _ = ShowMatchmakingQueueModal();
+        }
+        else if (System.Array.IndexOf(cmdArgs, "--open-map-selection-modal") != -1)
+        {
+            _ = ShowMapSelectionModal();
+            var captureIndex = System.Array.IndexOf(cmdArgs, "--capture-path");
+            if (captureIndex != -1 && captureIndex + 1 < cmdArgs.Length)
+            {
+                var outputPath = cmdArgs[captureIndex + 1];
+                CaptureLobbyScreenDeferred(outputPath);
+            }
         }
         else if (System.Array.IndexOf(cmdArgs, "--open-settings-modal") != -1)
         {
@@ -391,6 +411,17 @@ public partial class LobbyScreen : Control
         }
     }
 
+    async Task RunAutomatedLobbyFlow()
+    {
+        GD.Print("[LOGIN_FLOW_TEST] Phase 2: Lobby Scene reached! Waiting 4.0s for lobby showcase...");
+        ShowToast("【自动化测试流程】指挥部大厅已就绪，正在准备全战区匹配...");
+        await ToSignal(GetTree().CreateTimer(4.0f), SceneTreeTimer.SignalName.Timeout);
+
+        GD.Print("[LOGIN_FLOW_TEST] Phase 3: Launching Battle with Animated Loading Screen...");
+        ShowToast("【自动化测试流程】战役匹配成功！正在装载战场资源...");
+        await StartBattle(false);
+    }
+
     public override void _ExitTree()
     {
         base._ExitTree();
@@ -465,6 +496,11 @@ public partial class LobbyScreen : Control
 
     private void StartLobbyBgm()
     {
+        if (OS.HasFeature("android"))
+        {
+            GD.Print("[LobbyBGM] Android detected: skipping procedural AudioStreamWav BGM to prevent native OpenSL/AudioTrack crash");
+            return;
+        }
         try
         {
             LoadAudioSettings();
@@ -1061,7 +1097,7 @@ public partial class LobbyScreen : Control
         return chip;
     }
 
-    Control CreateTopBarIconDock(string iconPath, string tooltip, Action onPressed)
+    Control CreateTopBarIconDock(string iconPath, string tooltip, Action onPressed, Vector2? iconSize = null)
     {
         var shell = new Panel
         {
@@ -1077,7 +1113,7 @@ public partial class LobbyScreen : Control
             14,
             new Color(0.96f, 0.76f, 0.24f, 0.06f));
 
-        var button = AddIconButton(iconPath, tooltip, onPressed);
+        var button = AddIconButton(iconPath, tooltip, onPressed, iconSize ?? new Vector2(26, 26));
         button.CustomMinimumSize = new Vector2(38, 38);
         button.SetAnchorsPreset(LayoutPreset.FullRect);
         button.OffsetLeft = 1;
@@ -1561,11 +1597,17 @@ public partial class LobbyScreen : Control
         };
         Place(modalPanel, new Rect2(0.245f, 0.130f, 0.510f, 0.740f));
         MetalUiStyle.ApplyMetalPanel(modalPanel, GlassPanel, 2, 18, 4);
+        AddTopAccentStripe(modalPanel, new Color(0.95f, 0.76f, 0.24f, 0.90f), 3);
         AddChild(modalPanel);
 
-        var box = AddVBox(modalPanel, "ModalBox", 10, new Vector2(18, 16), new Vector2(-18, -16));
-        var header = new HBoxContainer { Name = "ModalHeader" };
-        modalTitle = AddLabel("自定义房间", 22, PanelText, HorizontalAlignment.Left);
+        var box = AddVBox(modalPanel, "ModalBox", 10, new Vector2(18, 14), new Vector2(-18, -14));
+        var header = new HBoxContainer
+        {
+            Name = "ModalHeader",
+            CustomMinimumSize = new Vector2(0, 34)
+        };
+        header.AddThemeConstantOverride("separation", 10);
+        modalTitle = AddLabel("自定义房间", 20, new Color(0.96f, 0.90f, 0.70f), HorizontalAlignment.Left);
         modalTitle.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         header.AddChild(modalTitle);
         header.AddChild(AddCloseIconButton(CloseModal));
@@ -1576,8 +1618,10 @@ public partial class LobbyScreen : Control
             Name = "ModalScroll",
             SizeFlagsVertical = SizeFlags.ExpandFill,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            VerticalScrollMode = ScrollContainer.ScrollMode.Auto
         };
+        StyleScrollBar(modalScroll);
         box.AddChild(modalScroll);
 
         modalBody = new VBoxContainer
@@ -5101,8 +5145,9 @@ public partial class LobbyScreen : Control
             }
         }
 
+        int totalTechs = BattleTechCatalog.All.Length;
         AddModalSummaryRow(
-            AddStatCard("科技总数", "4 项", "基地战术支援科技", WarningText),
+            AddStatCard("科技总数", $"{totalTechs} 项", "基地战术支援科技", WarningText),
             AddStatCard("最高等级", $"{maxLvl} 级", "当前最高科研水平", GoodText),
             AddStatCard("研究状态", techEndAtMs > NowMs() ? "进行中" : "闲置", techEndAtMs > NowMs() ? "服务器计时中" : "可开始新研究", techEndAtMs > NowMs() ? WarningText : MutedText));
 
@@ -5110,7 +5155,7 @@ public partial class LobbyScreen : Control
         {
             Name = "ResearchSplitBox",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
+            SizeFlagsVertical = SizeFlags.ExpandFill
         };
         splitBox.AddThemeConstantOverride("separation", 14);
         modalBody.AddChild(splitBox);
@@ -5119,21 +5164,22 @@ public partial class LobbyScreen : Control
         {
             Name = "ResearchLeftCol",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
+            SizeFlagsVertical = SizeFlags.ExpandFill
         };
         splitBox.AddChild(leftCol);
 
         currentResearchDetailPanel = new Panel
         {
             Name = "ResearchDetailPanel",
-            CustomMinimumSize = new Vector2(230, 260),
+            CustomMinimumSize = new Vector2(240, 240),
             SizeFlagsHorizontal = SizeFlags.ShrinkEnd,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
         MetalUiStyle.ApplyMetalPanel(currentResearchDetailPanel, WarehousePanel, 1, 8, 4);
         splitBox.AddChild(currentResearchDetailPanel);
 
-        var techList = AddWarehouseSectionPanel(leftCol, "科技列表", "点击选择科技项以查阅具体战术加成并启动升级项目", new Color(0.64f, 0.90f, 1f));
+        var equippedCount = GameState.Instance?.GetEquippedBattleTechKeys().Count ?? BattleTechCatalog.MaxBattleTechLoadout;
+        var techList = AddWarehouseSectionPanel(leftCol, $"科技库（出战配置: {equippedCount}/{BattleTechCatalog.MaxBattleTechLoadout}）", "点击选择科技项以查阅具体战术加成并启动升级项目，或调整每场战斗携带的10项出战科技。", new Color(0.64f, 0.90f, 1f), 185, 5);
         foreach (var tech in BattleTechCatalog.GetForBuilding("main_base"))
         {
             techList.AddChild(CreateResearchGridCell(tech));
@@ -5201,29 +5247,30 @@ public partial class LobbyScreen : Control
         margin.AddThemeConstantOverride("margin_bottom", 4);
         iconPanel.AddChild(margin);
 
-        if (!string.IsNullOrEmpty(tech.BackgroundTexturePath))
+        if (!string.IsNullOrEmpty(tech.IconPath))
         {
             margin.AddChild(new TextureRect
             {
-                Texture = LoadTexture(tech.BackgroundTexturePath),
+                Texture = LoadTexture(tech.IconPath),
                 ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                StretchMode = TextureRect.StretchModeEnum.Scale,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
                 MouseFilter = MouseFilterEnum.Ignore,
-                Modulate = tech.Tint.Lerp(Colors.White, 0.15f)
+                Modulate = tech.Tint.Lerp(Colors.White, 0.25f)
             });
         }
 
-        // 图标下方等级文本
+        // 图标下方等级与出战文本
+        var isEquipped = GameState.Instance?.IsBattleTechEquipped(tech.Key) ?? true;
         var lvlLabel = new Label
         {
             Name = "LvlLabel_" + tech.Key,
-            Text = $"{level}/5 级",
+            Text = isEquipped ? $"Lv.{level} [出战]" : $"Lv.{level}",
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore
         };
-        lvlLabel.AddThemeFontSizeOverride("font_size", 11);
-        lvlLabel.AddThemeColorOverride("font_color", isSelected ? new Color(0.95f, 0.76f, 0.24f) : MutedText);
+        lvlLabel.AddThemeFontSizeOverride("font_size", 10);
+        lvlLabel.AddThemeColorOverride("font_color", isSelected ? new Color(0.95f, 0.76f, 0.24f) : (isEquipped ? new Color(0.55f, 0.92f, 0.65f) : MutedText));
         vbox.AddChild(lvlLabel);
 
         // 全覆点击按钮
@@ -5268,8 +5315,11 @@ public partial class LobbyScreen : Control
         var level = GameState.Instance?.GetTechLevel(techKey) ?? 1;
         var box = AddVBox(currentResearchDetailPanel, "DetailBox", 6, new Vector2(12, 10), new Vector2(-12, -10));
 
+        var isEquipped = GameState.Instance?.IsBattleTechEquipped(techKey) ?? true;
+        var equippedCount = GameState.Instance?.GetEquippedBattleTechKeys().Count ?? BattleTechCatalog.MaxBattleTechLoadout;
+
         box.AddChild(AddLabel(tech.DisplayName, 16, PanelText, HorizontalAlignment.Center));
-        box.AddChild(CreateTag($"当前等级: Lv.{level} (最高 5)", new Color(0.18f, 0.34f, 0.40f, 0.92f), new Color(0.94f, 0.98f, 0.99f)));
+        box.AddChild(CreateTag($"当前等级: Lv.{level} (最高 5) | {(isEquipped ? "✓ 已配置出战" : "未携带")}", isEquipped ? new Color(0.18f, 0.40f, 0.28f, 0.92f) : new Color(0.30f, 0.22f, 0.22f, 0.92f), new Color(0.94f, 0.98f, 0.99f)));
 
         var space = new Control { CustomMinimumSize = new Vector2(0, 4) };
         box.AddChild(space);
@@ -5361,6 +5411,29 @@ public partial class LobbyScreen : Control
             upgradeBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
             box.AddChild(upgradeBtn);
         }
+
+        var equipBtn = AddButton(
+            isEquipped ? "✕ 从出战列表中卸下" : $"⚔️ 带入战斗 ({equippedCount}/{BattleTechCatalog.MaxBattleTechLoadout})",
+            () =>
+            {
+                if (GameState.Instance is not null)
+                {
+                    if (GameState.Instance.SetBattleTechEquipped(techKey, !isEquipped, out var msg))
+                    {
+                        ShowToast(msg);
+                        ShowResearchModal();
+                    }
+                    else
+                    {
+                        ShowToast(msg);
+                    }
+                }
+            },
+            isEquipped ? ButtonTone.Secondary : ButtonTone.Primary,
+            12);
+        equipBtn.CustomMinimumSize = new Vector2(0, 30);
+        equipBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        box.AddChild(equipBtn);
     }
 
     int GetTechUpgradeCost(int currentLevel)
@@ -5584,13 +5657,13 @@ public partial class LobbyScreen : Control
         return button;
     }
 
-    GridContainer AddWarehouseSectionPanel(Control parent, string title, string note, Color accent)
+    GridContainer AddWarehouseSectionPanel(Control parent, string title, string note, Color accent, int scrollMinHeight = 220, int columns = 5)
     {
         var panel = new PanelContainer
         {
             Name = "WarehouseSection_" + title,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
             ClipContents = true
         };
         MetalUiStyle.ApplyMetalPanel(panel, WarehousePanel, 1, 8, 4);
@@ -5603,7 +5676,7 @@ public partial class LobbyScreen : Control
             Texture = LoadTexture("res://assets/campaign/warehouse_lobby_bg.png"),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
-            SelfModulate = new Color(1f, 1f, 1f, 0.40f),
+            SelfModulate = new Color(1f, 1f, 1f, 0.35f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         bgTex.SetAnchorsPreset(LayoutPreset.FullRect);
@@ -5615,7 +5688,7 @@ public partial class LobbyScreen : Control
         {
             Name = panel.Name + "_Margin",
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
+            SizeFlagsVertical = SizeFlags.ExpandFill
         };
         margin.AddThemeConstantOverride("margin_left", 14);
         margin.AddThemeConstantOverride("margin_top", 12);
@@ -5627,22 +5700,35 @@ public partial class LobbyScreen : Control
         {
             Name = "WarehouseSectionBox_" + title,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ShrinkBegin
+            SizeFlagsVertical = SizeFlags.ExpandFill
         };
-        box.AddThemeConstantOverride("separation", 10);
+        box.AddThemeConstantOverride("separation", 8);
         margin.AddChild(box);
         box.AddChild(CreateWarehouseSectionHeader(title, note, accent));
+
+        // 引入科技目录滑动框 (ScrollContainer) 支撑大量科技/军备卡片平滑滚动浏览
+        var scroll = new ScrollContainer
+        {
+            Name = "WarehouseSectionScroll_" + title,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(0, scrollMinHeight),
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            VerticalScrollMode = ScrollContainer.ScrollMode.ShowAlways
+        };
+        StyleScrollBar(scroll);
+        box.AddChild(scroll);
 
         var grid = new GridContainer
         {
             Name = "WarehouseSectionGrid_" + title,
-            Columns = 7,
+            Columns = columns,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
         grid.AddThemeConstantOverride("h_separation", 8);
         grid.AddThemeConstantOverride("v_separation", 8);
-        box.AddChild(grid);
+        scroll.AddChild(grid);
 
         return grid;
     }
@@ -5688,7 +5774,7 @@ public partial class LobbyScreen : Control
         var level = GameState.Instance?.GetTechLevel(tech.Key) ?? 1;
         return CreateWarehouseGridCell(
             tech.DisplayName,
-            tech.BackgroundTexturePath,
+            tech.IconPath,
             "",
             $"{DescribeTechBonus(tech, level)}",
             tech.Tint,
@@ -5906,16 +5992,18 @@ public partial class LobbyScreen : Control
             "infantry_artillery" => "prod_infantry_artillery_icon.png",
             "infantry_flamethrower" or "flamethrower" => "prod_infantry_flamethrower_icon.png",
             "light_tank" => "prod_light_tank_icon.png",
-            "heavy_tank" => "prod_heavy_tank_icon.png",
+            "heavy_tank" or "tank_destroyer" => "prod_heavy_tank_icon.png",
             "tank" or "medium_tank" => "prod_tank_icon.png",
-            "artillery" => "prod_artillery_icon.png",
-            "anti_air_gun" => "prod_anti_air_icon.png",
-            "scout_plane" => "prod_scout_plane_icon.png",
+            "artillery" or "mlrs_rocket" => "prod_artillery_icon.png",
+            "anti_air_gun" or "sam_missile" => "prod_anti_air_icon.png",
+            "scout_plane" or "scout_helicopter" => "prod_scout_plane_icon.png",
             "fighter" => "prod_fighter_icon.png",
             "bomber" => "prod_bomber_icon.png",
             "patrol_boat" => "prod_patrol_boat_icon.png",
             "destroyer_ship" => "prod_destroyer_ship_icon.png",
             "transport_ship" => "prod_battleship_icon.png",
+            "aircraft_carrier" => "prod_carrier_icon.png",
+            "submarine" => "prod_submarine_icon.png",
             _ => "prod_infantry_icon.png"
         };
         return BackdropRoot + filename;
@@ -5964,6 +6052,8 @@ public partial class LobbyScreen : Control
         var finalRegen = tech.RegenPerSecond > 0f ? tech.RegenPerSecond + (level - 1) * 4f : tech.RegenPerSecond;
 
         var parts = new List<string>();
+        if (tech.TargetDomain == TechTargetDomain.AirOnly)
+            parts.Add("【仅限空中战机】空中加油并重装机载航弹");
         if (!Mathf.IsEqualApprox(finalMove, 1f))
             parts.Add($"移速 {(finalMove - 1f) * 100f:+0;-0}%");
         if (!Mathf.IsEqualApprox(finalDamage, 1f))
@@ -6796,14 +6886,14 @@ public partial class LobbyScreen : Control
         var card = new Panel
         {
             Name = "StatCard_" + title,
-            CustomMinimumSize = new Vector2(184, 96),
+            CustomMinimumSize = new Vector2(180, 74),
             SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
             SizeFlagsVertical = SizeFlags.ShrinkBegin
         };
         MetalUiStyle.ApplyMetalPanel(card, MetalUiStyle.Steel, 1, 7, 4);
         AddTopAccentStripe(card, new Color(accent.R, accent.G, accent.B, 0.82f), 3);
 
-        var box = AddVBox(card, "StatCardBox_" + title, 4, new Vector2(12, 10), new Vector2(-12, -10));
+        var box = AddVBox(card, "StatCardBox_" + title, 3, new Vector2(12, 7), new Vector2(-12, -7));
         var titleLabel = AddLabel(title, 12, MutedText, HorizontalAlignment.Left);
         titleLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         titleLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
@@ -7279,28 +7369,36 @@ public partial class LobbyScreen : Control
 
     static string UnitCategory(string unitKey) => unitKey switch
     {
-        "scout_plane" or "fighter" or "bomber" => "空军",
-        "patrol_boat" or "destroyer_ship" or "transport_ship" or "aircraft_carrier" => "海军",
-        "light_tank" or "tank" or "heavy_tank" or "artillery" or "anti_air_gun" => "装甲",
-        _ => "陆军"
+        "scout_plane" or "scout_helicopter" or "fighter" or "bomber" => "空军",
+        "patrol_boat" or "destroyer_ship" or "submarine" or "battleship" or "transport_ship" or "aircraft_carrier" => "海军",
+        "artillery" or "mlrs_rocket" => "火炮",
+        "anti_air_gun" or "sam_missile" => "防空",
+        "light_tank" or "tank" or "heavy_tank" or "tank_destroyer" => "装甲",
+        _ => "步兵"
     };
 
     static string DescribeWarehouseBlueprint(string unitKey) => unitKey switch
     {
-        "infantry" => "基础占点与前线推进单位",
-        "infantry_artillery" => "远程支援步兵，擅长压制密集目标",
-        "infantry_flamethrower" or "flamethrower" => "近距离清障与建筑压制单位",
-        "light_tank" => "机动穿插装甲，适合侦察与骚扰",
-        "tank" or "medium_tank" => "中坚装甲火力，适合正面推进",
-        "heavy_tank" => "高耐久重装单位，适合攻坚与吸收伤害",
-        "artillery" => "远程曲射火力，适合后排支援",
-        "anti_air_gun" => "防空压制平台，兼顾反低空目标",
-        "scout_plane" => "提供快速视野侦察与空中巡查",
-        "fighter" => "高机动制空单位，优先拦截空军",
-        "bomber" => "重型空袭单位，适合点杀高价值目标",
-        "patrol_boat" => "轻型水面巡逻与护航单位",
-        "destroyer_ship" => "主力海军火力单位，适合中远程压制",
-        "transport_ship" => "大型运输舰船，适合海上投送",
+        "infantry" => "基础占点与前线推进步兵",
+        "infantry_artillery" => "远程支援迫击炮兵，擅长压制密集软目标",
+        "infantry_flamethrower" or "flamethrower" => "近距离清障喷火兵，对步兵与工事极强压制",
+        "light_tank" => "机动穿插装甲，适合侦察、袭扰与抢占资源点",
+        "tank" or "medium_tank" => "中坚装甲主力，攻守兼备，行进火控稳定",
+        "heavy_tank" => "高耐久重装战车，正面攻坚防线核心",
+        "tank_destroyer" => "坦克歼击车，超远射程重穿甲狙杀敌方装甲主力",
+        "artillery" => "自行榴弹炮，超远曲射压制，需驻锄架设",
+        "mlrs_rocket" => "多管火箭炮，超远距离齐射集群弹幕，大范围面杀伤",
+        "anti_air_gun" => "双联防空炮车，高射速对空扫射，兼顾压制地面轻甲",
+        "sam_missile" => "野战防空导弹车，超远视距锁定拦截高空超音速战机",
+        "scout_plane" => "轻型高速侦察机，快速全图视野巡查",
+        "scout_helicopter" => "武装直升机，低空悬停突防，火箭巢压制地面装甲集群",
+        "fighter" => "空优战斗机，超音速巡航与空战拦截",
+        "bomber" => "重型战略轰炸机，地毯式轰炸陆地阵地与舰艇",
+        "patrol_boat" => "轻型水面巡逻快艇，近岸高速护航与机动袭扰",
+        "destroyer_ship" => "主力导弹驱逐舰，防空反潜与远程舰炮中坚",
+        "submarine" => "攻击潜艇，潜航隐身，重型反舰鱼雷致命伏击",
+        "battleship" => "重装甲战列舰，巨口径舰炮超视距轰击",
+        "transport_ship" => "大型运输舰船，适合跨海兵力投送",
         "aircraft_carrier" => "海上浮动停机场，提供 4 个舰载机机位，支持战斗机和轰炸机起降",
         _ => "已编入战场军备库"
     };
@@ -7459,7 +7557,7 @@ public partial class LobbyScreen : Control
         timeLabel.Text = "⏱️ 已匹配时间: 00:00";
         while (elapsed < 3 && !cancelled)
         {
-            await Task.Delay(1000);
+            await ToSignal(GetTree().CreateTimer(1.0f), SceneTreeTimer.SignalName.Timeout);
             if (cancelled)
                 break;
 
@@ -7665,7 +7763,7 @@ public partial class LobbyScreen : Control
                 break;
             }
 
-            await Task.Delay(1000);
+            await ToSignal(GetTree().CreateTimer(1.0f), SceneTreeTimer.SignalName.Timeout);
             timeLeft--;
         }
 
@@ -7673,7 +7771,7 @@ public partial class LobbyScreen : Control
         {
             countdownLabel.Text = "所有玩家已确认！正在转入战场...";
             countdownLabel.AddThemeColorOverride("font_color", GoodText);
-            await Task.Delay(800);
+            await ToSignal(GetTree().CreateTimer(0.8f), SceneTreeTimer.SignalName.Timeout);
             GameState.Instance?.SetCurrentRoom(roomId);
             await StartBattle(false);
             CloseModal();
@@ -7786,7 +7884,7 @@ public partial class LobbyScreen : Control
 
         while (!resumeSelected && !rematchSelected)
         {
-            await Task.Delay(100);
+            await ToSignal(GetTree().CreateTimer(0.1f), SceneTreeTimer.SignalName.Timeout);
         }
 
         CloseModal();
@@ -7808,11 +7906,39 @@ public partial class LobbyScreen : Control
     Task<string> ShowMapSelectionModal()
     {
         var tcs = new TaskCompletionSource<string>();
-        modalTitle.Text = "🗺️ 选择战场地图";
+        ExpandModalPanel(true);
+        Place(modalPanel, new Rect2(0.060f, 0.080f, 0.880f, 0.840f));
+        modalPanel.CustomMinimumSize = new Vector2(980, 580);
+        modalPanel.GrowVertical = GrowDirection.End;
+        modalScroll.ScrollVertical = 0;
+
+        modalTitle.Text = "🗺️ 战区战场选择 · THEATER MAP SELECTION";
         ClearChildren(modalBody);
 
-        var introLabel = AddLabel("请选择本次对战使用的地形与战术地图（包含 8 种特色环境）：", 12, PanelText, HorizontalAlignment.Left);
-        modalBody.AddChild(introLabel);
+        var playableMaps = BattleMapCatalog.GetPlayableMapNames();
+
+        // 顶部战备概览
+        var topBar = new HBoxContainer
+        {
+            CustomMinimumSize = new Vector2(0, 26),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        var introLabel = AddLabel($"请选择本次对战使用的战术地图（当前收录 {playableMaps.Length} 款精选战区，点击即刻换图并部署部队）：", 13, PanelText, HorizontalAlignment.Left);
+        introLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        topBar.AddChild(introLabel);
+
+        var activeBadge = CreateTag($"当前战备: {selectedMap}", new Color(0.35f, 0.28f, 0.08f, 0.95f), WarningText);
+        activeBadge.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+        topBar.AddChild(activeBadge);
+        modalBody.AddChild(topBar);
+
+        // 分类筛选标签栏 (Category Filter Tabs)
+        var tabRow = new HBoxContainer
+        {
+            CustomMinimumSize = new Vector2(0, 32),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        tabRow.AddThemeConstantOverride("separation", 8);
 
         var grid = new GridContainer
         {
@@ -7820,57 +7946,235 @@ public partial class LobbyScreen : Control
             Columns = 2,
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
-        grid.AddThemeConstantOverride("h_separation", 10);
-        grid.AddThemeConstantOverride("v_separation", 10);
+        grid.AddThemeConstantOverride("h_separation", 14);
+        grid.AddThemeConstantOverride("v_separation", 14);
+
+        var allCards = new List<(string MapName, Panel CardNode, string Category)>();
+
+        var tabDefs = new (string Label, string CatKey)[]
+        {
+            ($"全部战区 ({playableMaps.Length})", "all"),
+            ("陆战要塞 (4)", "fortress"),
+            ("高山峡谷 (4)", "mountain"),
+            ("海洋与极端 (4)", "extreme")
+        };
+
+        var tabButtons = new List<Button>();
+        string currentCategory = "all";
+
+        void ApplyFilter(string catKey)
+        {
+            currentCategory = catKey;
+            for (int i = 0; i < tabButtons.Count; i++)
+            {
+                bool active = (tabDefs[i].CatKey == catKey);
+                tabButtons[i].Modulate = active ? Colors.White : new Color(0.70f, 0.75f, 0.80f, 0.75f);
+            }
+            foreach (var item in allCards)
+            {
+                item.CardNode.Visible = (catKey == "all" || item.Category == catKey);
+            }
+        }
+
+        foreach (var (tabLabel, catKey) in tabDefs)
+        {
+            var keyCapture = catKey;
+            var tabBtn = AddButton(tabLabel, () => ApplyFilter(keyCapture), catKey == "all" ? ButtonTone.Gold : ButtonTone.Secondary, 12);
+            tabBtn.CustomMinimumSize = new Vector2(130, 28);
+            tabButtons.Add(tabBtn);
+            tabRow.AddChild(tabBtn);
+        }
+        modalBody.AddChild(tabRow);
         modalBody.AddChild(grid);
 
-        var playableMaps = BattleMapCatalog.GetPlayableMapNames();
         foreach (var mapName in playableMaps)
         {
             var def = BattleMapCatalog.Get(mapName);
-            var card = new Panel { CustomMinimumSize = new Vector2(0, 96), SizeFlagsHorizontal = SizeFlags.ExpandFill };
             bool isSelected = (mapName == selectedMap);
-            MetalUiStyle.ApplyMetalPanel(card, isSelected ? MetalUiStyle.Gold : MetalUiStyle.Steel, 1, 6, 4);
+            string category = GetMapCategory(mapName);
 
-            var vbox = AddVBox(card, $"MapBox_{mapName}", 4, new Vector2(10, 8), new Vector2(-10, -8));
-            var topRow = new HBoxContainer();
-            topRow.AddChild(AddLabel(GetMapIcon(mapName) + " " + mapName, 14, isSelected ? WarningText : PanelText, HorizontalAlignment.Left));
+            var card = new Panel 
+            { 
+                Name = $"MapCard_{mapName}",
+                CustomMinimumSize = new Vector2(0, 138), 
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                ClipContents = true
+            };
+            MetalUiStyle.ApplyMetalPanel(card, isSelected ? MetalUiStyle.Gold : MetalUiStyle.Steel, 1, 8, 4);
             if (isSelected)
             {
-                topRow.AddChild(AddLabel(" [已选择]", 11, GoodText, HorizontalAlignment.Left));
+                AddTopAccentStripe(card, new Color(0.95f, 0.76f, 0.24f, 0.90f), 2);
             }
-            vbox.AddChild(topRow);
 
-            var descLabel = AddLabel(def.Description, 11, MutedText, HorizontalAlignment.Left);
+            var cardHBox = new HBoxContainer
+            {
+                Name = "CardHBox",
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill
+            };
+            cardHBox.SetAnchorsPreset(LayoutPreset.FullRect);
+            cardHBox.OffsetLeft = 10;
+            cardHBox.OffsetTop = 8;
+            cardHBox.OffsetRight = -10;
+            cardHBox.OffsetBottom = -8;
+            cardHBox.AddThemeConstantOverride("separation", 12);
+            card.AddChild(cardHBox);
+
+            // 左侧：军事卫星高空侦察实机缩略图 (Tactical Satellite Radar Thumbnail)
+            var thumbBox = new PanelContainer
+            {
+                Name = "ThumbBox",
+                CustomMinimumSize = new Vector2(148, 122),
+                SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+                SizeFlagsVertical = SizeFlags.ExpandFill,
+                ClipContents = true
+            };
+            thumbBox.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+            {
+                BgColor = new Color(0.04f, 0.06f, 0.09f, 0.90f),
+                BorderColor = isSelected ? new Color(0.95f, 0.76f, 0.24f, 0.75f) : new Color(0.22f, 0.38f, 0.52f, 0.60f),
+                BorderWidthLeft = 1,
+                BorderWidthTop = 1,
+                BorderWidthRight = 1,
+                BorderWidthBottom = 1,
+                CornerRadiusTopLeft = 4,
+                CornerRadiusTopRight = 4,
+                CornerRadiusBottomLeft = 4,
+                CornerRadiusBottomRight = 4
+            });
+
+            var thumbTex = LoadTexture(GetMapPreviewPath(mapName));
+            var thumbRect = new TextureRect
+            {
+                Name = "ThumbRect",
+                Texture = thumbTex,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill
+            };
+            thumbBox.AddChild(thumbRect);
+            cardHBox.AddChild(thumbBox);
+
+            // 右侧：战术参数、战场简报与出战按钮 (Briefing & Action)
+            var rightVBox = new VBoxContainer
+            {
+                Name = "RightVBox",
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill
+            };
+            rightVBox.AddThemeConstantOverride("separation", 4);
+            cardHBox.AddChild(rightVBox);
+
+            var topRow = new HBoxContainer 
+            { 
+                Name = "TopRow",
+                CustomMinimumSize = new Vector2(0, 22),
+                SizeFlagsHorizontal = SizeFlags.ExpandFill
+            };
+            topRow.AddThemeConstantOverride("separation", 6);
+
+            var titleLabel = AddLabel(GetMapIcon(mapName) + " " + mapName, 14, isSelected ? WarningText : Colors.White, HorizontalAlignment.Left);
+            titleLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            topRow.AddChild(titleLabel);
+
+            if (isSelected)
+            {
+                var tag = CreateTag("★ 当前选定", new Color(0.35f, 0.28f, 0.08f, 0.95f), new Color(1f, 0.92f, 0.65f));
+                topRow.AddChild(tag);
+            }
+            else
+            {
+                var tag = CreateTag("● 战区就绪", new Color(0.12f, 0.22f, 0.30f, 0.90f), new Color(0.70f, 0.88f, 1f));
+                topRow.AddChild(tag);
+            }
+            rightVBox.AddChild(topRow);
+
+            var specLabel = AddLabel(GetMapTacticalFeatures(mapName), 10, new Color(0.48f, 0.78f, 0.95f), HorizontalAlignment.Left);
+            rightVBox.AddChild(specLabel);
+
+            var descLabel = AddLabel(def.Description, 11, new Color(0.78f, 0.82f, 0.88f), HorizontalAlignment.Left);
             descLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-            vbox.AddChild(descLabel);
+            descLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            descLabel.SizeFlagsVertical = SizeFlags.ExpandFill;
+            rightVBox.AddChild(descLabel);
 
-            var selectBtn = AddButton(isSelected ? "✓ 保持选定并出战" : "选择此地图出战", () =>
+            var selectBtn = AddButton(isSelected ? "✓ 保持选定并即刻出战" : "▶ 选择此地图出战", () =>
             {
                 selectedMap = mapName;
                 GameState.Instance?.SelectMap(selectedMap, selectedMode);
                 CloseModal();
                 tcs.TrySetResult(mapName);
             }, isSelected ? ButtonTone.Gold : ButtonTone.Primary, 12);
-            selectBtn.CustomMinimumSize = new Vector2(0, 26);
-            vbox.AddChild(selectBtn);
+            selectBtn.CustomMinimumSize = new Vector2(0, 28);
+            selectBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            rightVBox.AddChild(selectBtn);
 
             grid.AddChild(card);
+            allCards.Add((mapName, card, category));
         }
 
-        var cancelBtnRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        var cancelBtn = AddButton("取消", () =>
+        var cancelBtnRow = new HBoxContainer 
+        { 
+            Alignment = BoxContainer.AlignmentMode.Center,
+            CustomMinimumSize = new Vector2(0, 48),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        cancelBtnRow.AddThemeConstantOverride("separation", 16);
+        var cancelBtn = AddButton("取消并返回大厅", () =>
         {
             CloseModal();
             tcs.TrySetResult("");
-        }, ButtonTone.Secondary, 12);
-        cancelBtn.CustomMinimumSize = new Vector2(120, 32);
+        }, ButtonTone.Secondary, 13);
+        cancelBtn.CustomMinimumSize = new Vector2(180, 34);
+        cancelBtn.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
         cancelBtnRow.AddChild(cancelBtn);
         modalBody.AddChild(cancelBtnRow);
 
         ShowModal();
         return tcs.Task;
     }
+
+    static string GetMapCategory(string mapName) => mapName switch
+    {
+        BattleMapCatalog.DefaultMapName or BattleMapCatalog.IceFortressName or BattleMapCatalog.JungleName or BattleMapCatalog.CityRuinsName => "fortress",
+        BattleMapCatalog.TianshanMountainPassName or BattleMapCatalog.KunlunObsidianRidgeName or BattleMapCatalog.GreenValleyPeaksName or BattleMapCatalog.GobiWastelandName => "mountain",
+        _ => "extreme"
+    };
+
+    static string GetMapPreviewPath(string mapName) => mapName switch
+    {
+        BattleMapCatalog.DefaultMapName => "res://assets/maps/previews/map_sand_oasis.png",
+        BattleMapCatalog.IceFortressName => "res://assets/maps/previews/map_ice_fortress.png",
+        BattleMapCatalog.JungleName => "res://assets/maps/previews/map_jungle.png",
+        BattleMapCatalog.CityRuinsName => "res://assets/maps/previews/map_city_ruins.png",
+        BattleMapCatalog.SeaChartName => "res://assets/maps/previews/map_sea_chart.png",
+        BattleMapCatalog.VolcanoFortressName => "res://assets/maps/previews/map_volcano.png",
+        BattleMapCatalog.GobiWastelandName => "res://assets/maps/previews/map_gobi.png",
+        BattleMapCatalog.ArcticTundraName => "res://assets/maps/previews/map_arctic_tundra.png",
+        BattleMapCatalog.TianshanMountainPassName => "res://assets/maps/previews/map_tianshan.png",
+        BattleMapCatalog.KunlunObsidianRidgeName => "res://assets/maps/previews/map_kunlun.png",
+        BattleMapCatalog.GreenValleyPeaksName => "res://assets/maps/previews/map_green_valley.png",
+        BattleMapCatalog.TriLaneWarfareName or "三路大会战" or "3v3" or "5v5" => "res://assets/maps/previews/map_tri_lane.png",
+        _ => "res://assets/maps/previews/map_sand_oasis.png"
+    };
+
+    static string GetMapTacticalFeatures(string mapName) => mapName switch
+    {
+        BattleMapCatalog.DefaultMapName => "👥 2-4人 · 400m | 🏜️ 沙漠平原 · 中央绿洲高台",
+        BattleMapCatalog.IceFortressName => "👥 2-4人 · 400m | ❄️ 冰雪山谷 · 关隘城镇要塞",
+        BattleMapCatalog.JungleName => "👥 2-4人 · 400m | 🌴 雨林深谷 · S弯大河与木桥",
+        BattleMapCatalog.CityRuinsName => "👥 2-4人 · 400m | 🏙️ 城市网格 · 高架立交与掩体",
+        BattleMapCatalog.SeaChartName => "👥 2-4人 · 400m | 🌊 海洋深槽 · 两栖跨海悬索栈桥",
+        BattleMapCatalog.VolcanoFortressName => "👥 2-4人 · 400m | 🌋 火山环形 · 熔岩铁桥与高台",
+        BattleMapCatalog.GobiWastelandName => "👥 2-4人 · 400m | 🏜️ 双峡通道 · 绝壁悬索石桥",
+        BattleMapCatalog.ArcticTundraName => "👥 2-4人 · 400m | 🧊 巨型裂谷 · 跨峡冰川桁架桥",
+        BattleMapCatalog.TianshanMountainPassName => "👥 2-4人 · 400m | 🏔️ 高峡险峰 · 险峻山谷空中走廊",
+        BattleMapCatalog.KunlunObsidianRidgeName => "👥 2-4人 · 400m | ⛰️ 黑曜石脊 · 隐秘通道与高台制空",
+        BattleMapCatalog.GreenValleyPeaksName => "👥 2-4人 · 400m | 🏞️ 绿谷深盆 · 盆地湖泊与机动纵深",
+        BattleMapCatalog.TriLaneWarfareName or "三路大会战" or "3v3" or "5v5" => "👥 3v3/5v5 · 600m | ⚔️ 三路全军推进 · 核心防线对决",
+        _ => "👥 2-4人 · 400m | 🏝️ 标准战术战场"
+    };
 
     static string GetMapIcon(string mapName) => mapName switch
     {
@@ -8653,8 +8957,17 @@ public partial class LobbyScreen : Control
             return;
         battleStarting = true;
 
+        var existingLayer = GetTree().Root.GetNodeOrNull<CanvasLayer>("GlobalLoadingScreen");
+        existingLayer?.QueueFree();
+
+        var loadingLayer = new CanvasLayer
+        {
+            Name = "GlobalLoadingScreen",
+            Layer = 128
+        };
         var overlay = BuildLoadingOverlay(selectedMap, selectedMode);
-        AddChild(overlay);
+        loadingLayer.AddChild(overlay);
+        GetTree().Root.AddChild(loadingLayer);
 
         // ── 等待 overlay 真正渲染到屏幕上再开始后台加载 ──────────────────
         // Godot 在 AddChild 后并不会立即绘制，需要等到下一帧（或更多帧）
@@ -8675,7 +8988,7 @@ public partial class LobbyScreen : Control
             if (error != Error.Ok)
             {
                 GD.PrintErr($"[LobbyScreen] LoadThreadedRequest failed: {error}");
-                GetTree().ChangeSceneToFile(BattleScenePath);
+                Callable.From(() => GetTree().ChangeSceneToFile(BattleScenePath)).CallDeferred();
                 return;
             }
 
@@ -8700,18 +9013,28 @@ public partial class LobbyScreen : Control
                     break;
                 }
 
-                await Task.Delay(16);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             }
 
             // 进度满 100%，短暂停留让玩家看到满格进度条
+            var cmdArgs = CommandLineArgs.Get();
+            if (System.Array.IndexOf(cmdArgs, "--login-flow-test") != -1)
+            {
+                for (int p = 5; p <= 100; p += 5)
+                {
+                    if (progressBar is not null) progressBar.Value = p;
+                    if (progressLabel is not null) progressLabel.Text = $"{p}%";
+                    await ToSignal(GetTree().CreateTimer(0.08f), SceneTreeTimer.SignalName.Timeout);
+                }
+            }
             if (progressBar  is not null) progressBar.Value  = 100f;
             if (progressLabel is not null) progressLabel.Text = "100%";
-            await Task.Delay(200);
+            await ToSignal(GetTree().CreateTimer(0.2f), SceneTreeTimer.SignalName.Timeout);
 
             // 避免在切换场景前将加载遮罩淡出，因为那会露出下方的游戏大厅，造成“闪烁/露出大厅”的缺陷。
             // 我们直接在遮罩完全不透明的情况下切入新场景，过渡更干净、自然。
             var loadedScene = (PackedScene)ResourceLoader.LoadThreadedGet(BattleScenePath);
-            GetTree().ChangeSceneToPacked(loadedScene);
+            Callable.From(() => GetTree().ChangeSceneToPacked(loadedScene)).CallDeferred();
         }
         finally
         {
@@ -9362,7 +9685,7 @@ public partial class LobbyScreen : Control
     {
         GameState.Instance?.ClearSession();
         CloseModal();
-        GetTree().ChangeSceneToFile(LoginScenePath);
+        Callable.From(() => GetTree().ChangeSceneToFile(LoginScenePath)).CallDeferred();
     }
 
     void ShowAnnouncementModal()
@@ -9728,13 +10051,15 @@ public partial class LobbyScreen : Control
             return;
         if (expand)
         {
-            Place(modalPanel, new Rect2(0.120f, 0.100f, 0.760f, 0.800f));
-            modalPanel.CustomMinimumSize = new Vector2(920, 520);
+            Place(modalPanel, new Rect2(0.080f, 0.110f, 0.840f, 0.820f));
+            modalPanel.CustomMinimumSize = new Vector2(920, 480);
+            modalPanel.GrowVertical = GrowDirection.End;
         }
         else
         {
             Place(modalPanel, new Rect2(0.245f, 0.130f, 0.510f, 0.740f));
-            modalPanel.CustomMinimumSize = new Vector2(620, 500);
+            modalPanel.CustomMinimumSize = new Vector2(620, 480);
+            modalPanel.GrowVertical = GrowDirection.End;
         }
     }
 
@@ -9841,6 +10166,44 @@ public partial class LobbyScreen : Control
             new Color(1f, 0.94f, 0.74f, 0.50f),
             new Color(0.02f, 0.025f, 0.020f, 0.74f),
             new Color(accent.R, accent.G, accent.B, 0.16f));
+
+    static void StyleScrollBar(ScrollContainer scroll)
+    {
+        var vbar = scroll.GetVScrollBar();
+        if (vbar is not null)
+        {
+            vbar.CustomMinimumSize = new Vector2(6, 0);
+            var grabber = new StyleBoxFlat
+            {
+                BgColor = new Color(0.35f, 0.65f, 0.85f, 0.75f),
+                CornerRadiusTopLeft = 3,
+                CornerRadiusTopRight = 3,
+                CornerRadiusBottomLeft = 3,
+                CornerRadiusBottomRight = 3
+            };
+            var grabberHover = new StyleBoxFlat
+            {
+                BgColor = new Color(0.55f, 0.85f, 1.0f, 0.95f),
+                CornerRadiusTopLeft = 3,
+                CornerRadiusTopRight = 3,
+                CornerRadiusBottomLeft = 3,
+                CornerRadiusBottomRight = 3
+            };
+            var track = new StyleBoxFlat
+            {
+                BgColor = new Color(0.06f, 0.10f, 0.14f, 0.60f),
+                CornerRadiusTopLeft = 3,
+                CornerRadiusTopRight = 3,
+                CornerRadiusBottomLeft = 3,
+                CornerRadiusBottomRight = 3
+            };
+            vbar.AddThemeStyleboxOverride("grabber", grabber);
+            vbar.AddThemeStyleboxOverride("grabber_highlight", grabberHover);
+            vbar.AddThemeStyleboxOverride("grabber_pressed", grabberHover);
+            vbar.AddThemeStyleboxOverride("scroll", track);
+            vbar.AddThemeStyleboxOverride("scroll_focus", track);
+        }
+    }
 
     VBoxContainer AddVBox(Control parent, string name, int separation, Vector2 marginLeftTop, Vector2 marginRightBottom)
     {
@@ -10113,7 +10476,7 @@ public partial class LobbyScreen : Control
         return button;
     }
 
-    Button AddIconButton(string iconPath, string tooltip, Action onPressed)
+    Button AddIconButton(string iconPath, string tooltip, Action onPressed, Vector2? iconSize = null)
     {
         var button = new Button
         {
@@ -10141,7 +10504,7 @@ public partial class LobbyScreen : Control
         {
             Name = "Icon",
             Texture = LoadTrimmedTexture(iconPath, 0),
-            CustomMinimumSize = new Vector2(18, 18),
+            CustomMinimumSize = iconSize ?? new Vector2(26, 26),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
@@ -10338,131 +10701,14 @@ public partial class LobbyScreen : Control
         return LoadTrimmedTexture(UnityLobbyRoot + "gen_icon_gem.png", 0);
     }
 
-    static readonly System.Collections.Generic.Dictionary<string, Texture2D> lobbyTextureCache = new();
-
     static Texture2D LoadTexture(string resourcePath)
-    {
-        if (string.IsNullOrEmpty(resourcePath))
-            return GetFallbackTexture();
-
-        if (lobbyTextureCache.TryGetValue(resourcePath, out var cached) && IsLive(cached))
-            return cached;
-
-        try
-        {
-            var globalPath = ProjectSettings.GlobalizePath(resourcePath);
-            if (!Godot.FileAccess.FileExists(globalPath))
-            {
-                var relPath = resourcePath.Replace("res://", "");
-                globalPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), relPath);
-            }
-            if (Godot.FileAccess.FileExists(globalPath))
-            {
-                var image = Image.LoadFromFile(globalPath);
-                if (image is not null && !image.IsEmpty())
-                {
-                    var tex = ImageTexture.CreateFromImage(image);
-                    lobbyTextureCache[resourcePath] = tex;
-                    return tex;
-                }
-            }
-        }
-        catch { }
-
-        var fallback = GetFallbackTexture();
-        lobbyTextureCache[resourcePath] = fallback;
-        return fallback;
-    }
+        => RuntimeTextureLoader.LoadTexture(resourcePath);
 
     static Texture2D GetFallbackTexture()
-    {
-        var fallback = Image.CreateEmpty(4, 4, false, Image.Format.Rgba8);
-        fallback.Fill(new Color(0.12f, 0.22f, 0.14f, 0.95f)); // Tactical dark green fallback
-        return ImageTexture.CreateFromImage(fallback);
-    }
+        => RuntimeTextureLoader.GetFallbackTexture();
 
     static Texture2D LoadTrimmedTexture(string resourcePath, int padding)
-    {
-        var cacheKey = $"{resourcePath}_trimmed_{padding}";
-        if (lobbyTextureCache.TryGetValue(cacheKey, out var cached))
-            return cached;
-
-        try
-        {
-            var globalPath = ProjectSettings.GlobalizePath(resourcePath);
-            if (!Godot.FileAccess.FileExists(globalPath))
-            {
-                var fallback = LoadTexture(resourcePath);
-                lobbyTextureCache[cacheKey] = fallback;
-                return fallback;
-            }
-
-            var image = Image.LoadFromFile(globalPath);
-            if (image is null || image.IsEmpty())
-            {
-                var fallback = LoadTexture(resourcePath);
-                lobbyTextureCache[cacheKey] = fallback;
-                return fallback;
-            }
-
-            image.Convert(Image.Format.Rgba8);
-
-            var width = image.GetWidth();
-            var height = image.GetHeight();
-
-            // Automatic white background removal ONLY for opaque RGB icons with solid white canvas (A >= 0.90f)
-            var topLeft = image.GetPixel(0, 0);
-            if (topLeft.A >= 0.90f && topLeft.R >= 0.90f && topLeft.G >= 0.90f && topLeft.B >= 0.90f)
-            {
-                for (var y = 0; y < height; y++)
-                {
-                    for (var x = 0; x < width; x++)
-                    {
-                        var color = image.GetPixel(x, y);
-                        if (color.A >= 0.90f && color.R >= 0.90f && color.G >= 0.90f && color.B >= 0.90f)
-                        {
-                            var brightness = (color.R + color.G + color.B) / 3.0f;
-                            if (brightness >= 0.95f)
-                            {
-                                image.SetPixel(x, y, new Color(color.R, color.G, color.B, 0f));
-                            }
-                            else
-                            {
-                                var alpha = (0.95f - brightness) / 0.05f;
-                                image.SetPixel(x, y, new Color(color.R, color.G, color.B, alpha));
-                            }
-                        }
-                    }
-                }
-            }
-
-            var bounds = FindOpaqueBounds(image);
-            Texture2D result;
-            if (bounds.Size.X <= 0 || bounds.Size.Y <= 0)
-            {
-                result = ImageTexture.CreateFromImage(image);
-            }
-            else
-            {
-                var left = Math.Max(0, bounds.Position.X - padding);
-                var top = Math.Max(0, bounds.Position.Y - padding);
-                var right = Math.Min(width, bounds.End.X + padding);
-                var bottom = Math.Min(height, bounds.End.Y + padding);
-                var region = new Rect2I(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
-                result = ImageTexture.CreateFromImage(image.GetRegion(region));
-            }
-
-            lobbyTextureCache[cacheKey] = result;
-            return result;
-        }
-        catch (Exception ex)
-        {
-            GD.PrintErr($"[LoadTrimmedTexture] 加载/裁剪纹理失败: {resourcePath}, 错误: {ex.Message}");
-            var fallback = LoadTexture(resourcePath);
-            lobbyTextureCache[cacheKey] = fallback;
-            return fallback;
-        }
-    }
+        => RuntimeTextureLoader.LoadTrimmedTexture(resourcePath, padding);
 
     static Rect2I FindOpaqueBounds(Image image)
     {

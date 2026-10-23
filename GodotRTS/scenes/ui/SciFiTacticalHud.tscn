@@ -1,0 +1,583 @@
+[gd_scene load_steps=2 format=3 uid="uid://scifi_tactical_hud"]
+
+[ext_resource type="Script" path="res://scripts/ui/SciFiTacticalHud.cs" id="1_script"]
+
+[node name="SciFiTacticalHud" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_script")
+
+[node name="TopBar" type="Control" parent="."]
+anchor_right = 1.0
+offset_bottom = 52.0
+
+[node name="TopBarBg" type="ColorRect" parent="TopBar"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.04, 0.06, 0.10, 0.94)
+mouse_filter = 2
+
+[node name="TopBarBorderBottom" type="ColorRect" parent="TopBar"]
+anchor_right = 1.0
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_top = -2.0
+color = Color(0.0, 0.85, 1.0, 0.8)
+mouse_filter = 2
+
+[node name="TopBarLayout" type="HBoxContainer" parent="TopBar"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_right = -16.0
+offset_top = 4.0
+offset_bottom = -4.0
+
+[node name="FactionBlock" type="HBoxContainer" parent="TopBar/TopBarLayout"]
+custom_minimum_size = Vector2(240, 0)
+
+[node name="FactionIconRect" type="ColorRect" parent="TopBar/TopBarLayout/FactionBlock"]
+custom_minimum_size = Vector2(38, 38)
+color = Color(0.0, 0.85, 1.0, 0.18)
+
+[node name="FactionIconLabel" type="Label" parent="TopBar/TopBarLayout/FactionBlock/FactionIconRect"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+text = "IV"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="FactionTextBox" type="VBoxContainer" parent="TopBar/TopBarLayout/FactionBlock"]
+offset_left = 8.0
+
+[node name="FactionName" type="Label" parent="TopBar/TopBarLayout/FactionBlock/FactionTextBox"]
+name = "FactionName"
+unique_name_in_owner = true
+text = "IRON VANGUARD"
+
+[node name="FactionRank" type="Label" parent="TopBar/TopBarLayout/FactionBlock/FactionTextBox"]
+text = "COMMANDER  LV.24"
+
+[node name="ResourcesCenter" type="HBoxContainer" parent="TopBar/TopBarLayout"]
+size_flags_horizontal = 3
+alignment = 1
+
+[node name="EnergyBlock" type="HBoxContainer" parent="TopBar/TopBarLayout/ResourcesCenter"]
+custom_minimum_size = Vector2(130, 0)
+
+[node name="EnergyIcon" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/EnergyBlock"]
+text = "E "
+
+[node name="EnergyVBox" type="VBoxContainer" parent="TopBar/TopBarLayout/ResourcesCenter/EnergyBlock"]
+
+[node name="EnergyLabel" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/EnergyBlock/EnergyVBox"]
+text = "ENERGY"
+
+[node name="EnergyValue" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/EnergyBlock/EnergyVBox"]
+name = "EnergyValue"
+unique_name_in_owner = true
+text = "4,280"
+
+[node name="Sep1" type="VSeparator" parent="TopBar/TopBarLayout/ResourcesCenter"]
+custom_minimum_size = Vector2(1, 30)
+
+[node name="CreditsBlock" type="HBoxContainer" parent="TopBar/TopBarLayout/ResourcesCenter"]
+custom_minimum_size = Vector2(130, 0)
+
+[node name="CreditsIcon" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/CreditsBlock"]
+text = "C "
+
+[node name="CreditsVBox" type="VBoxContainer" parent="TopBar/TopBarLayout/ResourcesCenter/CreditsBlock"]
+
+[node name="CreditsLabel" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/CreditsBlock/CreditsVBox"]
+text = "CREDITS"
+
+[node name="CreditsValue" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/CreditsBlock/CreditsVBox"]
+name = "CreditsValue"
+unique_name_in_owner = true
+text = "12,540"
+
+[node name="Sep2" type="VSeparator" parent="TopBar/TopBarLayout/ResourcesCenter"]
+custom_minimum_size = Vector2(1, 30)
+
+[node name="SupplyBlock" type="HBoxContainer" parent="TopBar/TopBarLayout/ResourcesCenter"]
+custom_minimum_size = Vector2(130, 0)
+
+[node name="SupplyIcon" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/SupplyBlock"]
+text = "S "
+
+[node name="SupplyVBox" type="VBoxContainer" parent="TopBar/TopBarLayout/ResourcesCenter/SupplyBlock"]
+
+[node name="SupplyLabel" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/SupplyBlock/SupplyVBox"]
+text = "SUPPLY"
+
+[node name="SupplyValue" type="Label" parent="TopBar/TopBarLayout/ResourcesCenter/SupplyBlock/SupplyVBox"]
+name = "SupplyValue"
+unique_name_in_owner = true
+text = "38 / 80"
+
+[node name="StatusRight" type="HBoxContainer" parent="TopBar/TopBarLayout"]
+custom_minimum_size = Vector2(240, 0)
+alignment = 2
+
+[node name="AlertLabel" type="Label" parent="TopBar/TopBarLayout/StatusRight"]
+name = "AlertLabel"
+unique_name_in_owner = true
+text = "COMBAT ACTIVE"
+
+[node name="TimerLabel" type="Label" parent="TopBar/TopBarLayout/StatusRight"]
+name = "TimerLabel"
+unique_name_in_owner = true
+text = "  12:47"
+
+[node name="LeftUnitPanel" type="Control" parent="."]
+anchor_bottom = 1.0
+offset_top = 52.0
+offset_right = 242.0
+offset_bottom = -140.0
+
+[node name="LeftPanelBg" type="ColorRect" parent="LeftUnitPanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.04, 0.06, 0.10, 0.90)
+mouse_filter = 2
+
+[node name="LeftBorderRight" type="ColorRect" parent="LeftUnitPanel"]
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 240.0
+color = Color(0.0, 0.85, 1.0, 0.55)
+mouse_filter = 2
+
+[node name="LeftPanelLayout" type="VBoxContainer" parent="LeftUnitPanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -12.0
+offset_bottom = -10.0
+
+[node name="UnitPanelTitle" type="Label" parent="LeftUnitPanel/LeftPanelLayout"]
+text = "SELECTED UNITS"
+
+[node name="UnitSep" type="HSeparator" parent="LeftUnitPanel/LeftPanelLayout"]
+
+[node name="UnitCard1" type="Control" parent="LeftUnitPanel/LeftPanelLayout"]
+custom_minimum_size = Vector2(0, 76)
+
+[node name="UC1Bg" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.0, 0.85, 1.0, 0.06)
+mouse_filter = 2
+
+[node name="UC1AccentBar" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1"]
+anchor_bottom = 1.0
+offset_right = 3.0
+color = Color(0.0, 0.85, 1.0, 0.85)
+mouse_filter = 2
+
+[node name="UC1Layout" type="HBoxContainer" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_right = -6.0
+
+[node name="UC1Avatar" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1/UC1Layout"]
+custom_minimum_size = Vector2(48, 48)
+color = Color(0.0, 0.85, 1.0, 0.18)
+
+[node name="UC1AvatarIcon" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1/UC1Layout/UC1Avatar"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+text = "FTR"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="UC1Info" type="VBoxContainer" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1/UC1Layout"]
+size_flags_horizontal = 3
+offset_left = 8.0
+
+[node name="UC1Name" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1/UC1Layout/UC1Info"]
+name = "UC1Name"
+unique_name_in_owner = true
+text = "NOVA STRIKER MK-II"
+
+[node name="UC1Sub" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1/UC1Layout/UC1Info"]
+text = "Fighter  Squad Alpha"
+
+[node name="UC1HpBar" type="ProgressBar" parent="LeftUnitPanel/LeftPanelLayout/UnitCard1/UC1Layout/UC1Info"]
+name = "UC1HpBar"
+unique_name_in_owner = true
+min_value = 0.0
+max_value = 100.0
+value = 78.0
+custom_minimum_size = Vector2(0, 8)
+show_percentage = false
+
+[node name="UnitCard2" type="Control" parent="LeftUnitPanel/LeftPanelLayout"]
+custom_minimum_size = Vector2(0, 76)
+
+[node name="UC2Bg" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(1.0, 0.78, 0.15, 0.05)
+mouse_filter = 2
+
+[node name="UC2AccentBar" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2"]
+anchor_bottom = 1.0
+offset_right = 3.0
+color = Color(1.0, 0.78, 0.15, 0.85)
+mouse_filter = 2
+
+[node name="UC2Layout" type="HBoxContainer" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_right = -6.0
+
+[node name="UC2Avatar" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2/UC2Layout"]
+custom_minimum_size = Vector2(48, 48)
+color = Color(1.0, 0.78, 0.15, 0.18)
+
+[node name="UC2AvatarIcon" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2/UC2Layout/UC2Avatar"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+text = "TNK"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="UC2Info" type="VBoxContainer" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2/UC2Layout"]
+size_flags_horizontal = 3
+offset_left = 8.0
+
+[node name="UC2Name" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2/UC2Layout/UC2Info"]
+name = "UC2Name"
+unique_name_in_owner = true
+text = "TITAN GUARDIAN"
+
+[node name="UC2Sub" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2/UC2Layout/UC2Info"]
+text = "Heavy Tank  Squad Bravo"
+
+[node name="UC2HpBar" type="ProgressBar" parent="LeftUnitPanel/LeftPanelLayout/UnitCard2/UC2Layout/UC2Info"]
+name = "UC2HpBar"
+unique_name_in_owner = true
+min_value = 0.0
+max_value = 100.0
+value = 45.0
+custom_minimum_size = Vector2(0, 8)
+show_percentage = false
+
+[node name="UnitCard3" type="Control" parent="LeftUnitPanel/LeftPanelLayout"]
+custom_minimum_size = Vector2(0, 76)
+
+[node name="UC3Bg" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.90, 0.18, 0.18, 0.08)
+mouse_filter = 2
+
+[node name="UC3AccentBar" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3"]
+anchor_bottom = 1.0
+offset_right = 3.0
+color = Color(0.90, 0.18, 0.18, 0.9)
+mouse_filter = 2
+
+[node name="UC3Layout" type="HBoxContainer" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_right = -6.0
+
+[node name="UC3Avatar" type="ColorRect" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3/UC3Layout"]
+custom_minimum_size = Vector2(48, 48)
+color = Color(0.90, 0.18, 0.18, 0.18)
+
+[node name="UC3AvatarIcon" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3/UC3Layout/UC3Avatar"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+text = "RCN"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="UC3Info" type="VBoxContainer" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3/UC3Layout"]
+size_flags_horizontal = 3
+offset_left = 8.0
+
+[node name="UC3Name" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3/UC3Layout/UC3Info"]
+name = "UC3Name"
+unique_name_in_owner = true
+text = "RECON DRONE X-7"
+
+[node name="UC3Sub" type="Label" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3/UC3Layout/UC3Info"]
+text = "Scout  CRITICAL HP"
+
+[node name="UC3HpBar" type="ProgressBar" parent="LeftUnitPanel/LeftPanelLayout/UnitCard3/UC3Layout/UC3Info"]
+name = "UC3HpBar"
+unique_name_in_owner = true
+min_value = 0.0
+max_value = 100.0
+value = 12.0
+custom_minimum_size = Vector2(0, 8)
+show_percentage = false
+
+[node name="UnitCountLabel" type="Label" parent="LeftUnitPanel/LeftPanelLayout"]
+name = "UnitCountLabel"
+unique_name_in_owner = true
+text = "+ 5 more units in selection"
+
+[node name="BottomCommandBar" type="Control" parent="."]
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -140.0
+
+[node name="BottomBg" type="ColorRect" parent="BottomCommandBar"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.04, 0.06, 0.10, 0.94)
+mouse_filter = 2
+
+[node name="BottomBorderTop" type="ColorRect" parent="BottomCommandBar"]
+anchor_right = 1.0
+offset_bottom = 2.0
+color = Color(0.0, 0.85, 1.0, 0.75)
+mouse_filter = 2
+
+[node name="BottomLayout" type="HBoxContainer" parent="BottomCommandBar"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 252.0
+offset_right = -282.0
+offset_top = 10.0
+offset_bottom = -10.0
+alignment = 1
+
+[node name="MoveGroup" type="VBoxContainer" parent="BottomCommandBar/BottomLayout"]
+alignment = 1
+
+[node name="MoveGroupLabel" type="Label" parent="BottomCommandBar/BottomLayout/MoveGroup"]
+text = "MOVEMENT"
+horizontal_alignment = 1
+
+[node name="MoveButtons" type="HBoxContainer" parent="BottomCommandBar/BottomLayout/MoveGroup"]
+
+[node name="BtnMove" type="Button" parent="BottomCommandBar/BottomLayout/MoveGroup/MoveButtons"]
+name = "BtnMove"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "MOVE"
+
+[node name="BtnPatrol" type="Button" parent="BottomCommandBar/BottomLayout/MoveGroup/MoveButtons"]
+name = "BtnPatrol"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "PATROL"
+
+[node name="BtnHold" type="Button" parent="BottomCommandBar/BottomLayout/MoveGroup/MoveButtons"]
+name = "BtnHold"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "HOLD"
+
+[node name="CmdSep1" type="VSeparator" parent="BottomCommandBar/BottomLayout"]
+custom_minimum_size = Vector2(2, 80)
+
+[node name="CombatGroup" type="VBoxContainer" parent="BottomCommandBar/BottomLayout"]
+alignment = 1
+
+[node name="CombatGroupLabel" type="Label" parent="BottomCommandBar/BottomLayout/CombatGroup"]
+text = "COMBAT"
+horizontal_alignment = 1
+
+[node name="CombatButtons" type="HBoxContainer" parent="BottomCommandBar/BottomLayout/CombatGroup"]
+
+[node name="BtnAttack" type="Button" parent="BottomCommandBar/BottomLayout/CombatGroup/CombatButtons"]
+name = "BtnAttack"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "ATTACK"
+
+[node name="BtnAggressive" type="Button" parent="BottomCommandBar/BottomLayout/CombatGroup/CombatButtons"]
+name = "BtnAggressive"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "AGGRO"
+
+[node name="BtnDefend" type="Button" parent="BottomCommandBar/BottomLayout/CombatGroup/CombatButtons"]
+name = "BtnDefend"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "DEFEND"
+
+[node name="BtnRetreat" type="Button" parent="BottomCommandBar/BottomLayout/CombatGroup/CombatButtons"]
+name = "BtnRetreat"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "RETREAT"
+
+[node name="CmdSep2" type="VSeparator" parent="BottomCommandBar/BottomLayout"]
+custom_minimum_size = Vector2(2, 80)
+
+[node name="AbilityGroup" type="VBoxContainer" parent="BottomCommandBar/BottomLayout"]
+alignment = 1
+
+[node name="AbilityGroupLabel" type="Label" parent="BottomCommandBar/BottomLayout/AbilityGroup"]
+text = "ABILITIES"
+horizontal_alignment = 1
+
+[node name="AbilityButtons" type="HBoxContainer" parent="BottomCommandBar/BottomLayout/AbilityGroup"]
+
+[node name="BtnAbility1" type="Button" parent="BottomCommandBar/BottomLayout/AbilityGroup/AbilityButtons"]
+name = "BtnAbility1"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "STRIKE"
+
+[node name="BtnAbility2" type="Button" parent="BottomCommandBar/BottomLayout/AbilityGroup/AbilityButtons"]
+name = "BtnAbility2"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "EMP"
+
+[node name="BtnAbility3" type="Button" parent="BottomCommandBar/BottomLayout/AbilityGroup/AbilityButtons"]
+name = "BtnAbility3"
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+text = "SCAN"
+
+[node name="MinimapPanel" type="Control" parent="."]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -270.0
+offset_top = -270.0
+
+[node name="MinimapBg" type="ColorRect" parent="MinimapPanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.03, 0.06, 0.09, 0.96)
+mouse_filter = 2
+
+[node name="MinimapBorderTop" type="ColorRect" parent="MinimapPanel"]
+anchor_right = 1.0
+offset_bottom = 2.0
+color = Color(0.0, 0.85, 1.0, 0.75)
+mouse_filter = 2
+
+[node name="MinimapBorderLeft" type="ColorRect" parent="MinimapPanel"]
+anchor_bottom = 1.0
+offset_right = 2.0
+color = Color(0.0, 0.85, 1.0, 0.75)
+mouse_filter = 2
+
+[node name="MinimapTitle" type="Label" parent="MinimapPanel"]
+offset_left = 10.0
+offset_top = 6.0
+offset_right = 260.0
+offset_bottom = 26.0
+text = "TACTICAL MAP"
+
+[node name="MinimapViewport" type="ColorRect" parent="MinimapPanel"]
+offset_left = 8.0
+offset_top = 30.0
+offset_right = 262.0
+offset_bottom = 230.0
+color = Color(0.04, 0.10, 0.07, 1.0)
+
+[node name="MapDot1" type="ColorRect" parent="MinimapPanel/MinimapViewport"]
+offset_left = 60.0
+offset_top = 80.0
+offset_right = 66.0
+offset_bottom = 86.0
+color = Color(0.0, 0.85, 1.0, 1.0)
+
+[node name="MapDot2" type="ColorRect" parent="MinimapPanel/MinimapViewport"]
+offset_left = 90.0
+offset_top = 110.0
+offset_right = 96.0
+offset_bottom = 116.0
+color = Color(0.0, 0.85, 1.0, 1.0)
+
+[node name="MapDot3" type="ColorRect" parent="MinimapPanel/MinimapViewport"]
+offset_left = 75.0
+offset_top = 95.0
+offset_right = 81.0
+offset_bottom = 101.0
+color = Color(0.0, 0.85, 1.0, 1.0)
+
+[node name="EnemyDot1" type="ColorRect" parent="MinimapPanel/MinimapViewport"]
+offset_left = 160.0
+offset_top = 50.0
+offset_right = 166.0
+offset_bottom = 56.0
+color = Color(0.90, 0.18, 0.18, 1.0)
+
+[node name="EnemyDot2" type="ColorRect" parent="MinimapPanel/MinimapViewport"]
+offset_left = 180.0
+offset_top = 70.0
+offset_right = 186.0
+offset_bottom = 76.0
+color = Color(0.90, 0.18, 0.18, 1.0)
+
+[node name="ViewportRect" type="ColorRect" parent="MinimapPanel/MinimapViewport"]
+offset_left = 40.0
+offset_top = 60.0
+offset_right = 130.0
+offset_bottom = 140.0
+color = Color(0.0, 0.85, 1.0, 0.08)
+
+[node name="MinimapLegend" type="HBoxContainer" parent="MinimapPanel"]
+offset_left = 8.0
+offset_top = 234.0
+offset_right = 262.0
+offset_bottom = 258.0
+
+[node name="LegendAllied" type="Label" parent="MinimapPanel/MinimapLegend"]
+text = "Allied"
+
+[node name="LegendEnemy" type="Label" parent="MinimapPanel/MinimapLegend"]
+text = "  Enemy"
+
+[node name="AlertOverlay" type="Control" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+visible = false
+
+[node name="AlertBg" type="ColorRect" parent="AlertOverlay"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.90, 0.10, 0.10, 0.12)
+mouse_filter = 2
+
+[node name="AlertBorderTop" type="ColorRect" parent="AlertOverlay"]
+anchor_right = 1.0
+offset_bottom = 3.0
+color = Color(0.90, 0.18, 0.18, 0.9)
+mouse_filter = 2
+
+[node name="AlertBorderBottom" type="ColorRect" parent="AlertOverlay"]
+anchor_right = 1.0
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_top = -3.0
+color = Color(0.90, 0.18, 0.18, 0.9)
+mouse_filter = 2
+
+[node name="AlertCenterLabel" type="Label" parent="AlertOverlay"]
+name = "AlertCenterLabel"
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_top = -20.0
+offset_bottom = 20.0
+text = "BASE UNDER ATTACK"
+horizontal_alignment = 1
+vertical_alignment = 1

@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://hm4eq3kgt4sa"
 path.s3tc="res://.godot/imported/nimitz_island_68.png-f0199d52f0935d5901d971dbd76ecff1.s3tc.ctex"
+path.etc2="res://.godot/imported/nimitz_island_68.png-f0199d52f0935d5901d971dbd76ecff1.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/nimitz_island_68.png"
-dest_files=["res://.godot/imported/nimitz_island_68.png-f0199d52f0935d5901d971dbd76ecff1.s3tc.ctex"]
+dest_files=["res://.godot/imported/nimitz_island_68.png-f0199d52f0935d5901d971dbd76ecff1.s3tc.ctex", "res://.godot/imported/nimitz_island_68.png-f0199d52f0935d5901d971dbd76ecff1.etc2.ctex"]
 
 [params]
 

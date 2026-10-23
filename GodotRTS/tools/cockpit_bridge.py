@@ -5,6 +5,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import json
 import time
@@ -32,6 +33,15 @@ try:
     import chatos_driver
 except Exception as e:
     chatos_driver = None
+
+try:
+    from model_group_manager import group_manager, CONSOLE_HTML, MODEL_GROUPS, DEFAULT_MASTER_KEY
+except Exception as e:
+    print(f"[Bridge] Warning importing model_group_manager: {e}")
+    group_manager = None
+    CONSOLE_HTML = "<h1>Console Not Available</h1>"
+    MODEL_GROUPS = {}
+    DEFAULT_MASTER_KEY = "sk-cockpit-master-2026"
 
 COCKPIT_DIR = r"C:\Users\Administrator\.antigravity_cockpit"
 COCKPIT_KEY_FILE = os.path.join(COCKPIT_DIR, "secure-account-storage.key")
@@ -84,15 +94,19 @@ MODEL_MAPPING = {
     "gemini-pro": "gemini-2.5-flash",
     "gemini-2.5-flash": "gemini-2.5-flash",
     "gemini-2.5-flash-thinking": "gemini-2.5-flash",
-    "claude-sonnet-4-6": "gemini-2.5-flash",
-    "claude-3-7-sonnet": "gemini-2.5-flash",
-    "claude-opus-4-6": "gemini-2.5-flash",
+    "claude-sonnet-4-6": "claude-sonnet-4-6",
+    "claude-3-7-sonnet": "claude-sonnet-4-6",
+    "claude-3-5-sonnet": "claude-sonnet-4-6",
+    "claude-opus-4-6": "claude-opus-4-6-thinking",
+    "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
 }
 
 FALLBACK_MODELS = {
     "claude-sonnet-4-6": "gemini-2.5-flash",
     "claude-3-7-sonnet": "gemini-2.5-flash",
+    "claude-3-5-sonnet": "gemini-2.5-flash",
     "claude-opus-4-6": "gemini-2.5-flash",
+    "claude-opus-4-6-thinking": "gemini-2.5-flash",
 }
 
 SUB2API_BASE_URL = "https://www.xn--ai-ku9cy41h.com/v1"
@@ -130,6 +144,12 @@ AVAILABLE_MODELS = [
     },
     {
         "id": "claude-sonnet-4-6",
+        "object": "model",
+        "created": 1700000000,
+        "owned_by": "cockpit-claude"
+    },
+    {
+        "id": "claude-opus-4-6",
         "object": "model",
         "created": 1700000000,
         "owned_by": "cockpit-claude"
@@ -217,6 +237,7 @@ class AccountPool:
 
     def reload_accounts(self):
         self.accounts.clear()
+        loaded_emails = set()
         
         # 1. Primary: Load and decrypt directly from Cockpit storage
         if os.path.exists(COCKPIT_KEY_FILE) and os.path.exists(self.accounts_dir):
@@ -244,7 +265,7 @@ class AccountPool:
                         refresh_token = token_obj.get("refresh_token")
                         expiry_timestamp = token_obj.get("expiry_timestamp", 0)
                         
-                        if disabled or not token or not refresh_token:
+                        if not token or not email:
                             continue
                             
                         quota = acc.get("quota", {})
@@ -259,30 +280,33 @@ class AccountPool:
                             "expiry_timestamp": expiry_timestamp,
                             "claude_pct": claude_pct,
                             "gemini_pct": gemini_pct,
+                            "disabled": disabled,
                             "raw": acc
                         })
+                        loaded_emails.add(email)
                     except Exception as fe:
                         print(f"[Warn] Decrypting {f} failed: {fe}")
                 
                 if cockpit_accs:
-                    # Sort by quota remaining (highest first)
-                    cockpit_accs.sort(key=lambda a: (a["claude_pct"], a["gemini_pct"]), reverse=True)
+                    cockpit_accs.sort(key=lambda a: (0 if a.get("disabled") else 1, a["claude_pct"], a["gemini_pct"]), reverse=True)
                     self.accounts.extend(cockpit_accs)
                     print(f"[AccountPool] Decrypted and loaded {len(cockpit_accs)} live accounts directly from Cockpit!")
             except Exception as e:
                 print(f"[AccountPool] Error syncing from Cockpit: {e}")
 
-        # 2. Secondary fallback: Load accounts_pool.json
-        if not self.accounts and os.path.exists(ACCOUNTS_POOL_FILE):
+        # 2. Secondary fallback / merge: Load accounts_pool.json
+        if os.path.exists(ACCOUNTS_POOL_FILE):
             try:
                 with open(ACCOUNTS_POOL_FILE, "r", encoding="utf-8") as fp:
                     pool_data = json.load(fp)
                     if isinstance(pool_data, list):
                         for acc_item in pool_data:
+                            email = acc_item.get("email")
+                            if not email or email in loaded_emails:
+                                continue
                             token = acc_item.get("token", {}).get("access_token")
                             refresh_token = acc_item.get("token", {}).get("refresh_token")
                             expiry_timestamp = acc_item.get("token", {}).get("expiry_timestamp", 0)
-                            email = acc_item.get("email", "account@gmail.com")
                             if token:
                                 self.accounts.append({
                                     "file": ACCOUNTS_POOL_FILE,
@@ -290,9 +314,13 @@ class AccountPool:
                                     "token": token,
                                     "refresh_token": refresh_token,
                                     "expiry_timestamp": expiry_timestamp,
+                                    "claude_pct": acc_item.get("claude_pct", 0),
+                                    "gemini_pct": acc_item.get("gemini_pct", 0),
+                                    "disabled": acc_item.get("disabled", False),
                                     "raw": acc_item
                                 })
-                        print(f"[AccountPool] Loaded {len(self.accounts)} accounts from {ACCOUNTS_POOL_FILE}")
+                                loaded_emails.add(email)
+                        print(f"[AccountPool] Total accounts pool now has {len(self.accounts)} accounts after merging {ACCOUNTS_POOL_FILE}")
             except Exception as e:
                 print(f"[Warn] Failed to read {ACCOUNTS_POOL_FILE}: {e}")
 
@@ -311,13 +339,16 @@ class AccountPool:
                             "token": token,
                             "refresh_token": refresh_token,
                             "expiry_timestamp": expiry_timestamp,
+                            "claude_pct": 50,
+                            "gemini_pct": 50,
+                            "disabled": False,
                             "raw": data
                         })
                         print(f"[AccountPool] Loaded primary account from {LOCAL_ACTIVE_ACCOUNT}")
             except Exception as e:
                 print(f"[Warn] Failed to read local active_account.json: {e}")
 
-        print(f"[AccountPool] Total {len(self.accounts)} active accounts ready.")
+        print(f"[AccountPool] Total {len(self.accounts)} accounts ready ({len([a for a in self.accounts if not a.get('disabled')])} active/healthy).")
 
     async def refresh_account(self, acc: Dict[str, Any]) -> bool:
         refresh_token = acc.get("refresh_token")
@@ -372,22 +403,34 @@ class AccountPool:
             print(f"[AccountPool] Exception refreshing token for {acc.get('email')}: {e}")
             return False
 
-    async def get_valid_account(self, exclude_emails: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    async def get_valid_account(self, model_name: Optional[str] = None, exclude_emails: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         if not self.accounts:
             self.reload_accounts()
         if not self.accounts:
             return None
 
+        # 1. 优先使用模型分组管理器精准路由到当前用户选择/激活的同分组账号
+        if group_manager and model_name:
+            group_id = group_manager.get_group_for_model(model_name)
+            candidate = group_manager.get_active_account_for_group(group_id, self.accounts, exclude_emails)
+            if candidate:
+                now = int(time.time())
+                if candidate.get("expiry_timestamp", 0) - now < 300:
+                    print(f"[AccountPool] Token for {candidate.get('email')} expiring soon, auto-refreshing...")
+                    if await self.refresh_account(candidate):
+                        return candidate
+                return candidate
+
+        # 2. 默认保底逻辑 (过滤 disabled 账号)
         excludes = set(self.exhausted_emails)
         if exclude_emails:
             excludes.update(exclude_emails)
 
-        candidates = [a for a in self.accounts if a.get("email") not in excludes]
+        candidates = [a for a in self.accounts if not a.get("disabled") and a.get("email") not in excludes]
         if not candidates:
-            # If all candidates exhausted, reset to allow retry
-            print("[AccountPool] All accounts marked exhausted. Resetting exhausted pool.")
+            print("[AccountPool] All active accounts marked exhausted. Resetting exhausted pool.")
             self.exhausted_emails.clear()
-            candidates = self.accounts
+            candidates = [a for a in self.accounts if not a.get("disabled")]
 
         for _ in range(len(candidates)):
             acc = candidates[self.current_idx % len(candidates)]
@@ -409,7 +452,6 @@ class AccountPool:
                 if await self.refresh_account(acc):
                     return acc
             return acc
-        return None
         return None
 
 pool = AccountPool(ACCOUNTS_DIR)
@@ -683,7 +725,6 @@ async def chat_completions(request):
     # 2. 检查是否为 ChatOS 常用别名映射
     chatos_models_alias = {
         "gpt-4o": "chatos-gpt4o",
-        "claude-3-5-sonnet": "chatos-claude-3-5-sonnet",
         "deepseek-chat": "chatos-deepseek"
     }
     if model_req in chatos_models_alias:
@@ -703,10 +744,10 @@ async def chat_completions(request):
             resp_data = await chatos_driver.chatos_non_stream(body)
             return JSONResponse(resp_data)
 
-    acc = await pool.get_valid_account()
+    acc = await pool.get_valid_account(model_name=model_req)
     if not acc or not acc.get("token"):
         pool.reload_accounts()
-        acc = await pool.get_valid_account()
+        acc = await pool.get_valid_account(model_name=model_req)
     if not acc or not acc.get("token"):
         return JSONResponse({"error": {"message": "No active Cockpit account token available"}}, status_code=500)
 
@@ -797,12 +838,15 @@ async def chat_completions(request):
                                     current_token = current_acc["token"]
                                     continue
 
-                            if response.status_code == 429:
+                            if response.status_code in (401, 403, 429):
                                 err_text = await response.aread()
                                 err_msg = err_text.decode("utf-8", errors="replace")
-                                print(f"[Bridge] Account {current_acc.get('email')} hit 429 quota! Details: {err_msg[:200]}")
+                                print(f"[Bridge] Account {current_acc.get('email')} hit {response.status_code} quota/auth! Details: {err_msg[:200]}")
+                                if group_manager:
+                                    gid = group_manager.get_group_for_model(current_payload.get("model", model_req))
+                                    group_manager.mark_account_exhausted(gid, current_acc.get("email"))
                                 pool.mark_account_exhausted(current_acc.get("email"))
-                                next_acc = await pool.get_valid_account(exclude_emails=[current_acc.get("email")])
+                                next_acc = await pool.get_valid_account(model_name=current_payload.get("model", model_req), exclude_emails=[current_acc.get("email")])
                                 if next_acc and next_acc.get("email") != current_acc.get("email"):
                                     print(f"[Bridge] Auto-switched to fallback account: {next_acc.get('email')}, retrying stream generation...")
                                     current_acc = next_acc
@@ -815,7 +859,7 @@ async def chat_completions(request):
                                     print(f"[Bridge] All accounts quota exhausted for {current_payload['model']}. Auto-falling back to {fallback_model}...")
                                     current_payload["model"] = fallback_model
                                     pool.exhausted_emails.clear()
-                                    next_acc = await pool.get_valid_account()
+                                    next_acc = await pool.get_valid_account(model_name=fallback_model)
                                     if next_acc:
                                         current_acc = next_acc
                                         acc_ref["acc"] = next_acc
@@ -961,10 +1005,24 @@ async def chat_completions(request):
                     err_str = str(e).strip()
                     print(f"[Bridge] Stream attempt {attempt+1} exception: {err_name} ({err_str})", flush=True)
                     if not round_received_chunk and attempt < max_attempts - 1:
+                        # 核心防 EOF/断流保护: 检测到 EOF 或协议中断时，自动换到分组内下一个健康账号
+                        if any(k in err_str or k in err_name for k in ("EOF", "RemoteProtocolError", "ConnectError", "ProtocolError")):
+                            print(f"[Bridge] Caught EOF/Protocol error on {current_acc.get('email')}, auto-failing over to next account in group...")
+                            if group_manager:
+                                gid = group_manager.get_group_for_model(current_payload.get("model", model_req))
+                                group_manager.mark_account_exhausted(gid, current_acc.get("email"))
+                            pool.mark_account_exhausted(current_acc.get("email"))
+                            next_acc = await pool.get_valid_account(model_name=current_payload.get("model", model_req), exclude_emails=[current_acc.get("email")])
+                            if next_acc and next_acc.get("email") != current_acc.get("email"):
+                                current_acc = next_acc
+                                acc_ref["acc"] = next_acc
+                                current_token = current_acc["token"]
+                                print(f"[Bridge] Seamlessly switched to healthy account: {current_acc.get('email')}")
+
                         old_p = current_proxy
                         current_proxy = get_best_proxy(exclude=current_proxy)
-                        print(f"[Bridge] Auto-switched proxy from {old_p} to {current_proxy}, retrying in {0.4 * (attempt + 1)}s...", flush=True)
-                        await asyncio.sleep(0.4 * (attempt + 1))
+                        print(f"[Bridge] Auto-switched proxy from {old_p} to {current_proxy}, retrying in {0.3 * (attempt + 1)}s...", flush=True)
+                        await asyncio.sleep(0.3 * (attempt + 1))
                         continue
                     if streamed_full_text and auto_continue_count < max_auto_continues:
                         round_finished_with_max_tokens = True
@@ -1040,12 +1098,15 @@ async def chat_completions(request):
                                 current_token = acc["token"]
                                 continue
 
-                        if response.status_code == 429:
+                        if response.status_code in (401, 403, 429):
                             err_text = await response.aread()
                             err_msg = err_text.decode("utf-8", errors="replace")
-                            print(f"[Bridge] Account {acc.get('email')} hit 429 non-stream! Details: {err_msg[:200]}")
+                            print(f"[Bridge] Account {acc.get('email')} hit {response.status_code} non-stream! Details: {err_msg[:200]}")
+                            if group_manager:
+                                gid = group_manager.get_group_for_model(payload.get("model", model_req))
+                                group_manager.mark_account_exhausted(gid, acc.get("email"))
                             pool.mark_account_exhausted(acc.get("email"))
-                            next_acc = await pool.get_valid_account(exclude_emails=[acc.get("email")])
+                            next_acc = await pool.get_valid_account(model_name=payload.get("model", model_req), exclude_emails=[acc.get("email")])
                             if next_acc and next_acc.get("email") != acc.get("email"):
                                 print(f"[Bridge] Auto-switched to fallback account: {next_acc.get('email')}, retrying non-stream...")
                                 acc = next_acc
@@ -1057,7 +1118,7 @@ async def chat_completions(request):
                                 print(f"[Bridge] All accounts quota exhausted for {payload['model']}. Auto-falling back to {fallback_model}...")
                                 payload["model"] = fallback_model
                                 pool.exhausted_emails.clear()
-                                next_acc = await pool.get_valid_account()
+                                next_acc = await pool.get_valid_account(model_name=fallback_model)
                                 if next_acc:
                                     acc = next_acc
                                     current_token = acc["token"]
@@ -1123,12 +1184,23 @@ async def chat_completions(request):
                     }
                 })
             except Exception as e:
-                print(f"[Bridge] Non-stream attempt {attempt+1} exception: {type(e).__name__} ({e})")
+                err_name = type(e).__name__
+                err_str = str(e).strip()
+                print(f"[Bridge] Non-stream attempt {attempt+1} exception: {err_name} ({err_str})")
                 if attempt < max_non_stream_attempts - 1:
+                    if any(k in err_str or k in err_name for k in ("EOF", "RemoteProtocolError", "ConnectError", "ProtocolError")):
+                        if group_manager:
+                            gid = group_manager.get_group_for_model(payload.get("model", model_req))
+                            group_manager.mark_account_exhausted(gid, acc.get("email"))
+                        pool.mark_account_exhausted(acc.get("email"))
+                        next_acc = await pool.get_valid_account(model_name=payload.get("model", model_req), exclude_emails=[acc.get("email")])
+                        if next_acc:
+                            acc = next_acc
+                            current_token = acc["token"]
                     current_proxy = get_best_proxy(exclude=current_proxy)
-                    await asyncio.sleep(0.4 * (attempt + 1))
+                    await asyncio.sleep(0.3 * (attempt + 1))
                     continue
-                err_msg = str(e).strip() or f"{type(e).__name__}: Upstream connection dropped, please retry"
+                err_msg = str(e).strip() or f"{err_name}: Upstream connection dropped, please retry"
                 return JSONResponse({"error": {"message": err_msg}}, status_code=500)
 
         return JSONResponse({"error": {"message": "上游模型响应超时或服务暂时不可用，请稍后重试"}}, status_code=500)
@@ -1211,6 +1283,53 @@ async def tool_write_file(request):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+IGNORED_DIR_NAMES = {
+    "bin", "obj", ".godot", ".git", ".vs", ".vscode", ".dotnet",
+    "nuget", "node_modules", "build", "backups", "assets", "assets_migrated",
+    "previewoutput", "screenshots", "scratch", "docs", "logs"
+}
+
+def _sync_list_directory(abs_path, recursive):
+    entries = []
+    if recursive:
+        for root, dirs, files in os.walk(abs_path):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d.lower() not in IGNORED_DIR_NAMES]
+            for d in dirs:
+                full = os.path.join(root, d)
+                entries.append({
+                    "name": os.path.relpath(full, abs_path).replace("\\", "/"),
+                    "type": "directory"
+                })
+            for f in files:
+                if f.startswith("."):
+                    continue
+                full = os.path.join(root, f)
+                try:
+                    size = os.path.getsize(full)
+                except Exception:
+                    size = 0
+                entries.append({
+                    "name": os.path.relpath(full, abs_path).replace("\\", "/"),
+                    "type": "file",
+                    "size_bytes": size
+                })
+            if len(entries) >= 150:
+                break
+    else:
+        for item in os.listdir(abs_path):
+            if item.startswith("."):
+                continue
+            full = os.path.join(abs_path, item)
+            if os.path.isdir(full):
+                entries.append({"name": item, "type": "directory"})
+            else:
+                try:
+                    size = os.path.getsize(full)
+                except Exception:
+                    size = 0
+                entries.append({"name": item, "type": "file", "size_bytes": size})
+    return entries
+
 async def tool_list_directory(request):
     try:
         if request.method == "POST":
@@ -1225,36 +1344,7 @@ async def tool_list_directory(request):
         if not os.path.isdir(abs_path):
             return JSONResponse({"error": f"Directory not found: {dir_path}"}, status_code=404)
 
-        entries = []
-        if recursive:
-            for root, dirs, files in os.walk(abs_path):
-                dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("bin", "obj", ".godot")]
-                for d in dirs:
-                    full = os.path.join(root, d)
-                    entries.append({
-                        "name": os.path.relpath(full, abs_path).replace("\\", "/"),
-                        "type": "directory"
-                    })
-                for f in files:
-                    if f.startswith("."):
-                        continue
-                    full = os.path.join(root, f)
-                    entries.append({
-                        "name": os.path.relpath(full, abs_path).replace("\\", "/"),
-                        "type": "file",
-                        "size_bytes": os.path.getsize(full)
-                    })
-                if len(entries) >= 500:
-                    break
-        else:
-            for item in os.listdir(abs_path):
-                if item.startswith("."):
-                    continue
-                full = os.path.join(abs_path, item)
-                if os.path.isdir(full):
-                    entries.append({"name": item, "type": "directory"})
-                else:
-                    entries.append({"name": item, "type": "file", "size_bytes": os.path.getsize(full)})
+        entries = await asyncio.to_thread(_sync_list_directory, abs_path, recursive)
 
         rel_path = os.path.relpath(abs_path, WORKSPACE_DIR).replace("\\", "/")
         if rel_path == ".":
@@ -1268,9 +1358,67 @@ async def tool_list_directory(request):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+def _sync_grep_search(query, sub_dir, file_pattern):
+    search_root = resolve_workspace_path(sub_dir)
+    matches = []
+
+    # 1. Try git grep first for blazing speed (<0.1s)
+    try:
+        import subprocess
+        git_target = os.path.relpath(search_root, WORKSPACE_DIR).replace("\\", "/")
+        cmd = ["git", "grep", "-n", "-i", "-I", "--max-count=60", query]
+        if git_target and git_target != ".":
+            cmd.extend(["--", git_target])
+        p = subprocess.run(
+            cmd,
+            cwd=WORKSPACE_DIR,
+            capture_output=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=3.0
+        )
+        if p.returncode == 0 and p.stdout:
+            for line in p.stdout.splitlines()[:60]:
+                parts = line.split(":", 2)
+                if len(parts) >= 3:
+                    matches.append({
+                        "file": parts[0],
+                        "line": int(parts[1]) if parts[1].isdigit() else 1,
+                        "text": parts[2].strip()
+                    })
+            if matches:
+                return matches
+    except Exception:
+        pass
+
+    # 2. Fast filesystem walk fallback (ignoring heavy dirs)
+    import fnmatch
+    for root, dirs, files in os.walk(search_root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d.lower() not in IGNORED_DIR_NAMES]
+        for filename in fnmatch.filter(files, file_pattern):
+            full_path = os.path.join(root, filename)
+            try:
+                with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for idx, line in enumerate(f, 1):
+                        if query.lower() in line.lower():
+                            rel = os.path.relpath(full_path, WORKSPACE_DIR).replace("\\", "/")
+                            matches.append({
+                                "file": rel,
+                                "line": idx,
+                                "text": line.strip()
+                            })
+                            if len(matches) >= 60:
+                                break
+            except Exception:
+                pass
+            if len(matches) >= 60:
+                break
+        if len(matches) >= 60:
+            break
+    return matches
+
 async def tool_grep_search(request):
     try:
-        import fnmatch
         data = await request.json() if request.headers.get("content-length", "0") != "0" else {}
         query = data.get("query")
         if not query:
@@ -1278,31 +1426,8 @@ async def tool_grep_search(request):
 
         sub_dir = data.get("sub_dir", "scripts")
         file_pattern = data.get("file_pattern", "*.cs")
-        search_root = resolve_workspace_path(sub_dir)
 
-        matches = []
-        for root, dirs, files in os.walk(search_root):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("bin", "obj", ".godot")]
-            for filename in fnmatch.filter(files, file_pattern):
-                full_path = os.path.join(root, filename)
-                try:
-                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                        for idx, line in enumerate(f, 1):
-                            if query.lower() in line.lower():
-                                rel = os.path.relpath(full_path, WORKSPACE_DIR).replace("\\", "/")
-                                matches.append({
-                                    "file": rel,
-                                    "line": idx,
-                                    "text": line.strip()
-                                })
-                                if len(matches) >= 100:
-                                    break
-                except Exception:
-                    pass
-                if len(matches) >= 100:
-                    break
-            if len(matches) >= 100:
-                break
+        matches = await asyncio.to_thread(_sync_grep_search, query, sub_dir, file_pattern)
 
         return JSONResponse({
             "query": query,
@@ -1441,6 +1566,32 @@ async def tool_take_screenshot(request):
 
         print(f"[Bridge] tool_take_screenshot: action={action}, scene={scene}, target={target_file}", flush=True)
 
+        if action in ("record_video", "video", "record", "game_video", "ui_video"):
+            try:
+                from tools.record_test_video import generate_test_video
+            except ImportError:
+                from record_test_video import generate_test_video
+            frames = int(data.get("frames", 60))
+            res = await asyncio.to_thread(generate_test_video, scene=scene if scene else None, frames=frames)
+            if res.get("success"):
+                v_url = res["video_url"]
+                v_name = res["filename"]
+                v_size = res["file_size"]
+                return JSONResponse({
+                    "success": True,
+                    "action": action,
+                    "filename": v_name,
+                    "video_url": v_url,
+                    "direct_url": res["direct_url"],
+                    "file_size": v_size,
+                    "fps": res["fps"],
+                    "duration_sec": res["duration_sec"],
+                    "markdown_video": f"[▶️ 查看实机测试视频 (60 FPS)]({v_url})",
+                    "message": f"已成功调度 Godot 物理 GPU 录制实机 60 FPS 测试视频: {v_name} ({v_size})！\n在线播放/下载链接：{v_url}"
+                })
+            else:
+                return JSONResponse({"success": False, "error": res.get("error", "视频录制失败")})
+
         if action in ("game_screenshot", "godot_screenshot", "game", "arena", "preview", "ui_preview", "ui", "render_ui"):
             godot_bin = GODOT_CONSOLE if os.path.exists(GODOT_CONSOLE) else GODOT_EXE
             
@@ -1482,7 +1633,7 @@ async def tool_take_screenshot(request):
             )
             stdout_text, stderr_text = "", ""
             try:
-                stdout_text, stderr_text = proc.communicate(timeout=25)
+                stdout_text, stderr_text = await asyncio.to_thread(proc.communicate, timeout=25)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 stderr_text = "Godot render process timed out after 25s"
@@ -1555,8 +1706,73 @@ async def tool_take_screenshot(request):
             })
         else:
             return JSONResponse({
-                "error": f"Unknown action '{action}'. Supported: 'game_screenshot', 'snipaste_interactive', 'snipaste_full', 'snipaste_paste', 'windows_snipping_tool'"
+                "error": f"Unknown action '{action}'. Supported: 'game_screenshot', 'record_video', 'ui_preview', 'snipaste_interactive', 'snipaste_full', 'snipaste_paste', 'windows_snipping_tool'"
             }, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+async def tool_record_video(request):
+    try:
+        data = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        scene = data.get("scene", "").strip()
+        frames = int(data.get("frames", 1860))
+        # Ensure Project Rule 5: Minimum 20 seconds (1200 frames @ 60 FPS)
+        frames = max(frames, 1200)
+        try:
+            from tools.record_test_video import generate_test_video
+        except ImportError:
+            from record_test_video import generate_test_video
+        res = await asyncio.to_thread(generate_test_video, scene=scene if scene else None, frames=frames)
+        if res.get("success"):
+            v_url = res["video_url"]
+            v_name = res["filename"]
+            v_size = res["file_size"]
+            v_dur = res.get("duration_sec", round(frames / 60.0, 1))
+            return JSONResponse({
+                "success": True,
+                "filename": v_name,
+                "video_url": v_url,
+                "direct_url": res["direct_url"],
+                "file_size": v_size,
+                "fps": res["fps"],
+                "duration_sec": v_dur,
+                "markdown_video": f"[▶️ 查看实机测试视频 (60 FPS, {v_dur}s)]({v_url})",
+                "message": f"已成功调度 Godot 物理 GPU 录制实机 60 FPS 测试视频: {v_name} ({v_size}, 时长: {v_dur}s)！\n在线播放/下载链接：{v_url}"
+            })
+        else:
+            return JSONResponse({"success": False, "error": res.get("error", "视频录制失败")})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+async def tool_run_tests(request):
+    try:
+        data = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        query = data.get("query", "开发后自动化测试").strip()
+        try:
+            from tools.run_automated_tests import run_all_tests, generate_test_report_files
+        except ImportError:
+            from run_automated_tests import run_all_tests, generate_test_report_files
+        
+        test_results = await asyncio.to_thread(run_all_tests)
+        rep_files = await asyncio.to_thread(generate_test_report_files, test_results, query)
+        
+        all_passed = test_results.get("all_passed", False)
+        passed_count = test_results.get("passed_count", 0)
+        total = test_results.get("total", 0)
+        report_text = test_results.get("report_text", "")
+        
+        status_msg = "全部通过 (ALL PASSED)" if all_passed else "存在未通过项 (FAILED)"
+        msg = f"自动化工程测试套件 (11大门禁) 已执行完毕: {passed_count}/{total} 测试项通过 ({status_msg})。\n\n{report_text}"
+        
+        return JSONResponse({
+            "success": True,
+            "all_passed": all_passed,
+            "passed_count": passed_count,
+            "total": total,
+            "report_text": report_text,
+            "report_files": rep_files,
+            "message": msg
+        })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -2071,7 +2287,7 @@ OPENAPI_SPEC = {
                                     "action": {
                                         "type": "string",
                                         "description": "Screenshot action: 'game_screenshot' (render real 3D Godot combat scene), 'ui_preview' (render any Godot UI control or custom scene with GPU and export screenshot), 'snipaste_interactive' (launch Snipaste interactive snipper on user screen), 'windows_snipping_tool' (launch Windows Snipping Tool), 'snipaste_full' (take full screen screenshot and return URL), 'snipaste_paste' (pin last screenshot to desktop)",
-                                        "enum": ["game_screenshot", "ui_preview", "snipaste_interactive", "windows_snipping_tool", "snipaste_full", "snipaste_paste"],
+                                        "enum": ["game_screenshot", "record_video", "ui_preview", "snipaste_interactive", "windows_snipping_tool", "snipaste_full", "snipaste_paste"],
                                         "default": "game_screenshot"
                                     },
                                     "scene": {
@@ -2090,6 +2306,65 @@ OPENAPI_SPEC = {
                 "responses": {
                     "200": {
                         "description": "Screenshot result with web image URL and Markdown snippet"
+                    }
+                }
+            }
+        },
+        "/api/tools/run_tests": {
+            "post": {
+                "operationId": "run_tests",
+                "summary": "Execute automated RTS engineering test suite (11 test gates TC-01 ~ TC-11)",
+                "description": "Executes the 11-gate automated RTS engineering test suite (TC-01 ~ TC-11) covering C# compilation, scene contracts, lifecycle safety, MetalUiStyle compliance, GPU rendering, camera/minimap inversion, zero-GC physics tick, test video validation, human locomotion kinematics, helicopter rotors/tail fin aerodynamics, and tank/vehicle kinematics. Returns full test report.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {
+                                        "type": "string",
+                                        "description": "Optional description of the developed feature or task"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Automated test report results"
+                    }
+                }
+            }
+        },
+        "/api/tools/record_video": {
+            "post": {
+                "operationId": "record_video",
+                "summary": "Record a 60 FPS real-time gameplay test video using physical GPU and Godot Movie Maker mode",
+                "description": "Renders and captures a real-time 60 FPS gameplay test video (.mp4) of a Godot RTS combat scene or UI flow using the workstation physical GPU, hardware Movie Maker, and FFmpeg H.264/AAC. Returns direct playback URLs and Markdown link.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "scene": {
+                                        "type": "string",
+                                        "description": "Scene path to render (e.g. 'res://scenes/test/AutoCombatScene.tscn')"
+                                    },
+                                    "frames": {
+                                        "type": "integer",
+                                        "description": "Number of frames to capture at 60 FPS (default 1860 = 31.0 seconds, minimum 1200 = 20.0 seconds per Project Rule 5)",
+                                        "default": 1860
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Video recording result with web playback URL and Markdown snippet"
                     }
                 }
             }
@@ -2247,6 +2522,7 @@ async def get_openapi_schema(request):
 
 NAV_JS = """(function() {
     var installedMap = {
+        "648ade44-6158-445e-9e9a-3fe3afddf874": "Xm4Kq9Tb2Wn7ZsLp",
         "6299c648-4775-4d7c-a4fe-a4b57236b587": "k3XZzC40AdSgADAN",
         "c271447f-5a9b-48d1-a403-af7b0306c7ee": "k3XZzC40AdSgADAN",
         "6e50e89f-af79-4ed6-8434-7a9fbf933df8": "K2I75pwQFm4eitRi",
@@ -2267,6 +2543,7 @@ NAV_JS = """(function() {
     if (currentPath === '/portal' || currentPath === '/portal/') return;
 
     var architects = [
+        { name: "🐱 小猫破甲 · 通用助手", code: "Xm4Kq9Tb2Wn7ZsLp", role: "通用破甲 · 全领域任务直答" },
         { name: "🤖 全局总架构师", code: "k3XZzC40AdSgADAN", role: "系统级整合与跨领域调度" },
         { name: "⚔️ 战斗与 C# 架构师", code: "K2I75pwQFm4eitRi", role: "数值公式、状态机与零GC寻路" },
         { name: "🎨 3D资产与画面架构师", code: "aK4Z7N1mnGIqGxif", role: "GLB逆向、骨骼动画与法线修复" },
@@ -2386,7 +2663,7 @@ NAV_JS = """(function() {
     var dropdownHtml = architects.map(function(a) {
         return '<div class="rts-dropdown-item">' +
             '<a href="/chat/' + a.code + '" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;font-weight:500;">' + a.name + ' ↗</a>' +
-            '<button class="rts-win-btn" title="在新独立窗口打开" onclick="window.open(\'/chat/' + a.code + '\', \'_blank\', \'popup=yes,width=1400,height=900\')">新窗口 🪟</button>' +
+            '<button class="rts-win-btn" title="在新独立窗口打开" onclick="window.open(&#39;/chat/&#39; + a.code, &#39;_blank&#39;, &#39;popup=yes,width=1400,height=900&#39;)">新窗口 🪟</button>' +
         '</div>';
     }).join('');
 
@@ -2414,6 +2691,7 @@ NAV_JS = """(function() {
 
     // Mappings between Dify installed app / app IDs and standalone site codes
     var installedMap = {
+        "648ade44-6158-445e-9e9a-3fe3afddf874": "Xm4Kq9Tb2Wn7ZsLp",
         "6299c648-4775-4d7c-a4fe-a4b57236b587": "k3XZzC40AdSgADAN",
         "c271447f-5a9b-48d1-a403-af7b0306c7ee": "k3XZzC40AdSgADAN",
         "6e50e89f-af79-4ed6-8434-7a9fbf933df8": "K2I75pwQFm4eitRi",
@@ -2429,6 +2707,7 @@ NAV_JS = """(function() {
     };
 
     var nameMap = {
+        "小猫破甲": "Xm4Kq9Tb2Wn7ZsLp",
         "全局总架构师": "k3XZzC40AdSgADAN",
         "战斗与 C#": "K2I75pwQFm4eitRi",
         "3D资产与画面": "aK4Z7N1mnGIqGxif",
@@ -2865,9 +3144,109 @@ PORTAL_HTML = """<!DOCTYPE html>
                 <div class="dot"></div>
                 <span><strong>Godot 工作区</strong>: GodotRTS (C# Mono 4.3)</span>
             </div>
-        </div>
+        <!-- 🔴 红色警戒（Red Alert）重工军工建筑实机视频与全套 3D 视觉升级报告 -->
+        <section style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.85)); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 16px; padding: 24px; margin-bottom: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-bottom: 20px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <span style="font-size:32px;">🎖️</span>
+                    <div>
+                        <h2 style="font-size:22px; font-weight:800; color:#f8fafc; letter-spacing:0.5px;">红色警戒（Red Alert）军工重工建筑 3D 视觉升级与自动化实机测试</h2>
+                        <p style="font-size:13px; color:#94a3b8; margin-top:4px;">10 种 RTS 建筑全套重塑 · 专属侦察机/喷火兵 3D 补齐 · 物理 GPU 60 FPS 实机录像</p>
+                    </div>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <a href="/screenshots/redalert_buildings_combat.mp4" target="_blank" class="action-btn action-btn-main" style="padding:10px 18px; font-size:13px; text-decoration:none;">
+                        <span>▶️ 独立全屏播放视频</span>
+                    </a>
+                    <a href="/report" target="_blank" class="action-btn" style="padding:10px 18px; font-size:13px; text-decoration:none;">
+                        <span>📄 查看完整技术报告</span>
+                    </a>
+                </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap: 24px; align-items:start;">
+                <!-- 视频播放器 -->
+                <div style="background:#000; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.1); position:relative;">
+                    <video src="/screenshots/redalert_buildings_combat.mp4" controls autoplay muted loop playsinline style="width:100%; display:block; max-height:460px; object-fit:contain;"></video>
+                    <div style="padding:12px 16px; background:rgba(15,23,42,0.9); display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#cbd5e1; border-top:1px solid rgba(255,255,255,0.08);">
+                        <span style="display:flex; align-items:center; gap:6px;">
+                            <span class="dot" style="background:#38bdf8; box-shadow:0 0 6px #38bdf8;"></span>
+                            <strong>实机自动化录像</strong> (AutoCombatScene.tscn)
+                        </span>
+                        <span style="color:#7dd3fc;">60 FPS · 31.0 秒 / 1860 帧 · 6.9 MB H.264</span>
+                    </div>
+                </div>
+
+                <!-- 实机截图与核心对比指标 -->
+                <div style="display:flex; flex-direction:column; gap:16px;">
+                    <div style="background:rgba(0,0,0,0.3); border-radius:12px; overflow:hidden; border:1px solid rgba(56,189,248,0.25);">
+                        <a href="/screenshots/autocombat_redalert.png" target="_blank">
+                            <img src="/screenshots/autocombat_redalert.png" alt="10大红警建筑全景展开" style="width:100%; display:block; object-fit:cover; max-height:240px; transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                        </a>
+                        <div style="padding:10px 14px; font-size:12px; color:#94a3b8; background:rgba(15,23,42,0.85); display:flex; justify-content:space-between;">
+                            <span>📸 基地 10 大红警建筑全套展开高空特写</span>
+                            <span style="color:#38bdf8;">点击看 1080P 原图 ↗</span>
+                        </div>
+                    </div>
+
+                    <!-- 建筑矩阵清单微览 -->
+                    <div style="background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:14px; font-size:12px;">
+                        <div style="font-weight:700; color:#f8fafc; margin-bottom:10px; display:flex; justify-content:space-between;">
+                            <span>🏗️ 10 种建筑重工业重构矩阵</span>
+                            <span style="color:#34d399;">100% 3D 资产就绪</span>
+                        </div>
+                        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; color:#cbd5e1;">
+                            <div>🛡️ 主基地：装甲地台+防空雷达+穹顶</div>
+                            <div>🏭 装甲工厂：磁力天车+冲压机+斜坡</div>
+                            <div>🎖️ 突击兵营：地下掩体+出兵滑门</div>
+                            <div>🚀 特勤工厂：传送线+烟囱+组装机库</div>
+                            <div>🛫 停机坪：跑道标线+塔台+整备位</div>
+                            <div>✈️ 飞机工厂：拱顶机库+对空雷达站</div>
+                            <div>⚓ 军港船坞：双防波堤+干船坞双吊机</div>
+                            <div>💥 防御炮塔：混凝土碉堡+双联装重炮</div>
+                            <div>⚡ 核电厂：双筒冷却塔+放电反应堆</div>
+                            <div>⛏️ 金矿采矿厂：矿石立筒仓+漏斗滑槽</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
 
         <div class="grid">
+            <!-- 0. 小猫破甲 · 通用助手 -->
+            <div class="card" style="--card-color: #f59e0b;">
+                <div>
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <div class="card-icon">🐱</div>
+                            <div>
+                                <a href="/chat/Xm4Kq9Tb2Wn7ZsLp" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
+                                    <div class="card-name" style="display:flex;align-items:center;gap:6px;">
+                                        <span>小猫破甲 · 通用助手</span>
+                                        <span style="font-size:13px;color:#f59e0b;">↗</span>
+                                    </div>
+                                </a>
+                                <div class="card-role-badge">通用问答 · 工具直连 · 即开即用</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-desc">
+                        面向任意任务的基础对话助手，可直接读写工作区、执行命令与联网检索，适合日常问答、脚本编写与快速排查，不再受 RTS 领域提示词限制。
+                    </div>
+                    <div class="tags-group">
+                        <span class="tag">通用对话</span>
+                        <span class="tag">工具调用</span>
+                        <span class="tag">即开即用</span>
+                        <span class="tag">Agent 模式</span>
+                    </div>
+                </div>
+                <div class="card-actions">
+                    <a href="/chat/Xm4Kq9Tb2Wn7ZsLp" target="_blank" rel="noopener noreferrer" class="action-btn action-btn-main">📑 新标签页打开</a>
+                    <button class="action-btn" onclick="openWin('Xm4Kq9Tb2Wn7ZsLp', 0, 0)">🪟 独立窗口</button>
+                    <a href="/chat/Xm4Kq9Tb2Wn7ZsLp" class="action-btn">➡️ 进入</a>
+                </div>
+            </div>
+
             <!-- 1. 全局总架构师 -->
             <div class="card" style="--card-color: #38bdf8;">
                 <div>
@@ -3071,8 +3450,202 @@ PORTAL_HTML = """<!DOCTYPE html>
 </html>
 """
 
+REPORT_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>红色警戒（Red Alert）军工建筑与单位 3D 视觉升级实机测试报告 · Godot 4.3 RTS</title>
+    <style>
+        :root {
+            --bg: #030712;
+            --surface: rgba(15, 23, 42, 0.85);
+            --border: rgba(56, 189, 248, 0.3);
+            --primary: #38bdf8;
+            --accent-green: #34d399;
+            --accent-gold: #f59e0b;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+            padding: 32px 24px 80px;
+            min-height: 100vh;
+        }
+        .container { max-width: 1300px; margin: 0 auto; }
+        header {
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;
+            padding-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 28px;
+        }
+        .title-group h1 { font-size: 26px; font-weight: 800; color: #f8fafc; }
+        .title-group p { font-size: 14px; color: var(--text-muted); margin-top: 6px; }
+        .nav-btn {
+            padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; text-decoration: none;
+            background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1;
+            transition: all 0.2s;
+        }
+        .nav-btn:hover { background: rgba(56, 189, 248, 0.2); border-color: var(--primary); color: #fff; }
+        .video-box {
+            background: #000; border-radius: 14px; overflow: hidden; border: 1px solid rgba(56,189,248,0.4);
+            margin-bottom: 32px; box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+        }
+        video { width: 100%; display: block; max-height: 600px; object-fit: contain; }
+        .video-info {
+            padding: 16px 20px; background: rgba(15,23,42,0.95); display: flex; justify-content: space-between;
+            align-items: center; font-size: 13px; color: #cbd5e1; border-top: 1px solid rgba(255,255,255,0.08);
+        }
+        .table-box {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+            overflow: hidden; margin-bottom: 32px; padding: 20px;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        th { color: var(--primary); font-weight: 700; background: rgba(255,255,255,0.02); }
+        tr:hover { background: rgba(255,255,255,0.02); }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+        .badge-done { background: rgba(52, 211, 153, 0.15); color: var(--accent-green); border: 1px solid rgba(52, 211, 153, 0.3); }
+        .img-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; margin-bottom: 32px;
+        }
+        .img-card {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+        }
+        .img-card img { width: 100%; display: block; object-fit: cover; max-height: 280px; }
+        .img-card div { padding: 12px 16px; font-size: 13px; color: #cbd5e1; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="title-group">
+                <h1>🎖️ 红色警戒（Red Alert）军工重工建筑 3D 视觉升级报告</h1>
+                <p>10 种建筑模型重构 · 专属侦察机/喷火兵落地 · 60 FPS 物理 GPU 实机录像 (31.0s / 1860 帧)</p>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <a href="/portal" class="nav-btn">⚡ 返回作战中心</a>
+                <a href="/chat/k3XZzC40AdSgADAN" target="_blank" class="nav-btn" style="background:linear-gradient(135deg,rgba(2,132,199,0.6),rgba(37,99,235,0.6)); border-color:var(--primary); color:#fff;">💬 打开 Dify 对话</a>
+            </div>
+        </header>
+
+        <!-- 视频播放区 -->
+        <div class="video-box">
+            <video src="/screenshots/redalert_buildings_combat.mp4" controls autoplay muted loop playsinline></video>
+            <div class="video-info">
+                <span>🎥 <strong>实机测试场景</strong>: AutoCombatScene.tscn (60 FPS, Vulkan GPU 原生 Movie Maker)</span>
+                <span style="color:#7dd3fc;">时长: 31.0 秒 / 1860 帧 (满足规范 >= 20s 红线约束) · 码率优化: 6.9 MB H.264</span>
+            </div>
+        </div>
+
+        <!-- 图像大卡片 -->
+        <div class="img-grid">
+            <div class="img-card">
+                <a href="/screenshots/autocombat_redalert.png" target="_blank">
+                    <img src="/screenshots/autocombat_redalert.png" alt="10大红警建筑全套展开实机特写">
+                </a>
+                <div>📸 <strong>红警 10 大建筑群全套展开高空特写</strong>（点击查看 1080P 原图）</div>
+            </div>
+        </div>
+
+        <!-- 10 种建筑重构架构表格 -->
+        <div class="table-box">
+            <h3 style="margin-bottom:16px; font-size:16px; color:#f8fafc;">🏗️ 10 种 RTS 建筑红色警戒风格化重构对照表</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Key</th>
+                        <th>建筑名称</th>
+                        <th>红色警戒风格全新 3D 复合结构</th>
+                        <th>阵营与功能表现</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>main_base</code></td>
+                        <td>主基地</td>
+                        <td>重装甲梯形地台 + 指挥穹顶 + 远程预警雷达天线 + 通讯信号塔 + 轨道式工程塔吊</td>
+                        <td>前后边缘黄黑工业警戒防撞条，己方蓝灰/敌方鲜红</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>barracks</code></td>
+                        <td>突击兵营</td>
+                        <td>半地下战术掩体地堡 + 装甲快速出兵滑门 + 武器弹药箱堆垛 + 战术通讯天线</td>
+                        <td>出兵大门开合与集结地标，支持出兵生产</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>armor_factory</code></td>
+                        <td>坦克工厂</td>
+                        <td>重载出车倾斜引桥 + 弧形装甲装配车间 + 磁力天车吊运臂 + 液压冲压机 + 燃油补给罐</td>
+                        <td>重型装甲车头正向前进方向出库</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tank_factory</code></td>
+                        <td>特勤工厂</td>
+                        <td>特种装甲车辆拼装机库 + 自动化传送装配线 + 悬臂式轨道吊机 + 排烟囱 + 宽幅滑门</td>
+                        <td>支援特种装甲专属出库走廊</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>airfield</code></td>
+                        <td>野战停机坪</td>
+                        <td>加厚军用跑道 + 白色中轴跑道标线 + 跑道两端黄色降落引导条 + 塔台 + 导航雷达</td>
+                        <td>停靠战机整备位，边界贴合地面</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>air_factory</code></td>
+                        <td>飞机工厂</td>
+                        <td>大跨度拱顶无立柱航空装配机库 + 战术空管调度楼 + 顶部大型对空旋转雷达站 + 天线矩阵</td>
+                        <td>高位雷达搜索，大跨度出库机库门</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>naval_yard</code></td>
+                        <td>军港船坞</td>
+                        <td>左右对置防波堤码头 + 水下干船坞注水船台 + 左右对置龙门吊机 + 修理装配车间</td>
+                        <td>贴合水陆交界岸线，可向深水水道投放主力战舰</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>turret</code></td>
+                        <td>要塞防御炮塔</td>
+                        <td>永固厚装甲混凝土碉堡底座 + 防护环装甲 + 双联装重型要塞火炮 + 光电瞄准仪</td>
+                        <td>支持 360° 水平旋转瞄准，开火炮口焰与后坐震颤</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>power_plant</code></td>
+                        <td>热核发电厂</td>
+                        <td>双筒大型排热冷却塔 + 核心裂变反应堆室 + 高压脉冲放电电枢线圈 + 循环冷却液罐</td>
+                        <td>等离子高压放电线圈高亮，核反应堆重装外壳</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>gold_mine</code></td>
+                        <td>精炼采矿厂</td>
+                        <td>巨型立式金矿储存立筒仓 + 倾斜受料斗滑槽 + 露天高品位金属金矿堆 + 龙门起重吊机</td>
+                        <td>矿车卸料斜坡直接对接受料斗，露天金矿堆高反光金属</td>
+                        <td><span class="badge badge-done">已落地</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
 async def portal_page(request):
     return HTMLResponse(PORTAL_HTML)
+
+async def report_page(request):
+    return HTMLResponse(REPORT_HTML)
 
 async def nav_js(request):
     return Response(NAV_JS, media_type="application/javascript")
@@ -3086,14 +3659,61 @@ async def reload_route(request):
         "accounts": [a.get("email") for a in pool.accounts]
     })
 
+async def console_page(request):
+    return HTMLResponse(CONSOLE_HTML)
+
+async def api_get_groups(request):
+    if not pool.accounts:
+        pool.reload_accounts()
+    if group_manager:
+        summary = group_manager.get_dashboard_summary(pool.accounts)
+        return JSONResponse(summary)
+    return JSONResponse({"code": 500, "msg": "Group manager not available"})
+
+async def api_switch_group(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"code": 400, "msg": "Invalid JSON"}, status_code=400)
+    group_id = data.get("group") or data.get("group_id")
+    account_id = data.get("account") or data.get("account_id")
+    if not group_manager:
+        return JSONResponse({"code": 500, "msg": "Group manager not available"}, status_code=500)
+    res = group_manager.switch_account(group_id, account_id)
+    return JSONResponse(res)
+
+async def api_auto_failover(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"code": 400, "msg": "Invalid JSON"}, status_code=400)
+    enabled = data.get("enabled", True)
+    if group_manager:
+        group_manager.set_auto_failover(enabled)
+        return JSONResponse({"code": 200, "msg": f"自动故障切换已{'开启' if enabled else '关闭'}", "auto_failover": group_manager.auto_failover})
+    return JSONResponse({"code": 500, "msg": "Group manager not available"}, status_code=500)
+
+async def api_sync_accounts(request):
+    pool.reload_accounts()
+    if group_manager:
+        summary = group_manager.get_dashboard_summary(pool.accounts)
+        return JSONResponse({"code": 200, "msg": "已成功同步账号池！", "data": summary})
+    return JSONResponse({"code": 200, "msg": "已重新加载账号池", "count": len(pool.accounts)})
+
 routes = [
     Mount("/screenshots", app=StaticFiles(directory=SCREENSHOTS_DIR), name="screenshots"),
+    Route("/", console_page, methods=["GET"]),
+    Route("/console", console_page, methods=["GET"]),
     Route("/portal", portal_page, methods=["GET"]),
     Route("/portal/nav.js", nav_js, methods=["GET"]),
+    Route("/report", report_page, methods=["GET"]),
     Route("/health", health, methods=["GET"]),
-    Route("/", health, methods=["GET"]),
     Route("/reload", reload_route, methods=["GET", "POST"]),
     Route("/api/reload", reload_route, methods=["GET", "POST"]),
+    Route("/api/groups", api_get_groups, methods=["GET"]),
+    Route("/api/groups/switch", api_switch_group, methods=["POST"]),
+    Route("/api/groups/auto_failover", api_auto_failover, methods=["POST"]),
+    Route("/api/accounts/sync", api_sync_accounts, methods=["POST"]),
     Route("/v1/models", list_models, methods=["GET"]),
     Route("/models", list_models, methods=["GET"]),
     Route("/v1/chat/completions", chat_completions, methods=["POST"]),
@@ -3105,7 +3725,9 @@ routes = [
     Route("/api/tools/grep_search", tool_grep_search, methods=["POST"]),
     Route("/api/tools/run_build", tool_run_build, methods=["POST"]),
     Route("/api/tools/run_command", tool_run_command, methods=["POST"]),
+    Route("/api/tools/run_tests", tool_run_tests, methods=["POST", "GET"]),
     Route("/api/tools/take_screenshot", tool_take_screenshot, methods=["POST"]),
+    Route("/api/tools/record_video", tool_record_video, methods=["POST"]),
     Route("/api/tools/launch_software", tool_launch_software, methods=["POST"]),
     Route("/api/tools/operate_vscode", tool_operate_vscode, methods=["POST"]),
     Route("/api/tools/inspect_3d_asset", tool_inspect_3d_asset, methods=["POST"]),

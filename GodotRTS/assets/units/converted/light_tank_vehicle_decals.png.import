@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://6nlr2xebe1jh"
 path.s3tc="res://.godot/imported/light_tank_vehicle_decals.png-4be8251cc2df1eb6b9bd03fef2f98dfd.s3tc.ctex"
+path.etc2="res://.godot/imported/light_tank_vehicle_decals.png-4be8251cc2df1eb6b9bd03fef2f98dfd.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/converted/light_tank_vehicle_decals.png"
-dest_files=["res://.godot/imported/light_tank_vehicle_decals.png-4be8251cc2df1eb6b9bd03fef2f98dfd.s3tc.ctex"]
+dest_files=["res://.godot/imported/light_tank_vehicle_decals.png-4be8251cc2df1eb6b9bd03fef2f98dfd.s3tc.ctex", "res://.godot/imported/light_tank_vehicle_decals.png-4be8251cc2df1eb6b9bd03fef2f98dfd.etc2.ctex"]
 
 [params]
 

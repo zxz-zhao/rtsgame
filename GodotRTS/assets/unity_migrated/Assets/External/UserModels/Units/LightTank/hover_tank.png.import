@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://rqv3ii3hnl0r"
 path.s3tc="res://.godot/imported/hover_tank.png-5c7f3bb9a2ebc8ea6edc4db6094988b0.s3tc.ctex"
+path.etc2="res://.godot/imported/hover_tank.png-5c7f3bb9a2ebc8ea6edc4db6094988b0.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Units/LightTank/hover_tank.png"
-dest_files=["res://.godot/imported/hover_tank.png-5c7f3bb9a2ebc8ea6edc4db6094988b0.s3tc.ctex"]
+dest_files=["res://.godot/imported/hover_tank.png-5c7f3bb9a2ebc8ea6edc4db6094988b0.s3tc.ctex", "res://.godot/imported/hover_tank.png-5c7f3bb9a2ebc8ea6edc4db6094988b0.etc2.ctex"]
 
 [params]
 

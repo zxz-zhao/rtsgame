@@ -35,8 +35,45 @@ size = Vector3(2, 2.5, 7.5)
 [sub_resource type="BoxShape3D" id="BoxShape3D_base"]
 size = Vector3(5, 4, 5)
 
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_battle"]
+sky_top_color = Color(0.24, 0.48, 0.78, 1)
+sky_horizon_color = Color(0.68, 0.78, 0.88, 1)
+ground_bottom_color = Color(0.20, 0.24, 0.20, 1)
+ground_horizon_color = Color(0.62, 0.72, 0.80, 1)
+
+[sub_resource type="Sky" id="Sky_battle"]
+sky_material = SubResource("ProceduralSkyMaterial_battle")
+
+[sub_resource type="Environment" id="Environment_battle"]
+background_mode = 2
+sky = SubResource("Sky_battle")
+ambient_light_source = 3
+ambient_light_color = Color(0.58, 0.70, 0.85, 1)
+ambient_light_sky_contribution = 0.55
+ambient_light_energy = 0.80
+tonemap_mode = 3
+tonemap_exposure = 1.05
+tonemap_white = 1.10
+ssao_enabled = true
+ssao_radius = 1.25
+ssao_intensity = 1.75
+ssao_power = 1.2
+ssao_detail = 0.6
+ssao_horizon = 0.12
+ssil_enabled = true
+ssil_radius = 2.2
+ssil_intensity = 0.60
+glow_enabled = true
+glow_intensity = 0.50
+glow_strength = 0.85
+glow_bloom = 0.15
+glow_blend_mode = 0
+fog_enabled = true
+fog_light_color = Color(0.65, 0.75, 0.86, 1)
+fog_density = 0.0008
+fog_aerial_perspective = 0.35
+
 [node name="BattlePrototype" type="Node3D" unique_id=344287376]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.1640935, 0, 2.675558)
 script = ExtResource("1_boot")
 
 [node name="PreviewCapture" type="Node" parent="." unique_id=1727809292]
@@ -74,15 +111,27 @@ script = ExtResource("14_ai")
 script = ExtResource("12_map")
 PlayerBasePath = NodePath("../Buildings/MainBase")
 EnemyBasePath = NodePath("../Buildings/EnemyBase")
-PlayerUnitPath = NodePath("../Units/PlayerTank")
-EnemyUnitPath = NodePath("../Units/EnemyTank")
 SunPath = NodePath("../Sun")
 CameraPath = NodePath("../CameraRig/Camera3D")
 
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=384729184]
+environment = SubResource("Environment_battle")
+
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=1668527765]
 transform = Transform3D(0.90630794, 0.32374424, -0.27165347, 0, 0.64278734, 0.7660447, 0.42261797, -0.6942724, 0.5825633, 0, 0, 0)
-light_color = Color(0.7855, 0.824, 0.802, 1)
-light_energy = 2.35
+light_color = Color(0.98, 0.96, 0.92, 1)
+light_energy = 1.85
+light_indirect_energy = 1.15
+shadow_enabled = true
+directional_shadow_mode = 2
+directional_shadow_split_1 = 0.08
+directional_shadow_split_2 = 0.22
+directional_shadow_split_3 = 0.50
+directional_shadow_blend_splits = true
+directional_shadow_max_distance = 280.0
+shadow_bias = 0.03
+shadow_normal_bias = 1.8
+shadow_blur = 1.2
 
 [node name="CameraRig" type="Node3D" parent="." unique_id=1114765620]
 script = ExtResource("2_cam")
@@ -99,142 +148,6 @@ script = ExtResource("3_player")
 CameraPath = NodePath("../CameraRig/Camera3D")
 
 [node name="Units" type="Node3D" parent="." unique_id=1274065532]
-
-[node name="PlayerTank" type="CharacterBody3D" parent="Units" unique_id=724569046 groups=["player_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(0.7071067, 0, 0.7071067, 0, 1, 0, -0.7071067, 0, 0.7071067, -93.83591, 0, -100.67556)
-script = ExtResource("4_unit")
-DisplayName = "中型坦克"
-MaxHealth = 160.0
-MoveSpeed = 7.0
-AttackDamage = 18.0
-AttackRange = 7.5
-GoldCost = 420
-PopCost = 3
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerTank" unique_id=1645247273]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = SubResource("BoxShape3D_unit")
-
-[node name="PanzerIV" parent="Units/PlayerTank" unique_id=1056561056 instance=ExtResource("10_pziv")]
-transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, 0, 0, 0)
-
-[node name="PlayerInfantry" type="CharacterBody3D" parent="Units" unique_id=1324000673 groups=["player_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -88, 0, -96)
-script = ExtResource("4_unit")
-UnitKey = "infantry_flamethrower"
-DisplayName = "喷火兵"
-MaxHealth = 280.0
-MoveSpeed = 4.8
-AttackDamage = 45.0
-AttackRange = 5.0
-GoldCost = 220
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerInfantry" unique_id=1861276505]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = SubResource("BoxShape3D_unit")
-
-[node name="EnemyTank" type="CharacterBody3D" parent="Units" unique_id=1534916166 groups=["enemy_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(-0.7071067, 0, -0.7071067, 0, 1, 0, 0.7071067, 0, -0.7071067, 102.16409, 0, 95.32444)
-script = ExtResource("4_unit")
-DisplayName = "敌方中型坦克"
-PlayerOwned = false
-MaxHealth = 160.0
-MoveSpeed = 6.5
-AttackDamage = 16.0
-AttackRange = 7.0
-GoldCost = 420
-PopCost = 3
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/EnemyTank" unique_id=1556378589]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = SubResource("BoxShape3D_unit")
-
-[node name="PanzerIV" parent="Units/EnemyTank" unique_id=1058251966 instance=ExtResource("10_pziv")]
-transform = Transform3D(-0.9, 0, 0, 0, 0.9, 0, 0, 0, -0.9, 0, 0, 0)
-
-[node name="PlayerSubmarine" type="CharacterBody3D" parent="Units" unique_id=2085731940 groups=["player_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.21157742, 0, 1.640387)
-script = ExtResource("4_unit")
-UnitKey = "submarine"
-DisplayName = "攻击核潜艇"
-MaxHealth = 350.0
-MoveSpeed = 8.0
-AttackDamage = 65.0
-AttackRange = 12.0
-GoldCost = 650
-PopCost = 4
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerSubmarine" unique_id=2085731941]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = SubResource("BoxShape3D_sub")
-
-[node name="SubmarineVisual" parent="Units/PlayerSubmarine" unique_id=2085731942 instance=ExtResource("27_sub")]
-transform = Transform3D(-0.00372378, 0, -0.000757273, 0, 0.0038, 0, 0.000757273, 0, -0.00372378, 0, 0, 0)
-
-[node name="PlayerCarrier" type="CharacterBody3D" parent="Units" unique_id=2085731943 groups=["player_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 0, 10)
-script = ExtResource("4_unit")
-UnitKey = "aircraft_carrier"
-DisplayName = "尼米兹级航空母舰"
-MaxHealth = 1400.0
-MoveSpeed = 7.0
-AttackDamage = 0.0
-AttackRange = 0.0
-GoldCost = 1400
-PopCost = 5
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerCarrier" unique_id=2085731944]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = SubResource("BoxShape3D_unit")
-
-[node name="PlayerDestroyer" type="CharacterBody3D" parent="Units" unique_id=2085731946 groups=["player_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 0)
-script = ExtResource("4_unit")
-UnitKey = "destroyer_ship"
-DisplayName = "勇敢级导弹驱逐舰"
-MaxHealth = 700.0
-MoveSpeed = 9.5
-AttackDamage = 45.0
-AttackRange = 14.0
-GoldCost = 750
-PopCost = 3
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerDestroyer" unique_id=2085731947]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = SubResource("BoxShape3D_unit")
-
-[node name="PlayerFighter" type="CharacterBody3D" parent="Units" unique_id=2085731950 groups=["player_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 13.5, -5)
-script = ExtResource("4_unit")
-UnitKey = "fighter"
-DisplayName = "F/A-18 大黄蜂舰载机"
-MaxHealth = 250.0
-MoveSpeed = 16.0
-TurnSpeed = 7.5
-AttackDamage = 55.0
-AttackRange = 14.0
-GoldCost = 300
-PopCost = 2
-CruiseHeight = 13.5
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/PlayerFighter" unique_id=2085731951]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = SubResource("BoxShape3D_unit")
-
-[node name="EnemyInfantry" type="CharacterBody3D" parent="Units" unique_id=930073747 groups=["enemy_owned", "rts_selectable", "rts_units"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 96, 0, 90)
-script = ExtResource("4_unit")
-UnitKey = "infantry"
-DisplayName = "敌方步兵"
-PlayerOwned = false
-MaxHealth = 200.0
-MoveSpeed = 8.0
-AttackDamage = 25.0
-AttackRange = 8.0
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Units/EnemyInfantry" unique_id=510624912]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = SubResource("BoxShape3D_unit")
 
 [node name="Buildings" type="Node3D" parent="." unique_id=1160897122]
 

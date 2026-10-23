@@ -16,9 +16,13 @@ public partial class BattleHud : CanvasLayer
         public Panel Card { get; init; } = null!;
     }
 
-    const float HudWidth = 1280f;
-    const float HudHeight = 720f;
-    const float CommandPanelContentWidth = 356f;
+    float HudWidth => (GetViewport() is { } vp && vp.GetVisibleRect().Size.X > 0 ? vp.GetVisibleRect().Size.X : 1280f);
+    float HudHeight => (GetViewport() is { } vp && vp.GetVisibleRect().Size.Y > 0 ? vp.GetVisibleRect().Size.Y : 720f);
+    const float CommandPanelContentWidth = 368f;
+    const float CommandPanelWidth = 396f;
+    const float CommandPanelHeight = 440f;
+    const float BottomCommandBarWidth = 604f;
+    const float BottomCommandBarHeight = 62f;
     const float BattleHudMinimapLeft = 10f;
     const float BattleHudMinimapBottom = 68f;
     const float BattleHudMinimapWidth = 260f;
@@ -39,6 +43,7 @@ public partial class BattleHud : CanvasLayer
     Panel topPanel = null!;
     Control hudRoot = null!;
     Panel commandPanel = null!;
+    ScrollContainer commandPanelScroll = null!;
     Control commandPanelLockOverlay = null!;
     Label commandPanelTitle = null!;
     Label commandPanelLockLabel = null!;
@@ -92,14 +97,19 @@ public partial class BattleHud : CanvasLayer
     Panel inputHintPanel = null!;
     Label inputHintLabel = null!;
     Button selectAllCommandButton = null!;
+    Button attackMoveCommandButton = null!;
     Button stopCommandButton = null!;
+    Button holdCommandButton = null!;
     Button patrolCommandButton = null!;
+    Button spreadCommandButton = null!;
     Button specialCommandButton = null!;
     Button parkAircraftCommandButton = null!;
+    Button deployArtilleryCommandButton = null!;
     Button settingsButton = null!;
     Panel objectivePanel = null!;
     VBoxContainer objectiveList = null!;
     float objectiveRefreshTimer = 0f;
+    float uiRefreshTimer = 0f;
     Button objectiveRestoreBtn = null!;
     Control objectiveDialogRoot = null!;
     Panel objectiveDialogPanel = null!;
@@ -107,6 +117,12 @@ public partial class BattleHud : CanvasLayer
     readonly HashSet<string> claimedObjectiveKeys = new();
     Button buildActionButton = null!;
     Button techActionButton = null!;
+    Panel? difyStatusBadge;
+    Label? difyStatusLabel;
+    string lastShownDifyText = "";
+    Tween? difyNotificationTween;
+    float currentSafeTop;
+    DifyCommanderClient? connectedDifyClient;
     Button commandPanelLockCancelButton = null!;
     readonly List<CanvasItem> gameplayHudItems = new();
     Control upgradeDialogRoot = null!;
@@ -179,6 +195,13 @@ public partial class BattleHud : CanvasLayer
     {
         AddToGroup("battle_hud");
 
+        var args = CommandLineArgs.Get();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--main-base-section" && i + 1 < args.Length && int.TryParse(args[i + 1], out var sec))
+                activeMainBaseInfoSectionIndex = sec;
+        }
+
         hudRoot = new Control
         {
             Name = "HudRoot",
@@ -232,10 +255,93 @@ public partial class BattleHud : CanvasLayer
             BindManager(BattleGameManager.Instance);
         else
             CallDeferred(MethodName.BindDeferred);
+
+        var vp = GetViewport();
+        if (vp != null)
+            vp.SizeChanged += UpdateLayoutForScreenSize;
+
+        UpdateLayoutForScreenSize();
+    }
+
+    public void UpdateLayoutForScreenSize()
+    {
+        float safeLeft = 0f;
+        float safeRight = 0f;
+        float safeTop = 0f;
+        float safeBottom = 0f;
+
+        try
+        {
+            var windowSize = DisplayServer.WindowGetSize();
+            if (windowSize.X > 0 && windowSize.Y > 0)
+            {
+                var safeRect = DisplayServer.GetDisplaySafeArea();
+                float scaleX = HudWidth / windowSize.X;
+                float scaleY = HudHeight / windowSize.Y;
+                safeLeft = Mathf.Max(0f, safeRect.Position.X * scaleX);
+                safeTop = Mathf.Max(0f, safeRect.Position.Y * scaleY);
+                safeRight = Mathf.Max(0f, (windowSize.X - (safeRect.Position.X + safeRect.Size.X)) * scaleX);
+                safeBottom = Mathf.Max(0f, (windowSize.Y - (safeRect.Position.Y + safeRect.Size.Y)) * scaleY);
+            }
+        }
+        catch
+        {
+            // Fallback to 0 insets
+        }
+
+        if (minimapPanel != null)
+            minimapPanel.Position = new Vector2(10f + safeLeft, 10f + safeTop);
+        if (objectiveRestoreBtn != null && minimapPanel != null)
+            objectiveRestoreBtn.Position = new Vector2(10f + safeLeft, minimapPanel.Position.Y + minimapPanel.Size.Y + 6f);
+
+        if (topPanel != null)
+        {
+            topPanel.Position = new Vector2(228f + safeLeft, safeTop);
+            topPanel.Size = new Vector2(HudWidth - (228f + safeLeft) - safeRight, BattleHudTopBarHeight);
+            if (settingsButton != null)
+                settingsButton.Position = new Vector2(topPanel.Size.X - 50f, 10f);
+            if (selectionLabel != null)
+            {
+                float rightEdge = topPanel.Size.X - 52f;
+                float leftBoundary = (economyLabel != null ? economyLabel.Position.X + economyLabel.Size.X : 400f) + 16f;
+                float availWidth = Mathf.Clamp(rightEdge - leftBoundary, 220f, 520f);
+                selectionLabel.Position = new Vector2(rightEdge - availWidth, 14f);
+                selectionLabel.Size = new Vector2(availWidth, 30f);
+            }
+        }
+        currentSafeTop = safeTop;
+        if (difyStatusBadge != null)
+            difyStatusBadge.Position = new Vector2((HudWidth - difyStatusBadge.Size.X) * 0.5f, BattleHudTopBarHeight + 4f + safeTop);
+        if (alertLabel != null)
+            alertLabel.Position = new Vector2((HudWidth - 740f) * 0.5f, BattleHudTopBarHeight + 2f + safeTop);
+        if (commandPanel != null)
+            commandPanel.Position = new Vector2(HudWidth - CommandPanelWidth - 12f - safeRight, 56f + safeTop);
+        if (bottomCommandBar != null)
+            bottomCommandBar.Position = new Vector2(HudWidth - BottomCommandBarWidth - 12f - safeRight, HudHeight - BottomCommandBarHeight - 10f - safeBottom);
+        if (battleCommunicationPanel != null)
+            battleCommunicationPanel.Position = new Vector2(12f + safeLeft, HudHeight - 78f - 12f - safeBottom);
+        if (techActionButton != null)
+            techActionButton.Position = new Vector2(12f + safeLeft, HudHeight - 78f - 12f - 48f - safeBottom);
+        if (buildActionButton != null)
+            buildActionButton.Position = new Vector2(12f + safeLeft, HudHeight - 78f - 12f - 96f - safeBottom);
+        if (inputHintPanel != null)
+            inputHintPanel.Position = new Vector2((HudWidth - 568f) * 0.5f, HudHeight - 30f - 76f - safeBottom);
+        if (gameOverPanel != null)
+            gameOverPanel.Position = new Vector2((HudWidth - 720f) * 0.5f, 60f + safeTop);
+        if (upgradeDialogPanel != null)
+            upgradeDialogPanel.Position = new Vector2((HudWidth - 540f) * 0.5f, (HudHeight - 430f) * 0.5f);
+        if (settingsDialogPanel != null)
+            settingsDialogPanel.Position = new Vector2((HudWidth - 760f) * 0.5f, (HudHeight - 580f) * 0.5f);
+        if (objectiveDialogPanel != null)
+            objectiveDialogPanel.Position = new Vector2((HudWidth - 640f) * 0.5f, (HudHeight - 480f) * 0.5f);
     }
 
     public override void _ExitTree()
     {
+        var vp = GetViewport();
+        if (vp != null)
+            vp.SizeChanged -= UpdateLayoutForScreenSize;
+
         if (GameState.Instance is not null)
         {
             GameState.Instance.SelectionChanged -= OnSelectionChanged;
@@ -248,6 +354,12 @@ public partial class BattleHud : CanvasLayer
             GameRelay.Instance.PeerJoined -= OnNetworkPeerJoined;
             GameRelay.Instance.PeerLeft -= OnNetworkPeerLeft;
         }
+
+        if (connectedDifyClient != null && GodotObject.IsInstanceValid(connectedDifyClient))
+        {
+            connectedDifyClient.CommanderStatusChanged -= OnCommanderStatusChanged;
+            connectedDifyClient = null;
+        }
     }
 
     public override void _Process(double delta)
@@ -258,12 +370,17 @@ public partial class BattleHud : CanvasLayer
             return;
         }
 
-        RefreshEconomy();
-        RefreshSelectionLabel();
-        RefreshCommandPanelLive();
-        RefreshMapInteractionLockState();
-        RefreshBottomCommandBar();
-        RefreshInputHint();
+        uiRefreshTimer += (float)delta;
+        if (uiRefreshTimer >= 0.10f)
+        {
+            uiRefreshTimer = 0f;
+            RefreshEconomy();
+            RefreshSelectionLabel();
+            RefreshCommandPanelLive();
+            RefreshMapInteractionLockState();
+            RefreshBottomCommandBar();
+            RefreshInputHint();
+        }
         UpdateTechTargetingVisual();
         UpdateTechCooldownVisuals();
         UpdateBattleCommunicationPanel((float)delta);
@@ -274,21 +391,23 @@ public partial class BattleHud : CanvasLayer
             objectiveRefreshTimer = 0f;
             RefreshObjectives();
         }
+
+        UpdateDifyTacticalNotification();
     }
 
     void BuildTopPanel(Control root)
     {
-        topPanel = TransparentPanel(Vector2.Zero, new Vector2(HudWidth, BattleHudTopBarHeight));
+        topPanel = TransparentPanel(new Vector2(228f, 0f), new Vector2(HudWidth - 228f, BattleHudTopBarHeight));
         topPanel.MouseFilter = Control.MouseFilterEnum.Ignore;
         root.AddChild(topPanel);
 
         var avatarGroup = CreateCommanderHeader(topPanel);
-        avatarGroup.Position = new Vector2(12f, 2f);
+        avatarGroup.Position = new Vector2(8f, 4f);
 
         var goldChip = new Control
         {
             Name = "GoldChip",
-            Position = new Vector2(172f, 12f),
+            Position = new Vector2(146f, 12f),
             Size = new Vector2(156f, 28f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
@@ -327,7 +446,7 @@ public partial class BattleHud : CanvasLayer
         var powerChip = new Control
         {
             Name = "PowerChip",
-            Position = new Vector2(328f, 12f),
+            Position = new Vector2(302f, 12f),
             Size = new Vector2(102f, 24f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
@@ -354,28 +473,28 @@ public partial class BattleHud : CanvasLayer
         powerValueLabel.AddThemeConstantOverride("outline_size", 2);
         powerChip.AddChild(powerValueLabel);
 
-        economyLabel = HudLabel("", 17, new Color(0.82f, 0.96f, 1f));
+        economyLabel = HudLabel("", 15, new Color(0.82f, 0.96f, 1f));
         economyLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
         economyLabel.HorizontalAlignment = HorizontalAlignment.Center;
-        economyLabel.Position = new Vector2(430, 14);
-        economyLabel.Size = new Vector2(402, 30);
+        economyLabel.Position = new Vector2(404f, 14f);
+        economyLabel.Size = new Vector2(200f, 30f);
         economyLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.88f));
         economyLabel.AddThemeConstantOverride("outline_size", 3);
         topPanel.AddChild(economyLabel);
 
-        selectionLabel = HudLabel("当前选择：未选择单位", 15, new Color(0.94f, 0.96f, 0.88f));
+        selectionLabel = HudLabel("当前选择：未选择单位", 14, new Color(0.94f, 0.96f, 0.88f));
         selectionLabel.MouseFilter = Control.MouseFilterEnum.Stop;
-        selectionLabel.TooltipText = "点击立即聚焦镜头到当前单位/部队 (快捷键: 空格键 Space)";
+        selectionLabel.TooltipText = "双击聚焦镜头到当前单位/部队 (快捷键: 空格键 Space)";
         selectionLabel.GuiInput += evt =>
         {
-            if (evt is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
+            if (evt is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true, DoubleClick: true })
             {
                 BattleGameManager.Instance?.FocusCameraOnPlayerForces();
             }
         };
         selectionLabel.HorizontalAlignment = HorizontalAlignment.Right;
-        selectionLabel.Position = new Vector2(800, 14);
-        selectionLabel.Size = new Vector2(360, 30);
+        selectionLabel.Position = new Vector2(topPanel.Size.X - 52f - 390f, 14f);
+        selectionLabel.Size = new Vector2(380f, 30f);
         selectionLabel.AutowrapMode = TextServer.AutowrapMode.Off;
         selectionLabel.ClipText = true;
         selectionLabel.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
@@ -386,23 +505,55 @@ public partial class BattleHud : CanvasLayer
         alertLabel = HudLabel("", 15, new Color(1f, 0.72f, 0.34f));
         alertLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
         alertLabel.HorizontalAlignment = HorizontalAlignment.Center;
-        alertLabel.Position = new Vector2(310, BattleHudTopBarHeight + 2f);
-        alertLabel.Size = new Vector2(660, 30);
+        alertLabel.Position = new Vector2((HudWidth - 740f) * 0.5f, BattleHudTopBarHeight + 2f);
+        alertLabel.Size = new Vector2(740f, 30f);
         alertLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
         alertLabel.AddThemeConstantOverride("outline_size", 3);
         root.AddChild(alertLabel);
 
+        difyStatusBadge = new Panel
+        {
+            Position = new Vector2((HudWidth - 520f) * 0.5f, BattleHudTopBarHeight + 4f),
+            Size = new Vector2(520f, 26f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Visible = false,
+            Modulate = new Color(1f, 1f, 1f, 0f)
+        };
+        difyStatusBadge.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.02f, 0.05f, 0.08f, 0.35f),
+            BorderColor = new Color(0.20f, 0.75f, 0.95f, 0.40f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 13,
+            CornerRadiusTopRight = 13,
+            CornerRadiusBottomLeft = 13,
+            CornerRadiusBottomRight = 13
+        });
+        difyStatusLabel = HudLabel("", 12, new Color(0.72f, 0.93f, 1f));
+        difyStatusLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        difyStatusLabel.VerticalAlignment = VerticalAlignment.Center;
+        difyStatusLabel.Position = Vector2.Zero;
+        difyStatusLabel.Size = new Vector2(520f, 26f);
+        difyStatusLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.95f));
+        difyStatusLabel.AddThemeConstantOverride("outline_size", 2);
+        difyStatusBadge.AddChild(difyStatusLabel);
+        root.AddChild(difyStatusBadge);
+        gameplayHudItems.Add(difyStatusBadge);
+
         settingsButton = new Button
         {
-            Position = new Vector2(1180, 10),
-            Size = new Vector2(40, 36)
+            Position = new Vector2(topPanel.Size.X - 50f, 10f),
+            Size = new Vector2(40f, 36f)
         };
         settingsButton.Icon = LoadHudTexture("res://assets/unity_migrated/Assets/Resources/icons3/gear.png");
         settingsButton.ExpandIcon = true;
         ApplyButtonStyle(settingsButton, new Color(0.16f, 0.18f, 0.20f, 0.72f), new Color(1f, 0.84f, 0.30f, 0.88f), 18);
         settingsButton.Pressed += ToggleSettingsDialog;
         settingsButton.TooltipText = "设置";
-        root.AddChild(settingsButton);
+        topPanel.AddChild(settingsButton);
         gameplayHudItems.Add(topPanel);
         gameplayHudItems.Add(alertLabel);
         gameplayHudItems.Add(settingsButton);
@@ -412,56 +563,78 @@ public partial class BattleHud : CanvasLayer
     void BuildCommandPanel(Control root)
     {
         AddBottomCommandBar(root);
-        buildActionButton = AddLeftActionButton(root, "建造", "res://assets/unity_migrated/Assets/Resources/icons_final/tools.png", BattleHudBuildButtonBottom, new Color(0.20f, 0.34f, 0.14f, 0.96f), () =>
+        // 科技研发与建造面板置于左下角语音面板正上方，并与语音面板同宽 (76px)，形成左侧紧凑战术控制列，中间交战大视野彻底留空
+        float commY = HudHeight - 78f - 12f;
+        techActionButton = AddActionIconButton(root, "科技研发 (快捷键 T)", "res://assets/unity_migrated/Assets/Resources/icons_final/icon_hud_tech.png", 12f, commY - 48f, 76f, 42f, new Color(0.16f, 0.32f, 0.54f, 0.92f), new Color(0.40f, 0.90f, 1.0f, 0.90f), () =>
         {
-            buildMenuOpen = true;
-            techMenuOpen = false;
-            GameState.Instance?.SetSelection(System.Array.Empty<Node>());
-            ShowAlert("打开建造面板");
-            RefreshCommandPanel();
-        });
-        techActionButton = AddLeftActionButton(root, "科技", "res://assets/unity_migrated/Assets/Resources/icons_final/gear.png", BattleHudTechButtonBottom, new Color(0.16f, 0.30f, 0.54f, 0.96f), () =>
-        {
-            buildMenuOpen = false;
-            techMenuOpen = true;
-            ShowAlert(selectedBuilding switch
+            if (techMenuOpen)
             {
-                null => "选择兵工厂、坦克厂等建筑后研究科技",
-                { IsMainBase: true } => "主基地显示信息面板，可在右侧查看升级条件",
-                _ => "已打开当前建筑科技"
-            });
+                techMenuOpen = false;
+                ShowAlert("关闭科技面板");
+            }
+            else
+            {
+                buildMenuOpen = false;
+                techMenuOpen = true;
+                ShowAlert(selectedBuilding switch
+                {
+                    null => "选择兵工厂、坦克厂等建筑后研究科技",
+                    { IsMainBase: true } => "主基地显示信息面板，可在右侧查看升级条件",
+                    _ => "已打开当前建筑科技"
+                });
+            }
             RefreshCommandPanel();
         });
 
-        commandPanel = Panel(new Vector2(852, 126), new Vector2(414, 372), new Color(0.035f, 0.045f, 0.025f, 0.92f));
+        buildActionButton = AddActionIconButton(root, "建造面板 (快捷键 B)", "res://assets/unity_migrated/Assets/Resources/icons_final/icon_hud_build.png", 12f, commY - 96f, 76f, 42f, new Color(0.20f, 0.36f, 0.14f, 0.92f), new Color(1.0f, 0.82f, 0.30f, 0.90f), () =>
+        {
+            if (buildMenuOpen)
+            {
+                buildMenuOpen = false;
+                ShowAlert("关闭建造面板");
+            }
+            else
+            {
+                buildMenuOpen = true;
+                techMenuOpen = false;
+                GameState.Instance?.SetSelection(System.Array.Empty<Node>());
+                ShowAlert("打开建造面板");
+            }
+            RefreshCommandPanel();
+        });
+
+        commandPanel = Panel(new Vector2(HudWidth - CommandPanelWidth - 12f, 56f), new Vector2(CommandPanelWidth, 326f), new Color(0.08f, 0.12f, 0.16f, 0.94f));
         commandPanel.MouseFilter = Control.MouseFilterEnum.Stop;
         commandPanel.ClipContents = true;
         commandPanel.GuiInput += ConsumeHudPointerInput;
         root.AddChild(commandPanel);
         AddCommandPanelChrome(commandPanel);
 
-        commandPanelTitle = HudLabel("作战指令", 18, new Color(1f, 0.88f, 0.58f));
+        commandPanelTitle = HudLabel("作战指令", 15, new Color(0.96f, 0.92f, 0.78f));
         commandPanelTitle.HorizontalAlignment = HorizontalAlignment.Center;
-        commandPanelTitle.Position = new Vector2(18, 8);
-        commandPanelTitle.Size = new Vector2(332, 28);
+        commandPanelTitle.VerticalAlignment = VerticalAlignment.Center;
+        commandPanelTitle.Position = new Vector2(36f, 3f);
+        commandPanelTitle.Size = new Vector2(CommandPanelWidth - 72f, 28f);
         commandPanelTitle.AutowrapMode = TextServer.AutowrapMode.Off;
         commandPanelTitle.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        commandPanelTitle.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.92f));
+        commandPanelTitle.AddThemeConstantOverride("outline_size", 2);
         commandPanel.AddChild(commandPanelTitle);
 
         var commandPanelCloseButton = new Button
         {
             Text = "×",
-            Position = new Vector2(368, 8),
-            Size = new Vector2(28, 28),
+            Position = new Vector2(CommandPanelWidth - 32f, 4f),
+            Size = new Vector2(26f, 26f),
             Flat = true,
             MouseDefaultCursorShape = Control.CursorShape.PointingHand
         };
-        commandPanelCloseButton.AddThemeFontSizeOverride("font_size", 20);
+        commandPanelCloseButton.AddThemeFontSizeOverride("font_size", 18);
         commandPanelCloseButton.AddThemeStyleboxOverride("normal", new StyleBoxEmpty());
         
         var hoverBox = new StyleBoxFlat
         {
-            BgColor = new Color(1f, 1f, 1f, 0.12f),
+            BgColor = new Color(1f, 1f, 1f, 0.15f),
             CornerRadiusTopLeft = 4,
             CornerRadiusTopRight = 4,
             CornerRadiusBottomLeft = 4,
@@ -469,7 +642,7 @@ public partial class BattleHud : CanvasLayer
         };
         var pressedBox = new StyleBoxFlat
         {
-            BgColor = new Color(1f, 1f, 1f, 0.20f),
+            BgColor = new Color(1f, 1f, 1f, 0.25f),
             CornerRadiusTopLeft = 4,
             CornerRadiusTopRight = 4,
             CornerRadiusBottomLeft = 4,
@@ -480,23 +653,23 @@ public partial class BattleHud : CanvasLayer
         commandPanelCloseButton.AddThemeStyleboxOverride("pressed", pressedBox);
         commandPanelCloseButton.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
         
-        commandPanelCloseButton.AddThemeColorOverride("font_color", new Color(0.96f, 0.94f, 0.82f, 0.80f));
-        commandPanelCloseButton.AddThemeColorOverride("font_hover_color", new Color(1f, 1f, 1f, 1f));
+        commandPanelCloseButton.AddThemeColorOverride("font_color", new Color(0.96f, 0.94f, 0.82f, 0.85f));
+        commandPanelCloseButton.AddThemeColorOverride("font_hover_color", Colors.White);
         commandPanelCloseButton.AddThemeColorOverride("font_pressed_color", new Color(0.95f, 0.74f, 0.24f, 1f));
         
         commandPanelCloseButton.Pressed += CloseCommandPanelView;
         commandPanel.AddChild(commandPanelCloseButton);
 
-        var scroll = new ScrollContainer
+        commandPanelScroll = new ScrollContainer
         {
-            Position = new Vector2(18, 40),
-            Size = new Vector2(378, 312),
+            Position = new Vector2(14f, 40f),
+            Size = new Vector2(CommandPanelContentWidth, commandPanel.Size.Y - 48f),
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
             ClipContents = true,
             MouseFilter = Control.MouseFilterEnum.Stop
         };
-        scroll.GuiInput += ConsumeHudPointerInput;
-        commandPanel.AddChild(scroll);
+        // commandPanelScroll.GuiInput += ConsumeHudPointerInput; // Disabled to allow native touch dragging
+        commandPanel.AddChild(commandPanelScroll);
 
         commandList = new VBoxContainer
         {
@@ -504,7 +677,7 @@ public partial class BattleHud : CanvasLayer
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
         };
         commandList.AddThemeConstantOverride("separation", 6);
-        scroll.AddChild(commandList);
+        commandPanelScroll.AddChild(commandList);
         BuildCommandPanelLockOverlay(commandPanel);
         commandPanel.Visible = false;
         gameplayHudItems.Add(commandPanel);
@@ -558,7 +731,7 @@ public partial class BattleHud : CanvasLayer
 
     void BuildInputHintPanel(Control root)
     {
-        inputHintPanel = Panel(new Vector2(356, 614), new Vector2(568, 30), new Color(0.018f, 0.028f, 0.032f, 0.58f));
+        inputHintPanel = Panel(new Vector2((HudWidth - 568f) * 0.5f, HudHeight - 30f - 76f), new Vector2(568, 30), new Color(0.018f, 0.028f, 0.032f, 0.58f));
         inputHintPanel.MouseFilter = Control.MouseFilterEnum.Ignore;
         inputHintPanel.Visible = false;
         root.AddChild(inputHintPanel);
@@ -579,7 +752,7 @@ public partial class BattleHud : CanvasLayer
 
     void BuildBattleCommunicationPanel(Control root)
     {
-        battleCommunicationPanel = Panel(new Vector2(12, 474), new Vector2(76, 78), new Color(0.018f, 0.028f, 0.034f, 0.82f));
+        battleCommunicationPanel = Panel(new Vector2(12, HudHeight - 78 - 12), new Vector2(76, 78), new Color(0.018f, 0.028f, 0.034f, 0.85f));
         battleCommunicationPanel.MouseFilter = Control.MouseFilterEnum.Stop;
         battleCommunicationPanel.ClipContents = true;
         root.AddChild(battleCommunicationPanel);
@@ -1182,6 +1355,9 @@ public partial class BattleHud : CanvasLayer
         battleCommunicationPanel.Size = showLog
             ? allowComposer ? new Vector2(416, 228) : new Vector2(416, 196)
             : new Vector2(76, 78);
+        battleCommunicationPanel.Position = showLog
+            ? new Vector2(12, HudHeight - (allowComposer ? 228 : 196) - 12)
+            : new Vector2(12, HudHeight - 78 - 12);
         battleCommunicationButton.Position = new Vector2(10, 8);
         battleCommunicationButton.Size = new Vector2(56, 48);
         battleCommunicationTitleLabel.Visible = showLog;
@@ -1239,14 +1415,7 @@ public partial class BattleHud : CanvasLayer
         battleCommunicationInput.PlaceholderText = "输入战场消息，回车发送";
         var hasText = !string.IsNullOrWhiteSpace(battleCommunicationInput.Text);
         battleCommunicationSendButton.Disabled = !hasText;
-        battleCommunicationVoiceButton.Disabled = !canTransmit;
-
-        if (!canTransmit)
-        {
-            battleCommunicationVoiceButton.Text = "语音";
-            ApplyButtonStyle(battleCommunicationVoiceButton, new Color(0.20f, 0.22f, 0.24f, 0.92f), new Color(0.62f, 0.68f, 0.72f, 0.42f), 10);
-            return;
-        }
+        battleCommunicationVoiceButton.Disabled = false;
 
         if (battleCommunicationVoiceHolding)
         {
@@ -1266,7 +1435,7 @@ public partial class BattleHud : CanvasLayer
     }
 
     bool CanTransmitBattleCommunication()
-        => GameRelay.Instance?.IsNetworkGame == true && GameRelay.Instance.PeerConnected;
+        => true; // 始终开放战地通讯与电台对讲（单机支持AI模拟应答，联机支持双人全双工）
 
     int ConnectedBattleTeammateCount()
         => settingsParticipants.Count(IsConnectedBattleTeammate);
@@ -1312,12 +1481,13 @@ public partial class BattleHud : CanvasLayer
     public void TriggerInvasionAlert(string message, bool isBaseAttack)
     {
         var now = Godot.Time.GetTicksMsec() / 1000.0;
-        if (now - lastInvasionAlertTime < 12.0)
+        if (now - lastInvasionAlertTime < 7.0)
             return;
         lastInvasionAlertTime = now;
         string speaker = isBaseAttack ? "基地警报" : "雷达哨所";
         Color color = isBaseAttack ? new Color(1f, 0.32f, 0.28f) : new Color(1f, 0.64f, 0.30f);
         AppendBattleCommunicationMessage(speaker, message, color);
+        ShowAlert(message);
     }
 
     void OnBattleCommunicationTextSubmitted(string text)
@@ -1383,17 +1553,11 @@ public partial class BattleHud : CanvasLayer
 
     void BeginBattleVoiceTransmit()
     {
-        if (GameRelay.Instance?.IsNetworkGame != true || !GameRelay.Instance.PeerConnected)
-        {
-            ShowAlert("当前未连接队友，无法发送语音");
-        RefreshBattleCommunicationComposerState();
-            return;
-        }
-
         battleCommunicationVoiceHolding = true;
         nextBattleCommunicationVoicePulseAtMs = 0UL;
         SendBattleCommunicationVoiceSignal(true);
         RefreshBattleCommunicationComposerState();
+        BattleFeedback.UiConfirm(this);
     }
 
     void EndBattleVoiceTransmit()
@@ -1411,16 +1575,49 @@ public partial class BattleHud : CanvasLayer
         AppendBattleCommunicationMessage("语音", $"{LocalBattleSpeakerName()} 语音结束", new Color(0.70f, 0.98f, 0.94f));
         RefreshBattleCommunicationHeader();
         RefreshBattleCommunicationComposerState();
+        BattleFeedback.UiCancel(this);
+
+        // 单机演练模式下触发战地电台/AI协同回复
+        if (GameRelay.Instance?.IsNetworkGame != true || !GameRelay.Instance.PeerConnected)
+        {
+            SimulateLocalTeammateVoiceReply();
+        }
+    }
+
+    async void SimulateLocalTeammateVoiceReply()
+    {
+        await System.Threading.Tasks.Task.Delay(800);
+        if (!GodotObject.IsInstanceValid(this) || !Visible)
+            return;
+
+        activeBattleVoiceParticipantId = "radio-teammate";
+        activeBattleVoiceSpeakerName = "前线战地无线电(AI)";
+        battleCommunicationVoiceRemaining = 2.5f;
+        RefreshBattleCommunicationHeader();
+        RefreshBattleCommunicationComposerState();
+
+        string[] radioReplies = new[]
+        {
+            "【战术电台】收到，指挥官！前线通信链路畅通，各作战单位处于待命状态！",
+            "【战术电台】雷达哨所报告：战区空域平稳，防空警戒雷达网已展开！",
+            "【战术电台】主战装甲连队就位，随时听从战略协同指派！",
+            "【战术电台】后勤重装补给线已连通，前沿阵地火控校准完成！",
+            "【战术电台】哨兵侦察连已前出，发现敌情将立即回报！"
+        };
+        var reply = radioReplies[GD.Randi() % (uint)radioReplies.Length];
+        AppendBattleCommunicationMessage("战地电台(AI)", reply, new Color(0.86f, 0.96f, 1f));
     }
 
     void SendBattleCommunicationVoiceSignal(bool showLocalMessage)
     {
-        if (GameRelay.Instance?.IsNetworkGame != true || !GameRelay.Instance.PeerConnected)
-            return;
-
         var senderId = LocalBattleParticipantId();
         var speaker = LocalBattleSpeakerName();
-        GameRelay.Instance.SendBattleVoice(senderId, speaker);
+
+        if (GameRelay.Instance?.IsNetworkGame == true && GameRelay.Instance.PeerConnected)
+        {
+            GameRelay.Instance.SendBattleVoice(senderId, speaker);
+        }
+
         selectedBattleParticipantId = senderId;
         activeBattleVoiceParticipantId = senderId;
         activeBattleVoiceSpeakerName = speaker;
@@ -1484,28 +1681,69 @@ public partial class BattleHud : CanvasLayer
             return;
         }
 
-        var names = selectedNodes.Select(node => node switch
+        if (selectedNodes.Length == 1)
         {
-            RtsUnit unit => FormatSelectedUnitText(unit),
-            RtsBuilding building => $"{building.DisplayName} 耐久 {building.Health:0}/{building.MaxHealth:0}",
-            _ => node.Name.ToString()
-        });
-        selectionLabel.Text = "当前选择：" + string.Join("，", names);
+            var singleText = selectedNodes[0] switch
+            {
+                RtsUnit unit => FormatSelectedUnitText(unit),
+                RtsBuilding building => $"{building.DisplayName} 耐久 {building.Health:0}/{building.MaxHealth:0}",
+                _ => selectedNodes[0].Name.ToString()
+            };
+            selectionLabel.Text = "当前选择：" + singleText;
+        }
+        else
+        {
+            // 多选时智能按兵种/建筑合并展示，杜绝超长文字被截断
+            var unitGroups = selectedNodes
+                .OfType<RtsUnit>()
+                .GroupBy(u => u.DisplayName)
+                .Select(g => $"{g.Key}×{g.Count()}");
+            var bldgGroups = selectedNodes
+                .OfType<RtsBuilding>()
+                .GroupBy(b => b.DisplayName)
+                .Select(g => $"{g.Key}×{g.Count()}");
+            var allGroups = unitGroups.Concat(bldgGroups).ToList();
+            var summary = allGroups.Count > 0 ? string.Join("，", allGroups) : $"{selectedNodes.Length} 个目标";
+            selectionLabel.Text = $"当前选择 ({selectedNodes.Length})：{summary}";
+        }
     }
 
     static string FormatSelectedUnitText(RtsUnit unit)
     {
         var text = $"{unit.DisplayName} 耐久 {unit.Health:0}/{unit.MaxHealth:0}";
+        if (unit.HasActiveTechBuffs)
+        {
+            var activeBuffs = string.Join(" ", unit.GetActiveTechBuffInfo().Select(b => $"[⚡{BattleTechCatalog.Get(b.SourceId).DisplayName} {b.Remaining:0.0}s]"));
+            text += " " + activeBuffs;
+        }
+        if (BattleUnitCatalog.SupportsArtilleryDeploy(unit.UnitKey))
+        {
+            var deployStateStr = unit.DeployState switch
+            {
+                RtsUnit.ArtilleryDeployState.Deploying => $"[搭炮架中 {Mathf.RoundToInt(unit.DeployProgress * 100f)}%]",
+                RtsUnit.ArtilleryDeployState.Deployed => $"[架设就绪 射程+85%]",
+                RtsUnit.ArtilleryDeployState.Undeploying => $"[收起炮架 {Mathf.RoundToInt((1f - unit.DeployProgress) * 100f)}%]",
+                _ => "[机动模式(按D架设)]"
+            };
+            text = $"{text} {deployStateStr}";
+        }
         if (!BattleUnitCatalog.IsAirUnit(unit.UnitKey))
             return text;
 
         var fuel = Mathf.RoundToInt(unit.FuelRatio * 100f);
-        var state = unit.IsParkedAtAirfield
-            ? "停机加油"
-            : unit.IsReturningToRefuel
-                ? "返场加油"
-                : "飞行";
-        return $"{text} 燃油 {fuel}% {state}";
+        var ammoStr = unit.MaxAmmo > 0 ? $" 弹药 {unit.CurrentAmmo}/{unit.MaxAmmo}" : "";
+        var state = unit.IsCarrierServicing
+            ? $"[航母整备中 {unit.CarrierServiceTimeRemaining:F1}s]"
+            : unit.IsDockedOnCarrier
+                ? "[航母待命中]"
+                : unit.IsReturningToCarrier
+                    ? "[返舰补给中]"
+                    : unit.IsParkedAtAirfield
+                        ? "停机加油"
+                        : unit.IsReturningToRefuel
+                            ? "返场加油"
+                            : "飞行";
+        return $"{text}{ammoStr} 燃油 {fuel}% {state}";
     }
 
     void RefreshEconomy()
@@ -1564,6 +1802,9 @@ public partial class BattleHud : CanvasLayer
 
     void RefreshCommandPanel()
     {
+        UpdateActionIconButtonState(buildActionButton, buildMenuOpen, new Color(0.20f, 0.36f, 0.14f, 0.90f), new Color(0.70f, 0.95f, 0.45f, 0.88f));
+        UpdateActionIconButtonState(techActionButton, techMenuOpen, new Color(0.16f, 0.32f, 0.54f, 0.90f), new Color(0.55f, 0.85f, 1.0f, 0.88f));
+
         if (commandList is null)
             return;
 
@@ -1579,20 +1820,22 @@ public partial class BattleHud : CanvasLayer
         if (selectedBuilding is not null && GodotObject.IsInstanceValid(selectedBuilding))
         {
             commandPanel.Visible = true;
-            if (selectedBuilding.IsMainBase)
-            {
-                commandPanelTitle.Text = "主基地信息";
-                AddMainBaseInfoMenu(selectedBuilding);
-            }
-            else if (techMenuOpen)
+            if (techMenuOpen)
             {
                 commandPanelTitle.Text = $"{selectedBuilding.DisplayName} · 科技";
                 AddBattleTechMenu(manager, selectedBuilding);
+            }
+            else if (selectedBuilding.IsMainBase)
+            {
+                commandPanelTitle.Text = "主基地信息";
+                AddMainBaseInfoMenu(selectedBuilding);
+                SetCommandPanelHeight(activeMainBaseInfoSectionIndex == 2 ? 460f : 360f);
             }
             else
             {
                 commandPanelTitle.Text = selectedBuilding.DisplayName;
                 AddProductionMenu(selectedBuilding);
+                SetCommandPanelHeight(350f);
             }
         }
         else if (techMenuOpen)
@@ -1613,8 +1856,19 @@ public partial class BattleHud : CanvasLayer
             return;
         }
 
+        if (commandPanelScroll is not null)
+            commandPanelScroll.ScrollVertical = 0;
+
         StyleCommandListControls(commandList);
         nextCommandPanelLiveRefreshMs = Time.GetTicksMsec() + CommandPanelLiveRefreshMs;
+    }
+
+    void SetCommandPanelHeight(float height)
+    {
+        if (commandPanel is null) return;
+        commandPanel.Size = new Vector2(CommandPanelWidth, height);
+        if (commandPanelScroll is not null)
+            commandPanelScroll.Size = new Vector2(CommandPanelContentWidth, height - 48f);
     }
 
     void RefreshCommandPanelLive()
@@ -2048,6 +2302,16 @@ public partial class BattleHud : CanvasLayer
             compactHorizontal ? 11 : 12,
             compactHorizontal ? 13 : 16,
             compactHorizontal ? 10 : 11));
+
+        if (building.HasActiveTechBuffs)
+        {
+            commandList.AddChild(HudLabel("战术科技增益（范围生效中）", 12, new Color(0.42f, 0.90f, 1f)));
+            foreach (var buff in building.GetActiveTechBuffInfo())
+            {
+                var def = BattleTechCatalog.Get(buff.SourceId);
+                commandList.AddChild(HudLabel($"⚡ {def.DisplayName}：剩余 {buff.Remaining:0.0}s", 11, def.Tint));
+            }
+        }
     }
 
     void AddMainBaseUpgradeSummary(
@@ -2099,6 +2363,7 @@ public partial class BattleHud : CanvasLayer
         commandList.AddChild(upgradeButton);
     }
 
+
     void AddMainBaseTechSummary(BattleGameManager manager, bool includeHeading = true)
     {
         if (includeHeading)
@@ -2131,6 +2396,121 @@ public partial class BattleHud : CanvasLayer
             row.AddChild(CreateMainBaseTechSummaryTile(tech, cooldownText));
         }
     }
+
+    Control CreateMainBaseTechSummaryTile(BattleTechDefinition tech, string cooldownText)
+    {
+        var size = new Vector2(174f, 112f);
+        var card = new Panel
+        {
+            CustomMinimumSize = size,
+            Size = size,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ClipContents = true
+        };
+
+        var cardBox = new StyleBoxFlat
+        {
+            BgColor = new Color(0.12f, 0.17f, 0.22f, 0.90f),
+            BorderColor = new Color(tech.Tint.R * 0.70f + 0.22f, tech.Tint.G * 0.70f + 0.22f, tech.Tint.B * 0.70f + 0.22f, 0.80f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        };
+        card.AddThemeStyleboxOverride("panel", cardBox);
+
+        if (!string.IsNullOrEmpty(tech.BackgroundPath))
+        {
+            var background = new TextureRect
+            {
+                Position = Vector2.Zero,
+                Size = size,
+                Texture = LoadHudTexture(tech.BackgroundPath),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.Scale,
+                Modulate = new Color(1f, 1f, 1f, 0.50f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            card.AddChild(background);
+
+            var wash = new ColorRect
+            {
+                Position = Vector2.Zero,
+                Size = size,
+                Color = new Color(0.06f, 0.10f, 0.14f, 0.55f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            card.AddChild(wash);
+        }
+        else
+        {
+            var tintWash = new ColorRect
+            {
+                Position = Vector2.Zero,
+                Size = size,
+                Color = new Color(tech.Tint.R * 0.08f + 0.08f, tech.Tint.G * 0.08f + 0.12f, tech.Tint.B * 0.08f + 0.16f, 0.88f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            card.AddChild(tintWash);
+        }
+
+        var stripe = new ColorRect
+        {
+            Position = Vector2.Zero,
+            Size = new Vector2(size.X, 3f),
+            Color = tech.Tint,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        card.AddChild(stripe);
+
+        var titleLabel = HudLabel(tech.DisplayName, 12, tech.Tint);
+        titleLabel.Position = new Vector2(10f, 7f);
+        titleLabel.Size = new Vector2(size.X - 20f, 18f);
+        titleLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        titleLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        titleLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.95f));
+        titleLabel.AddThemeConstantOverride("outline_size", 2);
+        card.AddChild(titleLabel);
+
+        var effectLabel = HudLabel(BuildTechEffectSummary(tech), 10, new Color(0.95f, 0.97f, 0.98f));
+        effectLabel.Position = new Vector2(10f, 24f);
+        effectLabel.Size = new Vector2(size.X - 20f, 34f);
+        effectLabel.VerticalAlignment = VerticalAlignment.Top;
+        effectLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        effectLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        effectLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.92f));
+        effectLabel.AddThemeConstantOverride("outline_size", 1);
+        card.AddChild(effectLabel);
+
+        var metaLabel = HudLabel(BuildTechDurationRadiusSummary(tech), 10, new Color(0.74f, 0.88f, 0.92f));
+        metaLabel.Position = new Vector2(10f, 59f);
+        metaLabel.Size = new Vector2(size.X - 20f, 14f);
+        metaLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        metaLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
+        metaLabel.AddThemeConstantOverride("outline_size", 1);
+        card.AddChild(metaLabel);
+
+        var statusLabel = HudLabel(BuildMainBaseTechStatusText(cooldownText), 11, new Color(0.92f, 0.95f, 0.98f));
+        statusLabel.Position = new Vector2(10f, 77f);
+        statusLabel.Size = new Vector2(size.X - 20f, 26f);
+        statusLabel.VerticalAlignment = VerticalAlignment.Top;
+        statusLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        statusLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        statusLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.92f));
+        statusLabel.AddThemeConstantOverride("outline_size", 1);
+        card.AddChild(statusLabel);
+
+        return card;
+    }
+
+    static string BuildMainBaseTechStatusText(string cooldownText)
+        => cooldownText == "待释放"
+            ? "主基地挂载中，可随时释放"
+            : $"主基地挂载中，{cooldownText}";
 
     void AddGlobalConquestArmamentSummary(BattleGameManager manager, bool includeHeading = true)
     {
@@ -2255,10 +2635,27 @@ public partial class BattleHud : CanvasLayer
         var canUpgrade = manager.CanUpgradeBuilding(building, out var eligibilityMessage);
         var detailText = canUpgrade ? $"可升级至 Lv.{nextLevel}" : eligibilityMessage;
         const float rowHeight = 58f;
-        var panel = Panel(Vector2.Zero, new Vector2(CommandPanelContentWidth, rowHeight), new Color(0.035f, 0.045f, 0.040f, 0.96f));
-        panel.Name = "BuildingUpgradeRow";
-        panel.CustomMinimumSize = new Vector2(CommandPanelContentWidth, rowHeight);
-        panel.ClipContents = true;
+        var panel = new Panel
+        {
+            Name = "BuildingUpgradeRow",
+            CustomMinimumSize = new Vector2(CommandPanelContentWidth, rowHeight),
+            Size = new Vector2(CommandPanelContentWidth, rowHeight),
+            ClipContents = true
+        };
+        var rowBox = new StyleBoxFlat
+        {
+            BgColor = new Color(0.12f, 0.17f, 0.22f, 0.90f),
+            BorderColor = new Color(0.80f, 0.65f, 0.36f, 0.70f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        };
+        panel.AddThemeStyleboxOverride("panel", rowBox);
         commandList.AddChild(panel);
 
         var layout = new HBoxContainer
@@ -2301,6 +2698,7 @@ public partial class BattleHud : CanvasLayer
         {
             var pending = BattleBuildingCatalog.Get(manager.PendingBuildKey);
             commandList.AddChild(HudLabel($"放置中：{pending.DisplayName}，点地图落点", 14, new Color(1f, 0.84f, 0.48f)));
+            SetCommandPanelHeight(88f);
             return;
         }
 
@@ -2308,19 +2706,116 @@ public partial class BattleHud : CanvasLayer
         if (activeBuildMenuSectionIndex < 0 || activeBuildMenuSectionIndex >= sections.Length)
             activeBuildMenuSectionIndex = 0;
 
-        commandList.AddChild(HudLabel("建造分类", 14, new Color(1f, 0.88f, 0.58f)));
         AddBuildCategoryTabs(sections);
 
         var activeSection = sections[activeBuildMenuSectionIndex];
-        var sectionTitle = HudLabel(activeSection.Title, 13, new Color(0.80f, 0.94f, 1f));
-        commandList.AddChild(sectionTitle);
-
         var row = new GridContainer { Columns = 3 };
         row.AddThemeConstantOverride("h_separation", 6);
         row.AddThemeConstantOverride("v_separation", 6);
         commandList.AddChild(row);
         foreach (var def in activeSection.Buildings)
             row.AddChild(CreateBuildCard(def));
+        AddBuildMenuTacticalFooter(manager, activeSection);
+
+        int cardRows = Mathf.Max(1, (activeSection.Buildings.Length + 2) / 3);
+        float cardGridHeight = cardRows * 84f + (cardRows - 1) * 6f;
+        bool hasDify = DifyCommanderClient.Instance is { } dify && !string.IsNullOrWhiteSpace(dify.LastAnalysis);
+        float footerHeight = hasDify ? 96f : 64f;
+        float totalHeight = 40f + 28f + 6f + cardGridHeight + 6f + 1f + 6f + footerHeight + 14f;
+        SetCommandPanelHeight(totalHeight);
+    }
+
+    void AddBuildMenuTacticalFooter(BattleGameManager? manager, (string Title, BattleBuildingDefinition[] Buildings) section)
+    {
+        var mainBaseLevel = manager is not null ? Mathf.Max(1, manager.GetMainBaseLevel(true)) : 1;
+        var powerText = manager is not null ? (manager.PlayerPowerOnline ? $"供电正常 ({manager.PlayerPowerUsed}/{manager.PlayerPowerProvided}W)" : $"电力短缺 ({manager.PlayerPowerUsed}/{manager.PlayerPowerProvided}W)") : "供电状态良好";
+        var powerColor = manager is not null && !manager.PlayerPowerOnline ? new Color(1f, 0.45f, 0.35f) : new Color(0.40f, 0.95f, 0.60f);
+
+        var divider = new ColorRect
+        {
+            CustomMinimumSize = new Vector2(CommandPanelContentWidth, 1f),
+            Color = new Color(0.32f, 0.48f, 0.55f, 0.35f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        commandList.AddChild(divider);
+
+        var infoPanel = new PanelContainer
+        {
+            CustomMinimumSize = new Vector2(CommandPanelContentWidth, 0f),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        infoPanel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.04f, 0.07f, 0.10f, 0.85f),
+            BorderColor = new Color(0.20f, 0.40f, 0.45f, 0.50f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4,
+            ContentMarginLeft = 10,
+            ContentMarginTop = 6,
+            ContentMarginRight = 10,
+            ContentMarginBottom = 6
+        });
+        commandList.AddChild(infoPanel);
+
+        var vBox = new VBoxContainer();
+        vBox.AddThemeConstantOverride("separation", 4);
+        infoPanel.AddChild(vBox);
+
+        var statusRow = new HBoxContainer();
+        var baseLvlLabel = HudLabel($"⭐ 主基地: Lv.{mainBaseLevel}", 11, new Color(1f, 0.86f, 0.40f));
+        statusRow.AddChild(baseLvlLabel);
+
+        var spacer = new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        statusRow.AddChild(spacer);
+
+        var powerStatusLabel = HudLabel($"⚡ {powerText}", 11, powerColor);
+        statusRow.AddChild(powerStatusLabel);
+        vBox.AddChild(statusRow);
+
+        string hintText = mainBaseLevel == 1
+            ? "⚠️ 特勤工厂、坦克工厂与机库设施需要将【主基地】升级至 Lv.2 后方可部署。"
+            : "💡 提示：建造船坞需临水部署；发电厂为防空炮台与重工设施提供核心电能保障。";
+
+        var hintLabel = HudLabel(hintText, 11, new Color(0.72f, 0.86f, 0.90f, 0.90f));
+        hintLabel.CustomMinimumSize = new Vector2(CommandPanelContentWidth - 24f, 0f);
+        hintLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        hintLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        vBox.AddChild(hintLabel);
+
+        if (DifyCommanderClient.Instance is { } dify && !string.IsNullOrWhiteSpace(dify.LastAnalysis))
+        {
+            var difyBox = new PanelContainer
+            {
+                CustomMinimumSize = new Vector2(CommandPanelContentWidth - 24f, 0f),
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            difyBox.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+            {
+                BgColor = new Color(0.06f, 0.16f, 0.22f, 0.60f),
+                BorderColor = new Color(0.30f, 0.75f, 0.95f, 0.60f),
+                BorderWidthLeft = 2,
+                CornerRadiusTopRight = 3,
+                CornerRadiusBottomRight = 3,
+                ContentMarginLeft = 6,
+                ContentMarginTop = 4,
+                ContentMarginRight = 6,
+                ContentMarginBottom = 4
+            });
+            var difyLabel = HudLabel($"🤖 Dify战报: {dify.LastAnalysis}", 11, new Color(0.82f, 0.94f, 1f, 0.95f));
+            difyLabel.CustomMinimumSize = new Vector2(CommandPanelContentWidth - 36f, 0f);
+            difyLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            difyLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            difyBox.AddChild(difyLabel);
+            vBox.AddChild(difyBox);
+        }
     }
 
     void AddBuildCategoryTabs((string Title, BattleBuildingDefinition[] Buildings)[] sections)
@@ -2328,9 +2823,9 @@ public partial class BattleHud : CanvasLayer
         var tabRow = new HBoxContainer
         {
             Name = "BuildCategoryTabs",
-            CustomMinimumSize = new Vector2(356f, 32f)
+            CustomMinimumSize = new Vector2(CommandPanelContentWidth, 28f)
         };
-        tabRow.AddThemeConstantOverride("separation", 5);
+        tabRow.AddThemeConstantOverride("separation", 4);
         commandList.AddChild(tabRow);
 
         for (var i = 0; i < sections.Length; i++)
@@ -2339,14 +2834,15 @@ public partial class BattleHud : CanvasLayer
             var button = new Button
             {
                 Text = sections[i].Title,
-                CustomMinimumSize = new Vector2(82f, 30f),
+                CustomMinimumSize = new Vector2(86f, 28f),
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             };
-            ApplyButtonStyle(
+            ApplyTabButtonStyle(
                 button,
-                isActive ? new Color(0.20f, 0.42f, 0.34f, 0.98f) : new Color(0.08f, 0.12f, 0.12f, 0.96f),
-                isActive ? new Color(0.72f, 1f, 0.78f, 0.92f) : new Color(0.95f, 0.72f, 0.28f, 0.72f),
+                isActive ? new Color(0.18f, 0.32f, 0.42f, 0.98f) : new Color(0.14f, 0.19f, 0.24f, 0.92f),
+                isActive ? new Color(0.40f, 0.90f, 0.98f, 0.95f) : new Color(0.42f, 0.55f, 0.66f, 0.70f),
                 11);
+            button.AddThemeColorOverride("font_color", isActive ? new Color(0.92f, 1f, 0.94f) : new Color(0.85f, 0.90f, 0.95f));
             button.SetMeta("preserve_command_style", true);
 
             var sectionIndex = i;
@@ -2366,7 +2862,7 @@ public partial class BattleHud : CanvasLayer
             Name = "MainBaseInfoTabs",
             CustomMinimumSize = new Vector2(356f, 32f)
         };
-        tabRow.AddThemeConstantOverride("separation", 5);
+        tabRow.AddThemeConstantOverride("separation", 4);
         commandList.AddChild(tabRow);
 
         for (var i = 0; i < sections.Length; i++)
@@ -2375,13 +2871,13 @@ public partial class BattleHud : CanvasLayer
             var button = new Button
             {
                 Text = sections[i].Title,
-                CustomMinimumSize = new Vector2(82f, 30f),
+                CustomMinimumSize = new Vector2(78f, 28f),
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             };
-            ApplyButtonStyle(
+            ApplyTabButtonStyle(
                 button,
-                isActive ? new Color(0.20f, 0.42f, 0.34f, 0.98f) : new Color(0.08f, 0.12f, 0.12f, 0.96f),
-                isActive ? new Color(0.72f, 1f, 0.78f, 0.92f) : new Color(0.95f, 0.72f, 0.28f, 0.72f),
+                isActive ? new Color(0.20f, 0.44f, 0.35f, 0.98f) : new Color(0.14f, 0.19f, 0.24f, 0.92f),
+                isActive ? new Color(0.68f, 1f, 0.78f, 0.95f) : new Color(0.42f, 0.55f, 0.66f, 0.70f),
                 11);
             button.SetMeta("preserve_command_style", true);
 
@@ -2458,69 +2954,19 @@ public partial class BattleHud : CanvasLayer
 
         var card = new Panel
         {
-            CustomMinimumSize = new Vector2(116, 82),
-            Size = new Vector2(116, 82),
+            CustomMinimumSize = new Vector2(118f, 84f),
+            Size = new Vector2(118f, 84f),
             MouseFilter = Control.MouseFilterEnum.Stop,
             ClipContents = true
         };
         if (isLocked)
         {
-            card.Modulate = new Color(0.65f, 0.65f, 0.65f, 0.85f);
+            card.Modulate = new Color(0.70f, 0.70f, 0.70f, 0.90f);
         }
         card.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
-            BgColor = Colors.Transparent,
-            BorderColor = new Color(0.88f, 0.70f, 0.28f, 0.76f),
-            BorderWidthLeft = 1,
-            BorderWidthTop = 1,
-            BorderWidthRight = 1,
-            BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 3,
-            CornerRadiusTopRight = 3,
-            CornerRadiusBottomLeft = 3,
-            CornerRadiusBottomRight = 3
-        });
-
-        var background = new TextureRect
-        {
-            Position = Vector2.Zero,
-            Size = new Vector2(116f, 82f),
-            Texture = LoadHudTexture(BuildCardBackgroundPath(def.Key)),
-            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.Scale,
-            Modulate = new Color(1f, 1f, 1f, 0.78f),
-            MouseFilter = Control.MouseFilterEnum.Ignore
-        };
-        card.AddChild(background);
-
-        var wash = new ColorRect
-        {
-            Position = Vector2.Zero,
-            Size = new Vector2(116f, 82f),
-            Color = new Color(0.06f, 0.10f, 0.14f, 0.28f),
-            MouseFilter = Control.MouseFilterEnum.Ignore
-        };
-        card.AddChild(wash);
-
-        var stripe = new ColorRect
-        {
-            Position = new Vector2(0f, 0f),
-            Size = new Vector2(116f, 3f),
-            Color = BuildAccentColor(def),
-            MouseFilter = Control.MouseFilterEnum.Ignore
-        };
-        card.AddChild(stripe);
-
-        var iconFrame = new Panel
-        {
-            Position = new Vector2(8f, 8f),
-            Size = new Vector2(26f, 26f),
-            MouseFilter = Control.MouseFilterEnum.Ignore
-        };
-        iconFrame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
-        {
-            BgColor = new Color(0.05f, 0.08f, 0.10f, 0.72f),
-            BorderColor = new Color(0.92f, 0.80f, 0.46f, 0.72f),
+            BgColor = isLocked ? new Color(0.08f, 0.11f, 0.14f, 0.90f) : new Color(0.12f, 0.17f, 0.22f, 0.92f),
+            BorderColor = isLocked ? new Color(0.35f, 0.35f, 0.35f, 0.55f) : new Color(0.75f, 0.62f, 0.28f, 0.75f),
             BorderWidthLeft = 1,
             BorderWidthTop = 1,
             BorderWidthRight = 1,
@@ -2530,52 +2976,118 @@ public partial class BattleHud : CanvasLayer
             CornerRadiusBottomLeft = 4,
             CornerRadiusBottomRight = 4
         });
+
+        var background = new TextureRect
+        {
+            Position = Vector2.Zero,
+            Size = new Vector2(118f, 84f),
+            Texture = LoadHudTexture(BuildCardBackgroundPath(def.Key)),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.Scale,
+            Modulate = isLocked ? new Color(1f, 1f, 1f, 0.20f) : new Color(1f, 1f, 1f, 0.45f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        card.AddChild(background);
+
+        var stripe = new ColorRect
+        {
+            Position = new Vector2(0f, 0f),
+            Size = new Vector2(118f, 2f),
+            Color = isLocked ? new Color(0.40f, 0.40f, 0.40f, 0.50f) : BuildAccentColor(def),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        card.AddChild(stripe);
+
+        var iconFrame = new Panel
+        {
+            Position = new Vector2(6f, 6f),
+            Size = new Vector2(26f, 26f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        iconFrame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.03f, 0.05f, 0.08f, 0.92f),
+            BorderColor = new Color(0.85f, 0.72f, 0.35f, 0.65f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 3,
+            CornerRadiusTopRight = 3,
+            CornerRadiusBottomLeft = 3,
+            CornerRadiusBottomRight = 3
+        });
         card.AddChild(iconFrame);
 
         var iconTexture = new TextureRect
         {
-            Position = new Vector2(3f, 3f),
-            Size = new Vector2(20f, 20f),
+            Position = Vector2.Zero,
+            Size = new Vector2(26f, 26f),
             Texture = LoadHudTexture(BuildCardIconPath(def.Key)),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.Scale,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         iconFrame.AddChild(iconTexture);
 
-        var name = HudLabel(def.DisplayName, 13, new Color(0.95f, 0.97f, 0.98f));
-        name.Position = new Vector2(36f, 8f);
-        name.Size = new Vector2(72f, 22f);
+        var name = HudLabel(def.DisplayName, 12, new Color(0.96f, 0.98f, 1f));
+        name.Position = new Vector2(36f, 4f);
+        name.Size = new Vector2(78f, 28f);
         name.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        name.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
+        name.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.95f));
         name.AddThemeConstantOverride("outline_size", 2);
         name.MouseFilter = Control.MouseFilterEnum.Ignore;
         card.AddChild(name);
 
-        var cost = HudLabel($"${def.GoldCost}", 12, new Color(1f, 0.86f, 0.42f));
-        cost.Position = new Vector2(8f, 36f);
-        cost.Size = new Vector2(48f, 18f);
+        var cost = HudLabel($"${def.GoldCost}", 11, new Color(1f, 0.86f, 0.36f));
+        cost.Position = new Vector2(6f, 35f);
+        cost.Size = new Vector2(50f, 18f);
         cost.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
         cost.AddThemeConstantOverride("outline_size", 2);
         cost.MouseFilter = Control.MouseFilterEnum.Ignore;
         card.AddChild(cost);
 
-        var meta = HudLabel(BuildCardMeta(def), 11, new Color(0.76f, 0.88f, 0.90f));
-        meta.Position = new Vector2(56f, 36f);
-        meta.Size = new Vector2(52f, 18f);
+        var metaText = BuildCardMeta(def);
+        var isPowerGen = metaText.Contains('+');
+        var metaColor = isPowerGen ? new Color(0.35f, 0.95f, 0.55f) : new Color(0.65f, 0.85f, 0.98f);
+        var meta = HudLabel(metaText, 11, metaColor);
+        meta.Position = new Vector2(56f, 35f);
+        meta.Size = new Vector2(56f, 18f);
         meta.HorizontalAlignment = HorizontalAlignment.Right;
-        meta.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.84f));
+        meta.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
         meta.AddThemeConstantOverride("outline_size", 2);
         meta.MouseFilter = Control.MouseFilterEnum.Ignore;
         card.AddChild(meta);
 
-        var hint = HudLabel(isLocked ? "需要主基地 Lv.2" : "点击建造", 11, isLocked ? new Color(0.96f, 0.40f, 0.40f) : new Color(0.82f, 0.88f, 0.92f));
-        hint.Position = new Vector2(8f, 58f);
-        hint.Size = new Vector2(100f, 16f);
-        hint.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.82f));
-        hint.AddThemeConstantOverride("outline_size", 2);
+        var hintBg = new Panel
+        {
+            Position = new Vector2(5f, 57f),
+            Size = new Vector2(108f, 22f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        hintBg.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = isLocked ? new Color(0.30f, 0.08f, 0.08f, 0.65f) : new Color(0.10f, 0.20f, 0.26f, 0.70f),
+            BorderColor = isLocked ? new Color(0.80f, 0.30f, 0.30f, 0.60f) : new Color(0.30f, 0.70f, 0.80f, 0.55f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 3,
+            CornerRadiusTopRight = 3,
+            CornerRadiusBottomLeft = 3,
+            CornerRadiusBottomRight = 3
+        });
+        card.AddChild(hintBg);
+
+        var hint = HudLabel(isLocked ? "🔒 需主基地Lv.2" : "点击部署", 10, isLocked ? new Color(1f, 0.65f, 0.65f) : new Color(0.85f, 0.96f, 1f));
+        hint.Position = new Vector2(0f, 2f);
+        hint.Size = new Vector2(108f, 18f);
+        hint.HorizontalAlignment = HorizontalAlignment.Center;
+        hint.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
+        hint.AddThemeConstantOverride("outline_size", 1);
         hint.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.AddChild(hint);
+        hintBg.AddChild(hint);
 
         var button = new Button
         {
@@ -2598,10 +3110,10 @@ public partial class BattleHud : CanvasLayer
             BorderWidthTop = 1,
             BorderWidthRight = 1,
             BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 3,
-            CornerRadiusTopRight = 3,
-            CornerRadiusBottomLeft = 3,
-            CornerRadiusBottomRight = 3
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
         });
         button.AddThemeStyleboxOverride("pressed", new StyleBoxFlat
         {
@@ -2611,10 +3123,10 @@ public partial class BattleHud : CanvasLayer
             BorderWidthTop = 1,
             BorderWidthRight = 1,
             BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 3,
-            CornerRadiusTopRight = 3,
-            CornerRadiusBottomLeft = 3,
-            CornerRadiusBottomRight = 3
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
         });
         card.AddChild(button);
         return card;
@@ -2888,34 +3400,44 @@ public partial class BattleHud : CanvasLayer
         RefreshInputHint();
     }
 
+    static ImageTexture? progressWhiteTexture;
+    static ImageTexture GetProgressWhiteTexture()
+    {
+        if (progressWhiteTexture is not null && GodotObject.IsInstanceValid(progressWhiteTexture))
+            return progressWhiteTexture;
+        var img = Image.CreateEmpty(2, 2, false, Image.Format.Rgba8);
+        img.Fill(Colors.White);
+        progressWhiteTexture = ImageTexture.CreateFromImage(img);
+        return progressWhiteTexture;
+    }
+
     void AddBattleTechMenu(BattleGameManager? manager, RtsBuilding? building)
     {
         techButtons.Clear();
-        commandList.AddChild(HudLabel("战场科技", 14, new Color(1f, 0.88f, 0.58f)));
         if (manager is null)
         {
             commandList.AddChild(HudLabel("科技系统初始化中...", 13, new Color(0.82f, 0.90f, 0.94f)));
+            SetCommandPanelHeight(120f);
             return;
         }
 
-        if (building is not null && GodotObject.IsInstanceValid(building))
-            commandList.AddChild(HudLabel($"当前建筑：{building.DisplayName}", 13, new Color(0.82f, 0.90f, 0.94f)));
-        else
-            commandList.AddChild(HudLabel("选择科技后，点击地面释放范围加成。", 13, new Color(0.82f, 0.90f, 0.94f)));
-
-        commandList.AddChild(HudLabel("科技为范围施放：点击地图后，仅当时处在框内的我方目标会获得临时状态；机动只给部队，火力类只给武装单位或建筑。", 12, new Color(0.74f, 0.88f, 0.92f)));
+        var equippedKeys = GameState.Instance?.GetEquippedBattleTechKeys() ?? BattleTechCatalog.All.Take(BattleTechCatalog.MaxBattleTechLoadout).Select(t => t.Key);
+        var equippedSet = new HashSet<string>(equippedKeys);
 
         var allTechs = manager.GetBuildings(true)
             .Where(candidate => GodotObject.IsInstanceValid(candidate) && !candidate.UnderConstruction)
             .SelectMany(candidate => BattleTechCatalog.GetForBuilding(candidate.BuildKey))
+            .Where(tech => equippedSet.Contains(tech.Key))
             .GroupBy(tech => tech.Key)
             .Select(group => group.First())
+            .Take(BattleTechCatalog.MaxBattleTechLoadout)
             .OrderBy(tech => tech.DisplayName)
             .ToArray();
 
         if (allTechs.Length == 0)
         {
-            commandList.AddChild(HudLabel("当前没有可用科技。", 13, new Color(0.82f, 0.90f, 0.94f)));
+            commandList.AddChild(HudLabel("当前没有可用科技，建造研发设施以解锁。", 13, new Color(0.82f, 0.90f, 0.94f)));
+            SetCommandPanelHeight(120f);
             return;
         }
 
@@ -2923,21 +3445,50 @@ public partial class BattleHud : CanvasLayer
         if (activeTechCategoryIndex < 0 || activeTechCategoryIndex >= sections.Length)
             activeTechCategoryIndex = 0;
 
-        commandList.AddChild(HudLabel("科技分类", 14, new Color(1f, 0.88f, 0.58f)));
         AddBattleTechCategoryTabs(sections);
 
         var activeSection = sections[activeTechCategoryIndex];
-        commandList.AddChild(HudLabel(activeSection.Title, 13, new Color(0.80f, 0.94f, 1f)));
-
-        var row = new GridContainer { Columns = 2 };
-        row.AddThemeConstantOverride("h_separation", 6);
-        row.AddThemeConstantOverride("v_separation", 6);
-        commandList.AddChild(row);
         foreach (var tech in activeSection.Techs)
-            row.AddChild(CreateTechCard(manager, tech));
+            commandList.AddChild(CreateTechCard(manager, tech));
 
         if (!string.IsNullOrEmpty(activeTechTargetKey))
-            commandList.AddChild(HudLabel("左键地面释放，右键取消。", 12, new Color(1f, 0.84f, 0.48f)));
+        {
+            var targetTech = BattleTechCatalog.Get(activeTechTargetKey);
+            var banner = new Panel
+            {
+                CustomMinimumSize = new Vector2(CommandPanelContentWidth - 4f, 30f),
+                Size = new Vector2(CommandPanelContentWidth - 4f, 30f)
+            };
+            banner.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+            {
+                BgColor = new Color(0.24f, 0.18f, 0.06f, 0.92f),
+                BorderColor = new Color(1f, 0.84f, 0.35f, 0.95f),
+                BorderWidthLeft = 1, BorderWidthTop = 1, BorderWidthRight = 1, BorderWidthBottom = 1,
+                CornerRadiusTopLeft = 3, CornerRadiusTopRight = 3, CornerRadiusBottomLeft = 3, CornerRadiusBottomRight = 3
+            });
+            var bannerLabel = HudLabel($"⚡ 部署中【{targetTech.DisplayName}】：左键地图施放，右键取消", 11, new Color(1f, 0.90f, 0.50f));
+            bannerLabel.Position = new Vector2(8f, 0f);
+            bannerLabel.Size = new Vector2(CommandPanelContentWidth - 20f, 30f);
+            bannerLabel.VerticalAlignment = VerticalAlignment.Center;
+            banner.AddChild(bannerLabel);
+            commandList.AddChild(banner);
+        }
+        else
+        {
+            var hint = HudLabel("💡 左键选择科技后在战区释放；右键取消部署。", 11, new Color(0.65f, 0.82f, 0.90f));
+            hint.CustomMinimumSize = new Vector2(CommandPanelContentWidth - 4f, 20f);
+            hint.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            commandList.AddChild(hint);
+        }
+
+        int cardCount = activeSection.Techs.Length;
+        float cardHeight = 96f;
+        float cardSep = 6f;
+        float cardsTotalHeight = cardCount * cardHeight + Mathf.Max(0, cardCount - 1) * cardSep;
+        float tabHeight = 30f;
+        float footerHeight = !string.IsNullOrEmpty(activeTechTargetKey) ? 34f : 24f;
+        float totalHeight = 48f + tabHeight + 8f + cardsTotalHeight + 8f + footerHeight + 14f;
+        SetCommandPanelHeight(Mathf.Clamp(totalHeight, 260f, 540f));
     }
 
     void AddBattleTechCategoryTabs((string Key, string Title, BattleTechDefinition[] Techs)[] sections)
@@ -2945,25 +3496,26 @@ public partial class BattleHud : CanvasLayer
         var tabRow = new HBoxContainer
         {
             Name = "BattleTechTabs",
-            CustomMinimumSize = new Vector2(356f, 32f),
+            CustomMinimumSize = new Vector2(CommandPanelContentWidth - 4f, 30f),
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
         };
-        tabRow.AddThemeConstantOverride("separation", 5);
+        tabRow.AddThemeConstantOverride("separation", 4);
         commandList.AddChild(tabRow);
 
         for (var i = 0; i < sections.Length; i++)
         {
             var isActive = i == activeTechCategoryIndex;
+            var techCount = sections[i].Techs.Length;
             var button = new Button
             {
-                Text = sections[i].Title,
-                CustomMinimumSize = new Vector2(82f, 30f),
+                Text = $"{sections[i].Title} ({techCount})",
+                CustomMinimumSize = new Vector2(76f, 28f),
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             };
-            ApplyButtonStyle(
+            ApplyTabButtonStyle(
                 button,
-                isActive ? new Color(0.20f, 0.42f, 0.34f, 0.98f) : new Color(0.08f, 0.12f, 0.12f, 0.96f),
-                isActive ? new Color(0.72f, 1f, 0.78f, 0.92f) : new Color(0.95f, 0.72f, 0.28f, 0.72f),
+                isActive ? new Color(0.20f, 0.44f, 0.35f, 0.98f) : new Color(0.14f, 0.19f, 0.24f, 0.92f),
+                isActive ? new Color(0.68f, 1f, 0.78f, 0.95f) : new Color(0.42f, 0.55f, 0.66f, 0.70f),
                 11);
             button.AddThemeColorOverride("font_color", isActive ? new Color(0.92f, 1f, 0.94f) : new Color(0.96f, 0.88f, 0.72f));
             button.AddThemeColorOverride("font_hover_color", Colors.White);
@@ -2979,6 +3531,7 @@ public partial class BattleHud : CanvasLayer
             tabRow.AddChild(button);
         }
     }
+
     static (string Key, string Title, BattleTechDefinition[] Techs)[] BuildBattleTechSections(IEnumerable<BattleTechDefinition> techs)
     {
         var available = techs
@@ -2988,8 +3541,9 @@ public partial class BattleHud : CanvasLayer
         var sections = new List<(string Key, string Title, BattleTechDefinition[] Techs)>();
 
         AddBattleTechSection(sections, assigned, available, "mobility", "机动", "speed", "radar");
-        AddBattleTechSection(sections, assigned, available, "offense", "进攻", "firepower", "rapid", "assault");
+        AddBattleTechSection(sections, assigned, available, "offense", "进攻", "firepower", "rapid", "assault", "overdrive");
         AddBattleTechSection(sections, assigned, available, "defense", "防御", "armor", "repair", "hold");
+        AddBattleTechSection(sections, assigned, available, "air", "航空", "air_refit");
 
         var uncategorized = available.Values
             .Where(tech => !assigned.Contains(tech.Key))
@@ -3023,86 +3577,207 @@ public partial class BattleHud : CanvasLayer
 
     Control CreateTechCard(BattleGameManager manager, BattleTechDefinition tech)
     {
+        float cardWidth = CommandPanelContentWidth - 4f;
+        float cardHeight = 96f;
+
         var card = new Panel
         {
-            CustomMinimumSize = new Vector2(172, 84),
-            Size = new Vector2(172, 84),
-            MouseFilter = Control.MouseFilterEnum.Stop
+            CustomMinimumSize = new Vector2(cardWidth, cardHeight),
+            Size = new Vector2(cardWidth, cardHeight),
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            ClipContents = true
         };
-        card.ClipContents = true;
         card.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
-            BgColor = Colors.Transparent,
-            BorderColor = new Color(tech.Tint.R, tech.Tint.G, tech.Tint.B, 0.86f),
+            BgColor = new Color(0.10f, 0.14f, 0.19f, 0.92f),
+            BorderColor = new Color(tech.Tint.R, tech.Tint.G, tech.Tint.B, 0.85f),
             BorderWidthLeft = 1,
             BorderWidthTop = 1,
             BorderWidthRight = 1,
             BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 3,
-            CornerRadiusTopRight = 3,
-            CornerRadiusBottomLeft = 3,
-            CornerRadiusBottomRight = 3
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
         });
+
+        if (!string.IsNullOrEmpty(tech.BackgroundPath))
+        {
+            var background = new TextureRect
+            {
+                Position = Vector2.Zero,
+                Size = new Vector2(cardWidth, cardHeight),
+                Texture = LoadHudTexture(tech.BackgroundPath),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.Scale,
+                Modulate = new Color(1f, 1f, 1f, 0.38f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            card.AddChild(background);
+
+            var wash = new ColorRect
+            {
+                Position = Vector2.Zero,
+                Size = new Vector2(cardWidth, cardHeight),
+                Color = new Color(0.04f, 0.08f, 0.12f, 0.65f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            card.AddChild(wash);
+        }
+        else
+        {
+            card.AddChild(new ColorRect
+            {
+                Position = Vector2.Zero,
+                Size = new Vector2(cardWidth, cardHeight),
+                Color = new Color(0.06f, 0.10f, 0.14f, 0.92f),
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            });
+        }
 
         var stripe = new ColorRect
         {
-            Position = new Vector2(0f, 0f),
-            Size = new Vector2(172f, 3f),
+            Position = Vector2.Zero,
+            Size = new Vector2(cardWidth, 3f),
             Color = tech.Tint,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         card.AddChild(stripe);
 
-        var iconRect = new TextureRect
+        var iconFrame = new Panel
         {
-            Name = "TechIcon",
-            Position = new Vector2(8f, 6f),
-            Size = new Vector2(28f, 28f),
-            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered,
-            SelfModulate = new Color(tech.Tint.R, tech.Tint.G, tech.Tint.B, 1.0f),
+            Position = new Vector2(8f, 10f),
+            Size = new Vector2(42f, 42f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        iconRect.Texture = LoadHudTexture(tech.BackgroundTexturePath);
-        card.AddChild(iconRect);
+        iconFrame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.05f, 0.08f, 0.12f, 0.92f),
+            BorderColor = new Color(tech.Tint.R, tech.Tint.G, tech.Tint.B, 0.90f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        });
+        card.AddChild(iconFrame);
 
-        var title = HudLabel(tech.DisplayName, 15, new Color(1f, 0.90f, 0.62f));
-        title.Position = new Vector2(40f, 8f);
-        title.Size = new Vector2(122f, 20f);
-        title.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        var iconTex = LoadHudTexture(tech.IconPath);
+        if (iconTex is not null)
+        {
+            var iconRect = new TextureRect
+            {
+                Name = "TechIcon",
+                Position = new Vector2(3f, 3f),
+                Size = new Vector2(36f, 36f),
+                Texture = iconTex,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                Modulate = Colors.White,
+                MouseFilter = Control.MouseFilterEnum.Ignore
+            };
+            iconFrame.AddChild(iconRect);
+        }
+        else
+        {
+            var glyphLabel = HudLabel(tech.Glyph, 18, tech.Tint);
+            glyphLabel.Position = Vector2.Zero;
+            glyphLabel.Size = new Vector2(42f, 42f);
+            glyphLabel.HorizontalAlignment = HorizontalAlignment.Center;
+            glyphLabel.VerticalAlignment = VerticalAlignment.Center;
+            glyphLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+            iconFrame.AddChild(glyphLabel);
+        }
+
+        var (domainText, domainColor) = tech.TargetDomain switch
+        {
+            TechTargetDomain.AirOnly => ("[仅限战机]", new Color(0.30f, 0.92f, 1.0f)),
+            TechTargetDomain.GroundOnly => ("[仅限地面]", new Color(1.0f, 0.72f, 0.35f)),
+            TechTargetDomain.NavalOnly => ("[仅限舰艇]", new Color(0.40f, 0.75f, 1.0f)),
+            _ => ("[全军适用]", new Color(0.50f, 0.92f, 0.60f))
+        };
+
+        var titleRow = new HBoxContainer
+        {
+            Position = new Vector2(58f, 7f),
+            Size = new Vector2(cardWidth - 66f, 20f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        titleRow.AddThemeConstantOverride("separation", 6);
+        card.AddChild(titleRow);
+
+        var title = HudLabel(tech.DisplayName, 14, new Color(1f, 0.90f, 0.62f));
         title.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.AddChild(title);
+        title.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.95f));
+        title.AddThemeConstantOverride("outline_size", 2);
+        titleRow.AddChild(title);
 
-        var meta = HudLabel($"半径 {tech.Radius:0}  持续 {tech.Duration:0}s", 11, new Color(0.84f, 0.92f, 0.98f));
-        meta.Position = new Vector2(8f, 34f);
-        meta.Size = new Vector2(152f, 18f);
-        meta.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.AddChild(meta);
+        var domainLabel = HudLabel(domainText, 11, domainColor);
+        domainLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        domainLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
+        domainLabel.AddThemeConstantOverride("outline_size", 1);
+        titleRow.AddChild(domainLabel);
 
-        var desc = HudLabel(tech.Description, 11, new Color(0.80f, 0.90f, 0.94f));
-        desc.Position = new Vector2(8f, 52f);
-        desc.Size = new Vector2(152f, 24f);
+        var spacer = new Control
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        titleRow.AddChild(spacer);
+
+        var cdLabel = HudLabel($"冷却 {tech.Cooldown:0}s", 11, new Color(1f, 0.82f, 0.45f));
+        cdLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        cdLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
+        cdLabel.AddThemeConstantOverride("outline_size", 1);
+        titleRow.AddChild(cdLabel);
+
+        var desc = HudLabel(tech.Description, 11, new Color(0.88f, 0.93f, 0.96f));
+        desc.Position = new Vector2(58f, 29f);
+        desc.Size = new Vector2(cardWidth - 66f, 44f);
         desc.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        desc.VerticalAlignment = VerticalAlignment.Top;
         desc.MouseFilter = Control.MouseFilterEnum.Ignore;
+        desc.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
+        desc.AddThemeConstantOverride("outline_size", 1);
         card.AddChild(desc);
+
+        string specsText = $"半径 {tech.Radius:0}m · 持续 {tech.Duration:0}s";
+        var effectParts = BuildTechEffectParts(tech, true, true);
+        if (effectParts.Count > 0)
+            specsText += " · " + string.Join(" · ", effectParts);
+
+        var meta = HudLabel(specsText, 10, new Color(0.68f, 0.84f, 0.92f));
+        meta.Position = new Vector2(58f, 74f);
+        meta.Size = new Vector2(cardWidth - 66f, 16f);
+        meta.AutowrapMode = TextServer.AutowrapMode.Off;
+        meta.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        meta.MouseFilter = Control.MouseFilterEnum.Ignore;
+        meta.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
+        meta.AddThemeConstantOverride("outline_size", 1);
+        card.AddChild(meta);
 
         var cooldownFill = new TextureProgressBar
         {
-            Position = new Vector2(0f, 0f),
-            Size = new Vector2(172f, 84f),
+            Position = Vector2.Zero,
+            Size = new Vector2(cardWidth, cardHeight),
             MinValue = 0,
             MaxValue = 100,
             Value = 0,
-            TintProgress = new Color(0f, 0f, 0f, 0.45f),
-            TintUnder = new Color(0f, 0f, 0f, 0f),
+            TextureProgress = GetProgressWhiteTexture(),
+            NinePatchStretch = true,
+            TintProgress = new Color(0f, 0f, 0f, 0.60f),
+            TintUnder = Colors.Transparent,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         cooldownFill.FillMode = (int)TextureProgressBar.FillModeEnum.BottomToTop;
         card.AddChild(cooldownFill);
 
         var cooldownLabel = HudLabel("", 22, Colors.White);
-        cooldownLabel.Position = new Vector2(0f, 0f);
-        cooldownLabel.Size = new Vector2(172f, 84f);
+        cooldownLabel.Position = Vector2.Zero;
+        cooldownLabel.Size = new Vector2(cardWidth, cardHeight);
         cooldownLabel.HorizontalAlignment = HorizontalAlignment.Center;
         cooldownLabel.VerticalAlignment = VerticalAlignment.Center;
         cooldownLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.92f));
@@ -3118,22 +3793,43 @@ public partial class BattleHud : CanvasLayer
             AnchorBottom = 1f,
             GrowHorizontal = Control.GrowDirection.Both,
             GrowVertical = Control.GrowDirection.Both,
-            Flat = true
+            Flat = true,
+            FocusMode = Control.FocusModeEnum.None,
+            TooltipText = $"{tech.DisplayName} {domainText}\n" +
+                          $"{tech.Description}\n" +
+                          $"作用范围: 半径 {tech.Radius:0} 米\n" +
+                          $"持续时间: {tech.Duration:0} 秒\n" +
+                          $"冷却时间: {tech.Cooldown:0} 秒\n" +
+                          $"【点击部署】选择战场地面释放范围支援"
         };
         button.AddThemeStyleboxOverride("normal", new StyleBoxEmpty());
         button.AddThemeStyleboxOverride("hover", new StyleBoxFlat
         {
             BgColor = new Color(1f, 0.84f, 0.30f, 0.08f),
-            BorderColor = new Color(1f, 0.84f, 0.30f, 0.72f),
+            BorderColor = new Color(1f, 0.84f, 0.30f, 0.85f),
             BorderWidthLeft = 1,
             BorderWidthTop = 1,
             BorderWidthRight = 1,
             BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 3,
-            CornerRadiusTopRight = 3,
-            CornerRadiusBottomLeft = 3,
-            CornerRadiusBottomRight = 3
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
         });
+        button.AddThemeStyleboxOverride("pressed", new StyleBoxFlat
+        {
+            BgColor = new Color(1f, 0.84f, 0.30f, 0.18f),
+            BorderColor = new Color(1f, 0.90f, 0.50f, 1f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        });
+        button.AddThemeStyleboxOverride("disabled", new StyleBoxEmpty());
         button.Pressed += () => BeginTechTargeting(tech.Key);
         card.AddChild(button);
 
@@ -3337,6 +4033,66 @@ public partial class BattleHud : CanvasLayer
         tween.TweenProperty(alertLabel, "modulate:a", 0.0, 0.6);
     }
 
+    public void ShowDifyNotification(string message)
+    {
+        if (difyStatusBadge is null || difyStatusLabel is null || string.IsNullOrWhiteSpace(message))
+            return;
+
+        lastShownDifyText = message;
+        difyStatusLabel.Text = message;
+
+        float textWidth = difyStatusLabel.GetMinimumSize().X;
+        float badgeWidth = Mathf.Clamp(textWidth + 36f, 320f, 780f);
+        difyStatusBadge.Size = new Vector2(badgeWidth, 26f);
+        difyStatusLabel.Size = new Vector2(badgeWidth, 26f);
+        difyStatusBadge.Position = new Vector2((HudWidth - badgeWidth) * 0.5f, BattleHudTopBarHeight + 4f + currentSafeTop);
+
+        difyStatusBadge.Visible = true;
+        difyNotificationTween?.Kill();
+        difyNotificationTween = CreateTween();
+        difyNotificationTween.TweenProperty(difyStatusBadge, "modulate:a", 1.0f, 0.25f);
+        difyNotificationTween.TweenInterval(6.0f);
+        difyNotificationTween.TweenProperty(difyStatusBadge, "modulate:a", 0.0f, 0.8f);
+        difyNotificationTween.TweenCallback(Callable.From(() =>
+        {
+            if (difyStatusBadge is not null)
+                difyStatusBadge.Visible = false;
+        }));
+    }
+
+    void OnCommanderStatusChanged(string statusText, bool isOnline)
+    {
+        if (statusText != lastShownDifyText)
+            ShowDifyNotification(statusText);
+    }
+
+    void UpdateDifyTacticalNotification()
+    {
+        if (difyStatusBadge is null || difyStatusLabel is null)
+            return;
+
+        if (DifyCommanderClient.Instance is not { } dify)
+            return;
+
+        if (connectedDifyClient != dify)
+        {
+            connectedDifyClient = dify;
+            dify.CommanderStatusChanged += OnCommanderStatusChanged;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dify.LastAnalysis))
+        {
+            string fullText = dify.IsDifyOnline
+                ? $"🤖 Dify 战术指挥官: {dify.LastAnalysis}"
+                : $"🛡️ 战术推演保底: {dify.LastAnalysis}";
+
+            if (fullText != lastShownDifyText)
+            {
+                ShowDifyNotification(fullText);
+            }
+        }
+    }
+
     void ShowGameOver(bool playerWon, string reason)
     {
         var manager = BattleGameManager.Instance;
@@ -3380,10 +4136,20 @@ public partial class BattleHud : CanvasLayer
     public void DebugShowGameOver(bool playerWon, string reason)
         => ShowGameOver(playerWon, reason);
 
-    public void DebugOpenBuildMenu()
+    public void DebugOpenBuildMenu(int sectionIndex = -1)
     {
         buildMenuOpen = true;
         techMenuOpen = false;
+        selectedBuilding = null;
+        if (sectionIndex >= 0)
+            activeBuildMenuSectionIndex = sectionIndex;
+        RefreshCommandPanel();
+    }
+
+    public void DebugOpenTechMenu()
+    {
+        buildMenuOpen = false;
+        techMenuOpen = true;
         selectedBuilding = null;
         RefreshCommandPanel();
     }
@@ -3411,7 +4177,7 @@ public partial class BattleHud : CanvasLayer
         };
         gameOverOverlay.AddChild(dim);
 
-        gameOverPanel = Panel(new Vector2(280, 60), new Vector2(720, 592), new Color(0.015f, 0.025f, 0.03f, 0.97f));
+        gameOverPanel = Panel(new Vector2((HudWidth - 720f) * 0.5f, 60), new Vector2(720, 592), new Color(0.015f, 0.025f, 0.03f, 0.97f));
         gameOverOverlay.AddChild(gameOverPanel);
         AddTextureFrame(gameOverPanel, UnityFrameRoot + "panel_task_frame.png", new Color(1f, 1f, 1f, 0.18f));
         AddGameOverChrome(gameOverPanel);
@@ -3822,24 +4588,38 @@ public partial class BattleHud : CanvasLayer
 
     void BuildMinimap(Control root)
     {
-        minimapPanel = Panel(new Vector2(1040, 494), new Vector2(220, 206), new Color(0.02f, 0.04f, 0.05f, 0.82f));
+        // 遵循现代移动端人体工学战术布局：将雷达小地图移至屏幕左上方 Top-Left
+        // 人眼第一视线扫视区，同时彻底避开双手握持时右大拇指高频操作盲区
+        minimapPanel = Panel(new Vector2(10, 10), new Vector2(212, 188), new Color(0.02f, 0.04f, 0.06f, 0.85f));
         minimapPanel.MouseFilter = Control.MouseFilterEnum.Stop;
+        minimapPanel.ClipContents = true;
         minimapPanel.GuiInput += ConsumeHudPointerInput;
         root.AddChild(minimapPanel);
+        AddTextureFrame(minimapPanel, UnityFrameRoot + "panel_task_frame.png", new Color(0.2f, 0.7f, 1f, 0.45f));
 
-        var title = HudLabel("战术地图", 15, new Color(1f, 0.88f, 0.58f));
-        title.Position = new Vector2(12, 8);
-        title.Size = new Vector2(140, 22);
+        var title = HudLabel("📡 态势雷达 // S-01", 13, new Color(0.35f, 0.88f, 1f));
+        title.Position = new Vector2(12, 6);
+        title.Size = new Vector2(188, 20);
         title.MouseFilter = Control.MouseFilterEnum.Ignore;
         minimapPanel.AddChild(title);
+
+        var minimapClipContainer = new Control
+        {
+            Name = "MinimapClipContainer",
+            Position = new Vector2(8, 28),
+            Size = new Vector2(196, 152),
+            ClipContents = true,
+            MouseFilter = Control.MouseFilterEnum.Pass
+        };
+        minimapPanel.AddChild(minimapClipContainer);
 
         minimap = new BattleMinimap
         {
             Name = "BattleMinimap",
-            Position = new Vector2(10, 34),
-            Size = new Vector2(200, 160)
+            Position = Vector2.Zero,
+            Size = new Vector2(196, 152)
         };
-        minimapPanel.AddChild(minimap);
+        minimapClipContainer.AddChild(minimap);
         gameplayHudItems.Add(minimapPanel);
     }
 
@@ -3856,15 +4636,44 @@ public partial class BattleHud : CanvasLayer
 
     public bool IsPointerOverBlockingHud(Vector2 screenPosition)
     {
+        if ((upgradeDialogRoot is not null && upgradeDialogRoot.Visible)
+            || (settingsDialogRoot is not null && settingsDialogRoot.Visible)
+            || (objectiveDialogRoot is not null && objectiveDialogRoot.Visible)
+            || (gameOverOverlay is not null && gameOverOverlay.Visible))
+        {
+            return true;
+        }
+
         return (commandPanel is not null
                 && commandPanel.Visible
                 && commandPanel.GetGlobalRect().HasPoint(screenPosition))
             || (minimapPanel is not null
                 && minimapPanel.Visible
                 && minimapPanel.GetGlobalRect().HasPoint(screenPosition))
+            || (topPanel is not null
+                && topPanel.Visible
+                && topPanel.GetGlobalRect().HasPoint(screenPosition))
             || (battleCommunicationPanel is not null
                 && battleCommunicationPanel.Visible
-                && battleCommunicationPanel.GetGlobalRect().HasPoint(screenPosition));
+                && battleCommunicationPanel.GetGlobalRect().HasPoint(screenPosition))
+            || (bottomCommandBar is not null
+                && bottomCommandBar.Visible
+                && bottomCommandBar.GetGlobalRect().HasPoint(screenPosition))
+            || (buildActionButton is not null
+                && buildActionButton.Visible
+                && buildActionButton.GetGlobalRect().HasPoint(screenPosition))
+            || (techActionButton is not null
+                && techActionButton.Visible
+                && techActionButton.GetGlobalRect().HasPoint(screenPosition))
+            || (objectiveRestoreBtn is not null
+                && objectiveRestoreBtn.Visible
+                && objectiveRestoreBtn.GetGlobalRect().HasPoint(screenPosition))
+            || (objectivePanel is not null
+                && objectivePanel.Visible
+                && objectivePanel.GetGlobalRect().HasPoint(screenPosition))
+            || (inputHintPanel is not null
+                && inputHintPanel.Visible
+                && inputHintPanel.GetGlobalRect().HasPoint(screenPosition));
     }
 
     void BuildUpgradeDialog(Control root)
@@ -3890,7 +4699,7 @@ public partial class BattleHud : CanvasLayer
         };
         upgradeDialogRoot.AddChild(dim);
 
-        upgradeDialogPanel = Panel(new Vector2(370, 124), new Vector2(540, 430), new Color(0.03f, 0.05f, 0.06f, 0.96f));
+        upgradeDialogPanel = Panel(new Vector2((HudWidth - 540f) * 0.5f, (HudHeight - 430f) * 0.5f), new Vector2(540, 430), new Color(0.03f, 0.05f, 0.06f, 0.96f));
         upgradeDialogRoot.AddChild(upgradeDialogPanel);
 
         var content = new MarginContainer
@@ -3994,7 +4803,7 @@ public partial class BattleHud : CanvasLayer
         };
         settingsDialogRoot.AddChild(dim);
 
-        settingsDialogPanel = Panel(new Vector2(260, 70), new Vector2(760, 580), new Color(0.030f, 0.046f, 0.058f, 0.96f));
+        settingsDialogPanel = Panel(new Vector2((HudWidth - 760f) * 0.5f, (HudHeight - 580f) * 0.5f), new Vector2(760, 580), new Color(0.030f, 0.046f, 0.058f, 0.96f));
         settingsDialogRoot.AddChild(settingsDialogPanel);
         AddTextureFrame(settingsDialogPanel, UnityFrameRoot + "panel_task_frame.png", new Color(1f, 1f, 1f, 0.16f));
 
@@ -4860,7 +5669,7 @@ public partial class BattleHud : CanvasLayer
         RefreshSettingsParticipantDetails();
     }
 
-    void AppendBattleCommunicationMessage(string speaker, string message, Color color)
+    public void AppendBattleCommunicationMessage(string speaker, string message, Color color)
     {
         if (battleCommunicationMessages is null)
             return;
@@ -5026,9 +5835,27 @@ public partial class BattleHud : CanvasLayer
     {
         var requirementArray = requirements.ToArray();
         var rowHeight = requirementArray.Length == 0 ? 62f : 38f + requirementArray.Length * 26f;
-        var card = Panel(Vector2.Zero, new Vector2(356f, rowHeight), new Color(0.030f, 0.044f, 0.050f, 0.96f));
-        card.CustomMinimumSize = new Vector2(356f, rowHeight);
-        card.MouseFilter = Control.MouseFilterEnum.Ignore;
+        var card = new Panel
+        {
+            CustomMinimumSize = new Vector2(356f, rowHeight),
+            Size = new Vector2(356f, rowHeight),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ClipContents = true
+        };
+        var cardBox = new StyleBoxFlat
+        {
+            BgColor = new Color(0.12f, 0.17f, 0.22f, 0.90f),
+            BorderColor = new Color(0.80f, 0.65f, 0.36f, 0.70f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        };
+        card.AddThemeStyleboxOverride("panel", cardBox);
 
         var stripe = new ColorRect
         {
@@ -5124,10 +5951,27 @@ public partial class BattleHud : CanvasLayer
         int valueFontSize = 15,
         int noteFontSize = 11)
     {
-        var card = Panel(Vector2.Zero, size, new Color(0.030f, 0.044f, 0.050f, 0.96f));
-        card.CustomMinimumSize = size;
-        card.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.ClipContents = true;
+        var card = new Panel
+        {
+            CustomMinimumSize = size,
+            Size = size,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ClipContents = true
+        };
+        var cardBox = new StyleBoxFlat
+        {
+            BgColor = new Color(0.12f, 0.17f, 0.22f, 0.90f),
+            BorderColor = new Color(accent.R * 0.65f + 0.25f, accent.G * 0.65f + 0.25f, accent.B * 0.65f + 0.25f, 0.70f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        };
+        card.AddThemeStyleboxOverride("panel", cardBox);
 
         var stripe = new ColorRect
         {
@@ -5142,6 +5986,8 @@ public partial class BattleHud : CanvasLayer
         titleLabel.Position = new Vector2(10f, 7f);
         titleLabel.Size = new Vector2(size.X - 20f, 18f);
         titleLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        titleLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.92f));
+        titleLabel.AddThemeConstantOverride("outline_size", 1);
         card.AddChild(titleLabel);
 
         var noteLineCount = string.IsNullOrEmpty(note)
@@ -5156,22 +6002,26 @@ public partial class BattleHud : CanvasLayer
             _ => Mathf.Min(maxNoteHeight, noteLineCount * (noteFontSize + 4f) + 4f)
         };
 
-        var valueLabel = HudLabel(value, valueFontSize, new Color(0.95f, 0.97f, 0.98f));
+        var valueLabel = HudLabel(value, valueFontSize, new Color(0.95f, 0.98f, 1f));
         valueLabel.Position = new Vector2(10f, 23f);
         valueLabel.Size = new Vector2(size.X - 20f, Mathf.Max(20f, size.Y - 35f - noteHeight));
         valueLabel.VerticalAlignment = VerticalAlignment.Top;
         valueLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         valueLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+        valueLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.95f));
+        valueLabel.AddThemeConstantOverride("outline_size", 1);
         card.AddChild(valueLabel);
 
         if (!string.IsNullOrEmpty(note))
         {
-            var noteLabel = HudLabel(note, noteFontSize, new Color(0.74f, 0.88f, 0.92f));
+            var noteLabel = HudLabel(note, noteFontSize, new Color(0.76f, 0.90f, 0.95f));
             noteLabel.Position = new Vector2(10f, size.Y - noteHeight - 6f);
             noteLabel.Size = new Vector2(size.X - 20f, noteHeight);
             noteLabel.VerticalAlignment = VerticalAlignment.Top;
             noteLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
             noteLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
+            noteLabel.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
+            noteLabel.AddThemeConstantOverride("outline_size", 1);
             card.AddChild(noteLabel);
         }
 
@@ -5270,7 +6120,7 @@ public partial class BattleHud : CanvasLayer
         };
         card.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
-            BgColor = Colors.Transparent,
+            BgColor = new Color(0.12f, 0.17f, 0.22f, 0.90f),
             BorderColor = new Color(0.88f, 0.70f, 0.28f, 0.76f),
             BorderWidthLeft = 1,
             BorderWidthTop = 1,
@@ -5341,9 +6191,29 @@ public partial class BattleHud : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Ignore
         });
 
+        var hotkeyTag = new Label
+        {
+            Position = new Vector2(cardWidth - 22f, 4f),
+            Size = new Vector2(17f, 15f),
+            Text = GetProductionHotkeyHint(def.Key),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        hotkeyTag.AddThemeFontSizeOverride("font_size", 9);
+        hotkeyTag.AddThemeColorOverride("font_color", new Color(1.0f, 0.85f, 0.35f));
+        hotkeyTag.AddThemeStyleboxOverride("normal", new StyleBoxFlat
+        {
+            BgColor = new Color(0.10f, 0.14f, 0.18f, 0.88f),
+            BorderColor = new Color(1.0f, 0.84f, 0.0f, 0.70f),
+            BorderWidthLeft = 1, BorderWidthTop = 1, BorderWidthRight = 1, BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 2, CornerRadiusTopRight = 2, CornerRadiusBottomLeft = 2, CornerRadiusBottomRight = 2
+        });
+        card.AddChild(hotkeyTag);
+
         var name = HudLabel(def.DisplayName, 13, new Color(0.95f, 0.97f, 0.98f));
         name.Position = new Vector2(40f, 9f);
-        name.Size = new Vector2(cardWidth - 46f, 20f);
+        name.Size = new Vector2(cardWidth - 66f, 20f);
         name.AutowrapMode = TextServer.AutowrapMode.Off;
         name.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
         name.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.90f));
@@ -5612,15 +6482,26 @@ public partial class BattleHud : CanvasLayer
         return card;
     }
 
+    static string GetProductionHotkeyHint(string key) => key switch
+    {
+        "infantry" or "rifleman" => "Q",
+        "flamethrower" or "infantry_flamethrower" => "W",
+        "light_tank" or "tank" or "medium_tank" or "heavy_tank" => "E",
+        "artillery" or "infantry_artillery" => "R",
+        "anti_air_gun" or "fighter" => "T",
+        "bomber" => "Y",
+        _ => "A"
+    };
+
     static string ProductionCardBackgroundPath(string key) => ButtonBackdropRoot + (key switch
     {
         "infantry" => "prod_infantry.png",
         "infantry_artillery" => "prod_infantry_artillery.png",
         "infantry_flamethrower" or "flamethrower" => "prod_infantry_flamethrower.png",
-        "light_tank" or "tank" or "medium_tank" or "heavy_tank" => "prod_tank.png",
-        "artillery" => "prod_artillery.png",
-        "anti_air_gun" => "prod_anti_air.png",
-        "scout_plane" => "prod_scout_plane.png",
+        "light_tank" or "tank" or "medium_tank" or "heavy_tank" or "tank_destroyer" => "prod_tank.png",
+        "artillery" or "mlrs_rocket" => "prod_artillery.png",
+        "anti_air_gun" or "sam_missile" => "prod_anti_air.png",
+        "scout_plane" or "scout_helicopter" => "prod_scout_plane.png",
         "fighter" => "prod_fighter.png",
         "bomber" => "prod_bomber.png",
         "patrol_boat" => "prod_patrol_boat.png",
@@ -5635,16 +6516,19 @@ public partial class BattleHud : CanvasLayer
         "infantry" => "prod_infantry_icon.png",
         "infantry_artillery" => "prod_infantry_artillery_icon.png",
         "infantry_flamethrower" or "flamethrower" => "prod_infantry_flamethrower_icon.png",
-        "light_tank" or "tank" or "medium_tank" or "heavy_tank" => "prod_tank_icon.png",
-        "artillery" => "prod_artillery_icon.png",
-        "anti_air_gun" => "prod_anti_air_icon.png",
-        "scout_plane" => "prod_scout_plane_icon.png",
+        "light_tank" => "prod_light_tank_icon.png",
+        "heavy_tank" or "tank_destroyer" => "prod_heavy_tank_icon.png",
+        "tank" or "medium_tank" => "prod_tank_icon.png",
+        "artillery" or "mlrs_rocket" => "prod_artillery_icon.png",
+        "anti_air_gun" or "sam_missile" => "prod_anti_air_icon.png",
+        "scout_plane" or "scout_helicopter" => "prod_scout_plane_icon.png",
         "fighter" => "prod_fighter_icon.png",
         "bomber" => "prod_bomber_icon.png",
         "patrol_boat" => "prod_patrol_boat_icon.png",
         "destroyer_ship" => "prod_destroyer_ship_icon.png",
         "transport_ship" => "prod_battleship_icon.png",
-        "aircraft_carrier" => "prod_battleship_icon.png",   // 暂复用战舰图标
+        "aircraft_carrier" => "prod_carrier_icon.png",
+        "submarine" => "prod_submarine_icon.png",
         _ => "prod_infantry_icon.png"
     });
 
@@ -5668,54 +6552,6 @@ public partial class BattleHud : CanvasLayer
                     ? "水面作战"
                     : "地面突击";
 
-    Control CreateMainBaseTechSummaryTile(BattleTechDefinition tech, string cooldownText)
-    {
-        var size = new Vector2(174f, 112f);
-        var card = Panel(Vector2.Zero, size, new Color(0.030f, 0.044f, 0.050f, 0.96f));
-        card.CustomMinimumSize = size;
-        card.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.ClipContents = true;
-
-        var stripe = new ColorRect
-        {
-            Position = Vector2.Zero,
-            Size = new Vector2(size.X, 3f),
-            Color = tech.Tint,
-            MouseFilter = Control.MouseFilterEnum.Ignore
-        };
-        card.AddChild(stripe);
-
-        var titleLabel = HudLabel(tech.DisplayName, 12, tech.Tint);
-        titleLabel.Position = new Vector2(10f, 7f);
-        titleLabel.Size = new Vector2(size.X - 20f, 18f);
-        titleLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        titleLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.AddChild(titleLabel);
-
-        var effectLabel = HudLabel(BuildTechEffectSummary(tech), 10, new Color(0.95f, 0.97f, 0.98f));
-        effectLabel.Position = new Vector2(10f, 24f);
-        effectLabel.Size = new Vector2(size.X - 20f, 34f);
-        effectLabel.VerticalAlignment = VerticalAlignment.Top;
-        effectLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        effectLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.AddChild(effectLabel);
-
-        var metaLabel = HudLabel(BuildTechDurationRadiusSummary(tech), 10, new Color(0.74f, 0.88f, 0.92f));
-        metaLabel.Position = new Vector2(10f, 59f);
-        metaLabel.Size = new Vector2(size.X - 20f, 14f);
-        metaLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.AddChild(metaLabel);
-
-        var statusLabel = HudLabel(BuildMainBaseTechStatusText(cooldownText), 11, new Color(0.92f, 0.95f, 0.98f));
-        statusLabel.Position = new Vector2(10f, 77f);
-        statusLabel.Size = new Vector2(size.X - 20f, 26f);
-        statusLabel.VerticalAlignment = VerticalAlignment.Top;
-        statusLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        statusLabel.MouseFilter = Control.MouseFilterEnum.Ignore;
-        card.AddChild(statusLabel);
-
-        return card;
-    }
 
     static string BuildTechSummary(BattleTechDefinition tech)
     {
@@ -5740,10 +6576,6 @@ public partial class BattleHud : CanvasLayer
     static string BuildTechDurationRadiusSummary(BattleTechDefinition tech)
         => $"持续 {tech.Duration:0}s，半径 {tech.Radius:0}";
 
-    static string BuildMainBaseTechStatusText(string cooldownText)
-        => cooldownText == "待释放"
-            ? "主基地挂载中，可随时释放"
-            : $"主基地挂载中，{cooldownText}";
 
     static List<string> BuildTechEffectParts(BattleTechDefinition tech, bool includeMoveEffects = true, bool includeAttackEffects = true)
     {
@@ -5795,52 +6627,52 @@ public partial class BattleHud : CanvasLayer
 
     void AddCommandPanelChrome(Control parent)
     {
-        var outline = new StyleBoxFlat
+        var panelStyle = new StyleBoxFlat
         {
-            BgColor = Colors.Transparent,
-            BorderColor = new Color(0.76f, 0.62f, 0.22f, 0.82f),
+            BgColor = new Color(0.08f, 0.12f, 0.16f, 0.94f),
+            BorderColor = new Color(0.82f, 0.68f, 0.26f, 0.88f),
             BorderWidthLeft = 1,
             BorderWidthTop = 1,
             BorderWidthRight = 1,
             BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 2,
-            CornerRadiusTopRight = 2,
-            CornerRadiusBottomLeft = 2,
-            CornerRadiusBottomRight = 2
+            CornerRadiusTopLeft = 5,
+            CornerRadiusTopRight = 5,
+            CornerRadiusBottomLeft = 5,
+            CornerRadiusBottomRight = 5,
+            ShadowColor = new Color(0f, 0f, 0f, 0.70f),
+            ShadowSize = 12,
+            ShadowOffset = new Vector2(0f, 3f)
         };
-        parent.AddThemeStyleboxOverride("panel", outline);
+        parent.AddThemeStyleboxOverride("panel", panelStyle);
 
+        // Header Background Strip
+        var headerBg = new Panel
+        {
+            Position = new Vector2(1f, 1f),
+            Size = new Vector2(parent.Size.X - 2f, 34f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        headerBg.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.12f, 0.18f, 0.24f, 0.95f),
+            BorderColor = new Color(0.82f, 0.68f, 0.26f, 0.35f),
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4
+        });
+        parent.AddChild(headerBg);
+        parent.MoveChild(headerBg, 0);
+
+        // Top Gold Accent Glow Stripe
         var topGlow = new ColorRect
         {
-            Position = new Vector2(0f, 0f),
-            Size = new Vector2(parent.Size.X, 2f),
-            Color = new Color(0.86f, 0.68f, 0.18f, 0.60f),
+            Position = new Vector2(2f, 1f),
+            Size = new Vector2(parent.Size.X - 4f, 2f),
+            Color = new Color(0.95f, 0.78f, 0.24f, 0.92f),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         parent.AddChild(topGlow);
-
-        var innerFrame = new Panel
-        {
-            Position = new Vector2(10f, 38f),
-            Size = new Vector2(394f, 276f),
-            MouseFilter = Control.MouseFilterEnum.Ignore
-        };
-        innerFrame.AddThemeStyleboxOverride("panel", new StyleBoxFlat
-        {
-            BgColor = Colors.Transparent,
-            BorderColor = new Color(0.32f, 0.26f, 0.10f, 0.62f),
-            BorderWidthLeft = 1,
-            BorderWidthTop = 1,
-            BorderWidthRight = 1,
-            BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 1,
-            CornerRadiusTopRight = 1,
-            CornerRadiusBottomLeft = 1,
-            CornerRadiusBottomRight = 1
-        });
-        parent.AddChild(innerFrame);
-        parent.MoveChild(innerFrame, 0);
-        parent.MoveChild(topGlow, 0);
+        parent.MoveChild(topGlow, 1);
     }
 
     Control CreateCommanderHeader(Control parent)
@@ -6060,17 +6892,20 @@ public partial class BattleHud : CanvasLayer
 
     void AddBottomCommandBar(Control root)
     {
-        const float width = 338f;
+        const float width = 604f;
         const float height = 62f;
-        bottomCommandBar = Panel(new Vector2((HudWidth - width) * 0.5f, HudHeight - height - 8f), new Vector2(width, height), new Color(0.015f, 0.020f, 0.020f, 0.82f));
+        bottomCommandBar = TransparentPanel(new Vector2(HudWidth - width - 12f, HudHeight - height - 10f), new Vector2(width, height));
         root.AddChild(bottomCommandBar);
-        AddTextureFrame(bottomCommandBar, UnityFrameRoot + "bottombar_frame.png", new Color(1f, 1f, 1f, 0.52f));
 
-        selectAllCommandButton = AddCommandIconButton(bottomCommandBar, 8f, "全选", "全", new Color(0.16f, 0.34f, 0.44f, 0.96f), SelectAllOwnedUnits);
-        stopCommandButton = AddCommandIconButton(bottomCommandBar, 74f, "停止", "停", new Color(0.40f, 0.18f, 0.14f, 0.96f), StopSelectedUnits);
-        patrolCommandButton = AddCommandIconButton(bottomCommandBar, 140f, "巡逻", "巡", new Color(0.20f, 0.34f, 0.20f, 0.96f), TogglePatrolCommand);
-        specialCommandButton = AddCommandIconButton(bottomCommandBar, 206f, "炮击", "炮", new Color(0.42f, 0.18f, 0.10f, 0.96f), TriggerSpecialCommand);
-        parkAircraftCommandButton = AddCommandIconButton(bottomCommandBar, 272f, "停机", "停", new Color(0.16f, 0.38f, 0.36f, 0.96f), ParkSelectedAircraft);
+        selectAllCommandButton = AddCommandIconButton(bottomCommandBar, 8f, "全选", "全", new Color(0.16f, 0.34f, 0.44f, 0.88f), SelectAllOwnedUnits);
+        attackMoveCommandButton = AddCommandIconButton(bottomCommandBar, 74f, "进攻", "攻", new Color(0.48f, 0.20f, 0.12f, 0.88f), ToggleAttackMoveCommand);
+        stopCommandButton = AddCommandIconButton(bottomCommandBar, 140f, "停止", "停", new Color(0.40f, 0.18f, 0.14f, 0.88f), StopSelectedUnits);
+        holdCommandButton = AddCommandIconButton(bottomCommandBar, 206f, "驻守", "驻", new Color(0.18f, 0.28f, 0.44f, 0.88f), HoldPositionSelectedUnits);
+        patrolCommandButton = AddCommandIconButton(bottomCommandBar, 272f, "巡逻", "巡", new Color(0.20f, 0.34f, 0.20f, 0.88f), TogglePatrolCommand);
+        spreadCommandButton = AddCommandIconButton(bottomCommandBar, 338f, "散开", "散", new Color(0.22f, 0.38f, 0.32f, 0.88f), SpreadFormationSelectedUnits);
+        specialCommandButton = AddCommandIconButton(bottomCommandBar, 404f, "炮击", "炮", new Color(0.42f, 0.18f, 0.10f, 0.88f), TriggerSpecialCommand);
+        parkAircraftCommandButton = AddCommandIconButton(bottomCommandBar, 470f, "停机", "停", new Color(0.16f, 0.38f, 0.36f, 0.88f), ParkSelectedAircraft);
+        deployArtilleryCommandButton = AddCommandIconButton(bottomCommandBar, 536f, "架设", "架", new Color(0.38f, 0.28f, 0.12f, 0.88f), ToggleArtilleryDeploySelected);
         gameplayHudItems.Add(bottomCommandBar);
     }
 
@@ -6100,9 +6935,26 @@ public partial class BattleHud : CanvasLayer
         var hasAttackGroundUnits = selectedUnits.Any(unit => unit.CanAttackGroundPoint);
         var hasBombers = selectedUnits.Any(unit => unit.SupportsBombingRun);
         var hasParkableAircraft = selectedUnits.Any(unit => unit.SupportsAirfieldParking && !unit.IsParkedAtAirfield && !unit.IsReturningToPark);
+        var artilleryUnits = selectedUnits.Where(unit => BattleUnitCatalog.SupportsArtilleryDeploy(unit.UnitKey)).ToList();
+        var hasArtillery = artilleryUnits.Count > 0;
+        var isAnyDeployed = artilleryUnits.Any(u => u.DeployState is RtsUnit.ArtilleryDeployState.Deployed or RtsUnit.ArtilleryDeployState.Deploying);
 
         ConfigureBottomCommandButton(selectAllCommandButton, "全选", "全", new Color(0.16f, 0.34f, 0.44f, 0.96f), true, false);
+        ConfigureBottomCommandButton(
+            attackMoveCommandButton,
+            "进攻",
+            "攻",
+            new Color(0.48f, 0.20f, 0.12f, 0.96f),
+            hasUnits,
+            controller?.IsAttackMoveModeActive == true);
         ConfigureBottomCommandButton(stopCommandButton, "停止", "停", new Color(0.40f, 0.18f, 0.14f, 0.96f), hasUnits, false);
+        ConfigureBottomCommandButton(
+            holdCommandButton,
+            "驻守",
+            "驻",
+            new Color(0.18f, 0.28f, 0.44f, 0.96f),
+            hasUnits,
+            selectedUnits.Any(u => u.IsHoldingPosition));
         ConfigureBottomCommandButton(
             patrolCommandButton,
             "巡逻",
@@ -6110,6 +6962,13 @@ public partial class BattleHud : CanvasLayer
             new Color(0.20f, 0.34f, 0.20f, 0.96f),
             hasUnits,
             controller?.IsPatrolModeActive == true);
+        ConfigureBottomCommandButton(
+            spreadCommandButton,
+            "散开",
+            "散",
+            new Color(0.22f, 0.38f, 0.32f, 0.96f),
+            selectedUnits.Count > 1,
+            false);
 
         var specialCaption = hasBombers ? "轰炸" : "炮击";
         var specialGlyph = hasBombers ? "轰" : "炮";
@@ -6130,6 +6989,37 @@ public partial class BattleHud : CanvasLayer
             new Color(0.16f, 0.38f, 0.36f, 0.96f),
             hasParkableAircraft,
             false);
+
+        var deployCaption = isAnyDeployed ? "收架" : "架设";
+        var deployGlyph = isAnyDeployed ? "收" : "架";
+        ConfigureBottomCommandButton(
+            deployArtilleryCommandButton,
+            deployCaption,
+            deployGlyph,
+            isAnyDeployed ? new Color(0.48f, 0.32f, 0.12f, 0.96f) : new Color(0.32f, 0.28f, 0.16f, 0.96f),
+            hasArtillery,
+            isAnyDeployed);
+    }
+
+    void ToggleArtilleryDeploySelected()
+    {
+        var units = GetSelectedOwnedUnits()
+            .Where(u => BattleUnitCatalog.SupportsArtilleryDeploy(u.UnitKey))
+            .ToList();
+        if (units.Count == 0)
+        {
+            ShowAlert("未选中支持搭炮架的火炮/迫击炮单位");
+            return;
+        }
+
+        var anyUndeployed = units.Any(u => u.DeployState is RtsUnit.ArtilleryDeployState.Mobile or RtsUnit.ArtilleryDeployState.Undeploying);
+        foreach (var unit in units)
+        {
+            unit.ToggleArtilleryDeploy();
+        }
+
+        ShowAlert(anyUndeployed ? $"下达搭炮架命令（{units.Count} 单位，准备展开架炮）" : $"下达收起炮架命令（{units.Count} 单位，恢复行军）");
+        RefreshBottomCommandBar();
     }
 
     void RefreshInputHint()
@@ -6191,6 +7081,14 @@ public partial class BattleHud : CanvasLayer
             text = "科技面板：选择科技后点击战场位置释放，只有当时框内单位获得临时状态。";
             color = new Color(0.80f, 0.92f, 1f, 0.92f);
         }
+        else if (controller?.GetSelectedOwnedUnits().Count > 0)
+        {
+            var units = controller.GetSelectedOwnedUnits();
+            bool hasArtillery = units.Any(u => BattleUnitCatalog.SupportsArtilleryDeploy(u.UnitKey));
+            string extraKeyHint = hasArtillery ? "，【D】展架/收架" : "";
+            text = $"已选择 {units.Count} 个单位：【右键】移动/攻击，【左键】框选/重选，【S】急停{extraKeyHint}。";
+            color = new Color(0.68f, 0.94f, 1f, 0.94f);
+        }
 
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -6222,22 +7120,117 @@ public partial class BattleHud : CanvasLayer
         ApplyButtonStyle(button, fill, accent, 12);
     }
 
-    Button AddLeftActionButton(Control root, string label, string iconPath, float bottom, Color bg, System.Action onPressed)
+    Button AddActionIconButton(Control root, string tooltip, string iconPath, float x, float y, float w, float h, Color bg, Color accent, System.Action onPressed)
     {
         var button = new Button
         {
-            Position = new Vector2(BattleHudMinimapLeft, HudHeight - bottom - BattleHudActionButtonHeight),
-            Size = new Vector2(BattleHudActionButtonWidth, BattleHudActionButtonHeight),
-            TooltipText = label,
-            Icon = LoadHudTexture(iconPath),
-            ExpandIcon = true,
-            FocusMode = Control.FocusModeEnum.None
+            Position = new Vector2(x, y),
+            Size = new Vector2(w, h),
+            TooltipText = tooltip,
+            FocusMode = Control.FocusModeEnum.None,
+            Flat = true
         };
-        ApplyButtonStyle(button, bg, new Color(1f, 0.84f, 0.30f, 0.82f), 15);
+
+        var iconRect = new TextureRect
+        {
+            Name = "ActionIcon",
+            Texture = LoadHudTexture(iconPath),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            LayoutMode = 1,
+            AnchorLeft = 0f,
+            AnchorTop = 0f,
+            AnchorRight = 1f,
+            AnchorBottom = 1f,
+            GrowHorizontal = Control.GrowDirection.Both,
+            GrowVertical = Control.GrowDirection.Both
+        };
+        button.AddChild(iconRect);
+
+        button.SetMeta("action_accent", accent);
+        ApplyTransparentActionButtonStyle(button, accent, false);
         button.Pressed += onPressed;
         root.AddChild(button);
         gameplayHudItems.Add(button);
         return button;
+    }
+
+    static void ApplyTransparentActionButtonStyle(Button button, Color accent, bool active)
+    {
+        var empty = new StyleBoxEmpty();
+        var normalBox = active ? new StyleBoxFlat
+        {
+            BgColor = new Color(accent.R, accent.G, accent.B, 0.16f),
+            BorderColor = new Color(0.44f, 0.98f, 0.86f, 0.95f),
+            BorderWidthLeft = 2,
+            BorderWidthTop = 2,
+            BorderWidthRight = 2,
+            BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 6,
+            CornerRadiusTopRight = 6,
+            CornerRadiusBottomLeft = 6,
+            CornerRadiusBottomRight = 6
+        } : (StyleBox)empty;
+
+        var hoverBox = new StyleBoxFlat
+        {
+            BgColor = new Color(accent.R, accent.G, accent.B, 0.18f),
+            BorderColor = new Color(accent.R, accent.G, accent.B, 0.85f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 6,
+            CornerRadiusTopRight = 6,
+            CornerRadiusBottomLeft = 6,
+            CornerRadiusBottomRight = 6
+        };
+
+        var pressedBox = new StyleBoxFlat
+        {
+            BgColor = new Color(accent.R, accent.G, accent.B, 0.28f),
+            BorderColor = Colors.White,
+            BorderWidthLeft = 2,
+            BorderWidthTop = 2,
+            BorderWidthRight = 2,
+            BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 6,
+            CornerRadiusTopRight = 6,
+            CornerRadiusBottomLeft = 6,
+            CornerRadiusBottomRight = 6
+        };
+
+        button.AddThemeStyleboxOverride("normal", normalBox);
+        button.AddThemeStyleboxOverride("hover", hoverBox);
+        button.AddThemeStyleboxOverride("pressed", pressedBox);
+        button.AddThemeStyleboxOverride("focus", empty);
+        button.AddThemeStyleboxOverride("disabled", empty);
+
+        var icon = button.GetNodeOrNull<TextureRect>("ActionIcon");
+        if (icon != null)
+        {
+            icon.Modulate = active ? Colors.White : new Color(0.92f, 0.96f, 1.0f, 0.90f);
+        }
+    }
+
+    static void UpdateActionIconButtonState(Button? button, bool active, Color bg, Color accent)
+    {
+        if (button is null)
+            return;
+        ApplyTransparentActionButtonStyle(button, accent, active);
+    }
+
+    public void ToggleBuildMenuFromHotkey()
+    {
+        if (buildActionButton is not null && !buildActionButton.Disabled && buildActionButton.Visible)
+            buildActionButton.EmitSignal(Button.SignalName.Pressed);
+    }
+
+    public void ToggleTechMenuFromHotkey()
+    {
+        if (techActionButton is not null && !techActionButton.Disabled && techActionButton.Visible)
+            techActionButton.EmitSignal(Button.SignalName.Pressed);
     }
 
     void StyleCommandListControls(Node node)
@@ -6270,10 +7263,6 @@ public partial class BattleHud : CanvasLayer
             .ToArray() ?? System.Array.Empty<Node>();
         GameState.Instance?.SetSelection(units);
         ShowAlert(units.Length == 0 ? "当前没有可选单位" : $"已选择全部单位：{units.Length}");
-        if (units.Length > 0)
-        {
-            BattleGameManager.Instance?.FocusCameraOnPlayerForces();
-        }
     }
 
     void StopSelectedUnits()
@@ -6289,6 +7278,41 @@ public partial class BattleHud : CanvasLayer
             GameRelay.Instance?.SendStop(unit.NetId);
         }
         ShowAlert(units.Length == 0 ? "没有选中可停止的单位" : "已下达停止命令");
+    }
+
+    void ToggleAttackMoveCommand()
+    {
+        var controller = FindPlayerController();
+        if (controller is null)
+            return;
+
+        string message;
+        if (controller.IsAttackMoveModeActive)
+        {
+            controller.CancelCommandMode(false);
+            message = "已取消进攻命令";
+        }
+        else
+        {
+            controller.BeginAttackMoveMode(out message);
+        }
+
+        ShowAlert(message);
+        RefreshBottomCommandBar();
+    }
+
+    void HoldPositionSelectedUnits()
+    {
+        var controller = FindPlayerController();
+        controller?.HoldPositionSelectedUnits();
+        RefreshBottomCommandBar();
+    }
+
+    void SpreadFormationSelectedUnits()
+    {
+        var controller = FindPlayerController();
+        controller?.SpreadFormationSelectedUnits();
+        RefreshBottomCommandBar();
     }
 
     void TogglePatrolCommand()
@@ -6431,82 +7455,55 @@ public partial class BattleHud : CanvasLayer
             ContentMarginBottom = 5
         };
 
+    static void ApplyTabButtonStyle(Button button, Color bg, Color accent, int fontSize)
+    {
+        button.ClipText = false;
+        button.Alignment = HorizontalAlignment.Center;
+        button.TextOverrunBehavior = TextServer.OverrunBehavior.NoTrimming;
+
+        button.AddThemeFontSizeOverride("font_size", fontSize);
+        button.AddThemeColorOverride("font_color", new Color(0.96f, 0.98f, 1f));
+        button.AddThemeColorOverride("font_hover_color", Colors.White);
+        button.AddThemeColorOverride("font_pressed_color", accent);
+        button.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.92f));
+        button.AddThemeConstantOverride("outline_size", 1);
+
+        var normal = MakeCompactTabStyle(bg, accent);
+        var hover = MakeCompactTabStyle(bg.Lightened(0.12f), accent.Lightened(0.15f));
+        var pressed = MakeCompactTabStyle(bg.Darkened(0.1f), accent);
+
+        button.AddThemeStyleboxOverride("normal", normal);
+        button.AddThemeStyleboxOverride("hover", hover);
+        button.AddThemeStyleboxOverride("pressed", pressed);
+        button.AddThemeStyleboxOverride("focus", hover);
+    }
+
+    static StyleBoxFlat MakeCompactTabStyle(Color bg, Color border) => new()
+    {
+        BgColor = bg,
+        BorderColor = border,
+        BorderWidthLeft = 1,
+        BorderWidthTop = 1,
+        BorderWidthRight = 1,
+        BorderWidthBottom = 1,
+        CornerRadiusTopLeft = 3,
+        CornerRadiusTopRight = 3,
+        CornerRadiusBottomLeft = 3,
+        CornerRadiusBottomRight = 3,
+        ContentMarginLeft = 4,
+        ContentMarginTop = 4,
+        ContentMarginRight = 4,
+        ContentMarginBottom = 4
+    };
+
     static readonly System.Collections.Generic.Dictionary<string, Texture2D> hudTextureCache = new();
     static readonly System.Collections.Generic.Dictionary<string, Texture2D> trimmedTextureCache = new();
 
     static Texture2D LoadHudTexture(string resourcePath)
-    {
-        if (hudTextureCache.TryGetValue(resourcePath, out var cached) && cached is not null)
-            return cached;
-
-        Texture2D resultTexture;
-
-        if (ResourceLoader.Exists(resourcePath))
-        {
-            var texture = GD.Load<Texture2D>(resourcePath);
-            if (texture is not null)
-            {
-                hudTextureCache[resourcePath] = texture;
-                return texture;
-            }
-        }
-
-        var globalPath = ProjectSettings.GlobalizePath(resourcePath);
-        if (Godot.FileAccess.FileExists(globalPath))
-        {
-            var image = Image.LoadFromFile(globalPath);
-            if (image is not null && !image.IsEmpty())
-            {
-                resultTexture = ImageTexture.CreateFromImage(image);
-                hudTextureCache[resourcePath] = resultTexture;
-                return resultTexture;
-            }
-        }
-
-        var fallback = Image.CreateEmpty(4, 4, false, Image.Format.Rgba8);
-        fallback.Fill(new Color(1f, 0f, 1f, 1f));
-        resultTexture = ImageTexture.CreateFromImage(fallback);
-        hudTextureCache[resourcePath] = resultTexture;
-        return resultTexture;
-    }
+        => RuntimeTextureLoader.LoadTexture(resourcePath);
 
     static Texture2D LoadTrimmedHudTexture(string resourcePath, int padding)
-    {
-        var cacheKey = $"{resourcePath}_{padding}";
-        if (trimmedTextureCache.TryGetValue(cacheKey, out var cached) && cached is not null)
-            return cached;
-
-        var globalPath = ProjectSettings.GlobalizePath(resourcePath);
-        if (!Godot.FileAccess.FileExists(globalPath))
-        {
-            var fallback = LoadHudTexture(resourcePath);
-            trimmedTextureCache[cacheKey] = fallback;
-            return fallback;
-        }
-
-        var image = Image.LoadFromFile(globalPath);
-        if (image is null || image.IsEmpty())
-        {
-            var fallback = LoadHudTexture(resourcePath);
-            trimmedTextureCache[cacheKey] = fallback;
-            return fallback;
-        }
-
-        var bounds = FindOpaqueBounds(image);
-        if (bounds.Size.X <= 0 || bounds.Size.Y <= 0)
-        {
-            var tex = ImageTexture.CreateFromImage(image);
-            trimmedTextureCache[cacheKey] = tex;
-            return tex;
-        }
-
-        var left = Math.Max(0, bounds.Position.X - padding);
-        var top = Math.Max(0, bounds.Position.Y - padding);
-        var right = Math.Min(image.GetWidth(), bounds.End.X + padding);
-        var bottom = Math.Min(image.GetHeight(), bounds.End.Y + padding);
-        var region = new Rect2I(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
-        return ImageTexture.CreateFromImage(image.GetRegion(region));
-    }
+        => RuntimeTextureLoader.LoadTrimmedTexture(resourcePath, padding);
 
     static Rect2I FindOpaqueBounds(Image image)
     {
@@ -6593,12 +7590,11 @@ public partial class BattleHud : CanvasLayer
 
     void BuildObjectivePanel(Control root)
     {
-        // 1. Create Task Icon Button (always visible on HUD, click to open pop-up)
         objectiveRestoreBtn = new Button
         {
             Name = "ObjectiveIconBtn",
-            Position = new Vector2(12f, 64f),
-            Size = new Vector2(36f, 36f),
+            Position = new Vector2(10f, 204f),
+            Size = new Vector2(38f, 38f),
             Visible = true,
             Icon = LoadHudTexture("res://assets/third_party/kenney/game-icons/PNG/White/2x/menuList.png"),
             ExpandIcon = true,
@@ -6617,6 +7613,8 @@ public partial class BattleHud : CanvasLayer
 
         BuildObjectiveDialog(root);
     }
+
+
 
     void ToggleObjectivePanel(bool show)
     {
@@ -6756,7 +7754,7 @@ public partial class BattleHud : CanvasLayer
             };
             var outline = new StyleBoxFlat
             {
-                BgColor = Colors.Transparent,
+                BgColor = new Color(0.12f, 0.17f, 0.22f, 0.90f),
                 BorderColor = new Color(0.6f, 0.7f, 0.8f, 0.6f),
                 BorderWidthLeft = 2,
                 BorderWidthTop = 2,
@@ -6875,7 +7873,7 @@ public partial class BattleHud : CanvasLayer
         };
         objectiveDialogRoot.AddChild(dim);
 
-        objectiveDialogPanel = Panel(new Vector2(320, 120), new Vector2(640, 480), new Color(0.030f, 0.046f, 0.058f, 0.96f));
+        objectiveDialogPanel = Panel(new Vector2((HudWidth - 640f) * 0.5f, (HudHeight - 480f) * 0.5f), new Vector2(640, 480), new Color(0.030f, 0.046f, 0.058f, 0.96f));
         objectiveDialogRoot.AddChild(objectiveDialogPanel);
 
         // Task Panel Tactical Background Image

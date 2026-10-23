@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  vocechat:
+    image: privoce/vocechat-server:latest
+    container_name: vocechat-server
+    restart: unless-stopped
+    ports:
+      - "3009:3000"
+    volumes:
+      - ./data:/home/vocechat-server/data
+    environment:
+      - TZ=Asia/Shanghai

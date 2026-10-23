@@ -49,7 +49,7 @@ with app.app_context():
 
     new_tools_to_enable = [
         "read_file", "write_file", "list_directory", "grep_search", 
-        "run_build", "run_command", "take_screenshot", "launch_software", 
+        "run_build", "run_command", "run_tests", "take_screenshot", "record_video", "launch_software", 
         "operate_vscode", "inspect_3d_asset", "fix_normal_map"
     ]
     configs = db.session.query(AppModelConfig).filter_by(app_id="c271447f-5a9b-48d1-a403-af7b0306c7ee").all()

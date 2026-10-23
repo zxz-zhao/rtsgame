@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System.Linq;
 
 public partial class BattleAiController : Node
@@ -6,9 +6,9 @@ public partial class BattleAiController : Node
     [Export] public int InitialGold { get; set; } = 800;
     [Export] public float GoldInterval { get; set; } = 5f;
     [Export] public int GoldPerInterval { get; set; } = 55;
-    [Export] public float InitialAttackDelay { get; set; } = 20f;
-    [Export] public float AttackWaveInterval { get; set; } = 32f;
-    [Export] public int WaveBaseSize { get; set; } = 3;
+    [Export] public float InitialAttackDelay { get; set; } = 40f;
+    [Export] public float AttackWaveInterval { get; set; } = 35f;
+    [Export] public int WaveBaseSize { get; set; } = 2;
     [Export] public int MaxAliveAiUnits { get; set; } = 26;
     [Export] public float DefenseRadius { get; set; } = 42f;
 
@@ -37,6 +37,12 @@ public partial class BattleAiController : Node
         rng.Seed = (ulong)(BattleMapCatalog.Get(GameState.Instance?.SelectedMapName).RandomSeed + 177);
         if (BattleGameManager.Instance is not null)
             BattleGameManager.Instance.AddGold(false, InitialGold - BattleGameManager.Instance.EnemyGold);
+
+        if (DifyCommanderClient.Instance is null)
+        {
+            var difyClient = new DifyCommanderClient { Name = "DifyCommanderClient" };
+            AddChild(difyClient);
+        }
 
         // 错开科技和升级的初始计时器，避免开局卡顿
         techTimer = TechCastInterval * 0.5f;
@@ -219,7 +225,18 @@ public partial class BattleAiController : Node
         if (enemyBase is null)
             return false;
 
-        var def = BattleUnitCatalog.PickAi(manager.GameTime, rng);
+        BattleUnitDefinition def;
+        var difyClient = DifyCommanderClient.Instance;
+        if (difyClient is not null && difyClient.RecommendedUnits.Count > 0 && rng.Randf() < 0.80f)
+        {
+            var recommendedKey = difyClient.RecommendedUnits[rng.RandiRange(0, difyClient.RecommendedUnits.Count - 1)];
+            def = BattleUnitCatalog.Get(recommendedKey);
+        }
+        else
+        {
+            def = BattleUnitCatalog.PickAi(manager.GameTime, rng);
+        }
+
         if (manager.EnemyGold < Mathf.RoundToInt(def.GoldCost * budgetScale))
             def = BattleUnitCatalog.Infantry;
         if (!manager.TrySpendEnemyGold(def.GoldCost))
@@ -227,9 +244,32 @@ public partial class BattleAiController : Node
 
         var spawn = enemyBase.GlobalPosition + new Vector3(rng.RandfRange(-10f, 10f), 0f, rng.RandfRange(-10f, 10f));
         var playerBase = manager.FindOperationalMainBase(true);
-        var unit = manager.SpawnUnit(def.Key, spawn, false, target);
-        if (unit is not null && playerBase is not null)
-            unit.Attack(playerBase);
+
+        // 如果 Dify 指令指定优先扫荡野战部队，将目标重定向至最近的敌方单位
+        var attackDest = target;
+        if (difyClient is not null && difyClient.CurrentTarget == "field_units")
+        {
+            var threat = manager.GetUnits(true).OrderBy(u => u.GlobalPosition.DistanceTo(spawn)).FirstOrDefault();
+            if (threat is not null)
+                attackDest = threat.GlobalPosition;
+        }
+
+        var unit = manager.SpawnUnit(def.Key, spawn, false, attackDest);
+        if (unit is not null)
+        {
+            if (difyClient is not null && difyClient.CurrentTarget == "field_units")
+            {
+                var threat = manager.GetUnits(true).OrderBy(u => u.GlobalPosition.DistanceTo(unit.GlobalPosition)).FirstOrDefault();
+                if (threat is not null)
+                    unit.Attack(threat);
+                else if (playerBase is not null)
+                    unit.Attack(playerBase);
+            }
+            else if (playerBase is not null)
+            {
+                unit.Attack(playerBase);
+            }
+        }
         return unit is not null;
     }
 }

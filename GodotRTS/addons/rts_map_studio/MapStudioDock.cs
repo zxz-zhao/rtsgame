@@ -1,3 +1,4 @@
+#if TOOLS
 using Godot;
 using System;
 using System.Collections.Generic;
@@ -979,3 +980,4 @@ public partial class MapStudioDock : VBoxContainer
         return $"{KindLabel(kind)}_{index + 1}";
     }
 }
+#endif

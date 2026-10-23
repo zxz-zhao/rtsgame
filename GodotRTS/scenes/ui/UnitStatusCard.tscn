@@ -138,14 +138,17 @@ text = "ATK: 185"
 [node name="DefVal" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/GridContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)	ext = "DEF: 42"
+theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
+text = "DEF: 42"
 
 [node name="SpdVal" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/GridContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.4, 1, 0.6, 1)	ext = "SPD: 6.5"
+theme_override_colors/font_color = Color(0.4, 1, 0.6, 1)
+text = "SPD: 6.5"
 
 [node name="RngVal" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/GridContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)	ext = "RNG: 12.0"
+theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)
+text = "RNG: 12.0"

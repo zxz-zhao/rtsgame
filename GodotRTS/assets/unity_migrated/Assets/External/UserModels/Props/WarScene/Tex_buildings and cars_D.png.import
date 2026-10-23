@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dfa7nsbm0545u"
 path.s3tc="res://.godot/imported/Tex_buildings and cars_D.png-58c04333f75d2d66736b8b925c2819aa.s3tc.ctex"
+path.etc2="res://.godot/imported/Tex_buildings and cars_D.png-58c04333f75d2d66736b8b925c2819aa.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Props/WarScene/Tex_buildings and cars_D.png"
-dest_files=["res://.godot/imported/Tex_buildings and cars_D.png-58c04333f75d2d66736b8b925c2819aa.s3tc.ctex"]
+dest_files=["res://.godot/imported/Tex_buildings and cars_D.png-58c04333f75d2d66736b8b925c2819aa.s3tc.ctex", "res://.godot/imported/Tex_buildings and cars_D.png-58c04333f75d2d66736b8b925c2819aa.etc2.ctex"]
 
 [params]
 

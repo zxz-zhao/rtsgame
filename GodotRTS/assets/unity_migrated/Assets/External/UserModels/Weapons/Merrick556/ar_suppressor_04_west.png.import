@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bq30l1sd6vmsu"
 path.s3tc="res://.godot/imported/ar_suppressor_04_west.png-cb018274119105ab49e64ad90dbc9cf8.s3tc.ctex"
+path.etc2="res://.godot/imported/ar_suppressor_04_west.png-cb018274119105ab49e64ad90dbc9cf8.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Weapons/Merrick556/ar_suppressor_04_west.png"
-dest_files=["res://.godot/imported/ar_suppressor_04_west.png-cb018274119105ab49e64ad90dbc9cf8.s3tc.ctex"]
+dest_files=["res://.godot/imported/ar_suppressor_04_west.png-cb018274119105ab49e64ad90dbc9cf8.s3tc.ctex", "res://.godot/imported/ar_suppressor_04_west.png-cb018274119105ab49e64ad90dbc9cf8.etc2.ctex"]
 
 [params]
 

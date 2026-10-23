@@ -462,7 +462,7 @@ namespace GodotRTS.Mahjong
 
             btnReturnLobby.Pressed += () =>
             {
-                GetTree().ChangeSceneToFile("res://scenes/lobby/LobbyScreen.tscn");
+                GetTree().ChangeSceneToFile("res://scenes/lobby/LobbyScene.tscn");
             };
         }
 

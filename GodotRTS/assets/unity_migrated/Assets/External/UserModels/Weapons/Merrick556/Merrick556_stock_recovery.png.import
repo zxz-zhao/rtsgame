@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://86j2kqbot0c4"
 path.s3tc="res://.godot/imported/Merrick556_stock_recovery.png-f89d3f2fdbd2eb40fff93f7caf466b46.s3tc.ctex"
+path.etc2="res://.godot/imported/Merrick556_stock_recovery.png-f89d3f2fdbd2eb40fff93f7caf466b46.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Weapons/Merrick556/Merrick556_stock_recovery.png"
-dest_files=["res://.godot/imported/Merrick556_stock_recovery.png-f89d3f2fdbd2eb40fff93f7caf466b46.s3tc.ctex"]
+dest_files=["res://.godot/imported/Merrick556_stock_recovery.png-f89d3f2fdbd2eb40fff93f7caf466b46.s3tc.ctex", "res://.godot/imported/Merrick556_stock_recovery.png-f89d3f2fdbd2eb40fff93f7caf466b46.etc2.ctex"]
 
 [params]
 

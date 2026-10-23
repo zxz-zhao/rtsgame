@@ -1,34 +1,27 @@
 [gd_scene load_steps=5 format=3 uid="uid://godotrtsmapstudio"]
 
 [ext_resource type="Script" path="res://scripts/map/BattleMapRenderer.cs" id="1_map_renderer"]
+[ext_resource type="Script" path="res://scripts/map/MapStudioFlyover.cs" id="2_flyover"]
 
 [node name="MapStudio" type="Node3D"]
+script = ExtResource("2_flyover")
 
 [node name="MapRenderer" type="Node3D" parent="."]
 script = ExtResource("1_map_renderer")
-PreviewMapName = "Simulation Sandbox"
-AuthoredMapResourcePath = "res://data/maps/simulation_sandbox.tres"
-ShowSpawnMarkers = true
-TintImportedAssets = false
+PreviewMapName = "三路大会战 (3v3/5v5)"
+AuthoredMapResourcePath = ""
+ShowSpawnMarkers = false
+TintImportedAssets = true
 LivePreviewInEditor = true
 CameraPath = NodePath("../CameraRig/Camera3D")
 SunPath = NodePath("../Sun")
 
-[node name="TerrainRoot" type="Node3D" parent="."]
 
-[node name="Terrain3D" type="Terrain3D" parent="TerrainRoot"]
-data_directory = "res://data/terrain3d/mapstudio"
-
-[node name="GridMap" type="GridMap" parent="."]
-cell_size = Vector3(4, 2, 4)
-
-[node name="PropsRoot" type="Node3D" parent="."]
-
-[node name="VegetationRoot" type="Node3D" parent="."]
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
 rotation = Vector3(-0.872665, -0.436332, 0)
-light_energy = 2.1
+light_energy = 1.7
+shadow_enabled = true
 
 [node name="CameraRig" type="Node3D" parent="."]
 

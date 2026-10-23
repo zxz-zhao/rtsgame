@@ -48,7 +48,31 @@ Recommended permanent paths:
 - Linux: `/opt/unity-rts-server`
 - Windows: `C:\UnityRTS\ServerCpp`
 
-## Linux One-Click Deployment
+## Linux Docker / Docker Compose Deployment (Recommended)
+
+Requires only `docker` and `docker compose` on the target machine.
+
+### 1. Full Stack (Server + MariaDB + Redis)
+```bash
+bash scripts/docker-run.sh
+# Or manually:
+docker compose up -d --build
+```
+
+### 2. Standalone Mode (Zero External Databases)
+```bash
+bash scripts/docker-run.sh standalone
+# Or manually:
+docker compose -f compose.standalone.yaml up -d --build
+```
+
+Check status and logs:
+```bash
+docker compose ps
+docker compose logs -f rts-server-cpp
+```
+
+## Linux One-Click Deployment (Systemd)
 
 Requirements:
 

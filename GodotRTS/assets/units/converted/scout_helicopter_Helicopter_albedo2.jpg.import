@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://3p88dmjv7nas"
 path.s3tc="res://.godot/imported/scout_helicopter_Helicopter_albedo2.jpg-39c571a48214ce97d4b472c9ae770bb1.s3tc.ctex"
+path.etc2="res://.godot/imported/scout_helicopter_Helicopter_albedo2.jpg-39c571a48214ce97d4b472c9ae770bb1.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/converted/scout_helicopter_Helicopter_albedo2.jpg"
-dest_files=["res://.godot/imported/scout_helicopter_Helicopter_albedo2.jpg-39c571a48214ce97d4b472c9ae770bb1.s3tc.ctex"]
+dest_files=["res://.godot/imported/scout_helicopter_Helicopter_albedo2.jpg-39c571a48214ce97d4b472c9ae770bb1.s3tc.ctex", "res://.godot/imported/scout_helicopter_Helicopter_albedo2.jpg-39c571a48214ce97d4b472c9ae770bb1.etc2.ctex"]
 
 [params]
 

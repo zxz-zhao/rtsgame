@@ -1,0 +1,83 @@
+# ========================================================
+# UnityRTS C++ Native Server - Docker Compose Stack
+# ========================================================
+name: unity-rts-cpp-stack
+
+services:
+  mysql:
+    image: mariadb:10.11
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=256M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-unity_rts}
+      MYSQL_USER: ${MYSQL_USER:-unityrts}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rts-server-cpp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: unity-rts-server-cpp:latest
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      BIND_HOST: 0.0.0.0
+      PORT: 8080
+      WS_PORT: 8081
+      JWT_SECRET: ${JWT_SECRET:-unityrts-super-secret-key-32chars-min!}
+      ADMIN_API_SECRET: ${ADMIN_API_SECRET:-admin-secret-replace-me-securely}
+      MYSQL_ENABLED: "true"
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-unityrts}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-unity_rts}
+      MYSQL_TABLE: rts_kv_store
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      STRICT_STORAGE_BACKENDS: "false"
+    ports:
+      - "${PORT:-8080}:8080"
+      - "${WS_PORT:-8081}:8081"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./backups:/app/backups
+
+volumes:
+  mysql_data:
+  redis_data:

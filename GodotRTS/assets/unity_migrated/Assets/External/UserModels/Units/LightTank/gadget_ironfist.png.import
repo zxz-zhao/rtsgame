@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dlabrn0dxkqhx"
 path.s3tc="res://.godot/imported/gadget_ironfist.png-1ed27a690d877ad5703634e672efeede.s3tc.ctex"
+path.etc2="res://.godot/imported/gadget_ironfist.png-1ed27a690d877ad5703634e672efeede.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Units/LightTank/gadget_ironfist.png"
-dest_files=["res://.godot/imported/gadget_ironfist.png-1ed27a690d877ad5703634e672efeede.s3tc.ctex"]
+dest_files=["res://.godot/imported/gadget_ironfist.png-1ed27a690d877ad5703634e672efeede.s3tc.ctex", "res://.godot/imported/gadget_ironfist.png-1ed27a690d877ad5703634e672efeede.etc2.ctex"]
 
 [params]
 

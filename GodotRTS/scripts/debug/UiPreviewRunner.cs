@@ -76,11 +76,16 @@ public partial class UiPreviewRunner : Control
                 container.AddChild(instance);
                 if (instance is Control ctrl)
                 {
-                    // 若未显式设置全屏锚点，默认居中展示
-                    if (ctrl.LayoutMode == 0 || ctrl.AnchorsPreset == (int)LayoutPreset.TopLeft)
-                    {
-                        ctrl.SetAnchorsPreset(LayoutPreset.Center);
-                    }
+                    var vpSize = GetViewportRect().Size;
+                    ctrl.Position = Vector2.Zero;
+                    ctrl.Size = vpSize;
+                    ctrl.SetAnchorsPreset(LayoutPreset.FullRect);
+                    ctrl.AnchorRight = 1.0f;
+                    ctrl.AnchorBottom = 1.0f;
+                    ctrl.OffsetLeft = 0;
+                    ctrl.OffsetTop = 0;
+                    ctrl.OffsetRight = 0;
+                    ctrl.OffsetBottom = 0;
                 }
             }
             else

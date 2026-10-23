@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://xosudxm7l0ha"
 path.s3tc="res://.godot/imported/signs.png-3deab577c8a3d4fbff16c44268f34041.s3tc.ctex"
+path.etc2="res://.godot/imported/signs.png-3deab577c8a3d4fbff16c44268f34041.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Kenney/RetroUrbanKit/Models/FBX format/Textures/signs.png"
-dest_files=["res://.godot/imported/signs.png-3deab577c8a3d4fbff16c44268f34041.s3tc.ctex"]
+dest_files=["res://.godot/imported/signs.png-3deab577c8a3d4fbff16c44268f34041.s3tc.ctex", "res://.godot/imported/signs.png-3deab577c8a3d4fbff16c44268f34041.etc2.ctex"]
 
 [params]
 

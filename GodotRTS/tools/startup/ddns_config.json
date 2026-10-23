@@ -1,0 +1,8 @@
+{
+  "provider": "dynv6",
+  "hostname": "",
+  "token": "",
+  "last_ip": "",
+  "last_update_time": 0,
+  "comment": "在 https://dynv6.com/ 免费注册一个二级域名（如 chat-spark.v6.rocks），将 hostname 和 token 填入即可实现公网 IPv6 永久固定访问"
+}

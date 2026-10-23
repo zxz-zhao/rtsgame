@@ -2,13 +2,19 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AssemblyName>GodotRTS</AssemblyName>
+    <RootNamespace>GodotRTS</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefaultItemExcludes>$(DefaultItemExcludes);.godot/**;tools/**;.codex-tmp/**;**/obj/**;**/bin/**</DefaultItemExcludes>
+    <NoWarn>$(NoWarn);CS8618;CS1998;CS0067;CS0169;CS0414;CS8625;CS8600;CS8604;CS8602;CS8603;CS0219</NoWarn>
+    <DefaultItemExcludes>$(DefaultItemExcludes);.godot/**;tools/**;scratch/**;GodotMahjong/**;.codex-tmp/**;**/obj/**;**/bin/**;android/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove=".godot/**/*.cs" />
     <Compile Remove="tools/**/*.cs" />
+    <Compile Remove="scratch/**/*.cs" />
+    <Compile Remove="GodotMahjong/**/*.cs" />
+    <Compile Remove="android/**/*.cs" />
     <Compile Remove="**/obj/**/*.cs" />
     <Compile Remove="**/bin/**/*.cs" />
   </ItemGroup>

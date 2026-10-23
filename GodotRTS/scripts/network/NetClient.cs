@@ -240,7 +240,7 @@ public partial class NetClient : Node
                 return Failure(responseCode == 401 ? "Unauthorized" : "Forbidden");
             }
             GameState.Instance?.ClearSession();
-            GetTree().ChangeSceneToFile("res://scenes/login/LoginScene.tscn");
+            Callable.From(() => GetTree().ChangeSceneToFile("res://scenes/login/LoginScene.tscn")).CallDeferred();
         }
 
         var parsed = Json.ParseString(bytes.GetStringFromUtf8());

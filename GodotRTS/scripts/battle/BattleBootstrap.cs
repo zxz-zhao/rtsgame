@@ -28,11 +28,45 @@ public partial class BattleBootstrap : Node3D
             GameRelay.Instance.CommandReceived += OnRemoteCommand;
         }
 
-        Callable.From(() => BattleGameManager.Instance?.FocusCameraOnPlayerForces()).CallDeferred();
+        Callable.From(() => BattleGameManager.Instance?.FocusCameraOnMainBase()).CallDeferred();
+        Callable.From(DismissGlobalLoadingScreen).CallDeferred();
+    }
+
+    async void DismissGlobalLoadingScreen()
+    {
+        var loadingLayer = GetTree().Root.GetNodeOrNull<CanvasLayer>("GlobalLoadingScreen");
+        if (loadingLayer is null)
+            return;
+
+        // 等待 2 帧，确保 3D 战场与 HUD 均已渲染上屏
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        var overlay = loadingLayer.GetNodeOrNull<Control>("LoadingOverlay") ?? (loadingLayer.GetChildCount() > 0 ? loadingLayer.GetChild<Control>(0) : null);
+        if (overlay is not null)
+        {
+            var tween = CreateTween();
+            if (tween is not null)
+            {
+                tween.TweenProperty(overlay, "modulate:a", 0.0f, 0.35f);
+                tween.Finished += () =>
+                {
+                    if (GodotObject.IsInstanceValid(loadingLayer))
+                        loadingLayer.QueueFree();
+                };
+                return;
+            }
+        }
+
+        loadingLayer.QueueFree();
     }
 
     public override void _ExitTree()
     {
+        var loadingLayer = GetTree().Root.GetNodeOrNull<CanvasLayer>("GlobalLoadingScreen");
+        if (loadingLayer != null && GodotObject.IsInstanceValid(loadingLayer))
+            loadingLayer.QueueFree();
+
         if (GameRelay.Instance is not null)
             GameRelay.Instance.CommandReceived -= OnRemoteCommand;
     }

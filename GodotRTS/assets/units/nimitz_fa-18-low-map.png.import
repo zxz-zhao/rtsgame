@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dse35x7x44lvl"
 path.s3tc="res://.godot/imported/nimitz_fa-18-low-map.png-4e155e114d85f13c425f0b83591ceedc.s3tc.ctex"
+path.etc2="res://.godot/imported/nimitz_fa-18-low-map.png-4e155e114d85f13c425f0b83591ceedc.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/nimitz_fa-18-low-map.png"
-dest_files=["res://.godot/imported/nimitz_fa-18-low-map.png-4e155e114d85f13c425f0b83591ceedc.s3tc.ctex"]
+dest_files=["res://.godot/imported/nimitz_fa-18-low-map.png-4e155e114d85f13c425f0b83591ceedc.s3tc.ctex", "res://.godot/imported/nimitz_fa-18-low-map.png-4e155e114d85f13c425f0b83591ceedc.etc2.ctex"]
 
 [params]
 

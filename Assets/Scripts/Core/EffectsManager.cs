@@ -529,40 +529,67 @@ public class EffectsManager : MonoBehaviour
 
     // ── Fallback 程序化粒子 ──────────────────────────
 
+    private static Texture2D _softParticleTex;
+    public static Texture2D GetSoftParticleTexture()
+    {
+        if (_softParticleTex != null) return _softParticleTex;
+        const int size = 64;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
+        float center = (size - 1) * 0.5f;
+        var cols = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = (x - center) / center;
+            float dy = (y - center) / center;
+            float dist = Mathf.Sqrt(dx * dx + dy * dy);
+            float a = Mathf.Clamp01(1.0f - dist);
+            a = a * a * (3.0f - 2.0f * a); // Hermite smoothstep
+            cols[y * size + x] = new Color(1f, 1f, 1f, a);
+        }
+        tex.SetPixels32(cols);
+        tex.Apply();
+        _softParticleTex = tex;
+        return _softParticleTex;
+    }
+
     static void FallbackExplosion(Vector3 pos, float scale)
     {
         EnsureInstance();
-        // 1. 主粒子：火球
+        // 1. 主粒子：写实高压火焰团 (从白炽金黄核心 -> 烈焰纯橙 -> 暗红余烬 -> 浓黑烟尘)
         BuildParticle(pos, scale, fire: true,
-            burstCount: Mathf.RoundToInt(28f * scale),
-            startSpeed: 5.5f * scale,
-            startSize: 0.55f * scale,
-            life: 0.55f,
-            startColor: new Color(1f, 0.78f, 0.22f, 1f),
-            gravity: 0.3f,
+            burstCount: Mathf.RoundToInt(32f * scale),
+            startSpeed: 5.2f * scale,
+            startSize: 0.65f * scale,
+            life: 0.58f,
+            startColor: new Color(1.0f, 0.62f, 0.12f, 1f),
+            gravity: 0.2f,
             sphereShape: true);
-        // 2. 烟雾
-        BuildParticle(pos, scale, fire: false,
-            burstCount: Mathf.RoundToInt(18f * scale),
+        // 2. 升腾滚滚浓烟 (深灰黑硝烟与地表碎屑羽流)
+        BuildParticle(pos + Vector3.up * 0.12f, scale * 1.25f, fire: false,
+            burstCount: Mathf.RoundToInt(24f * scale),
             startSpeed: 2.2f * scale,
-            startSize: 0.85f * scale,
-            life: 1.2f,
-            startColor: new Color(0.18f, 0.18f, 0.18f, 0.85f),
-            gravity: -0.4f,
+            startSize: 0.95f * scale,
+            life: 1.45f,
+            startColor: new Color(0.18f, 0.17f, 0.16f, 0.88f),
+            gravity: -0.42f,
             sphereShape: false);
-        // 3. 火星
+        // 3. 炽热破片/火星 (高速迸射的赤红金属碎屑与明火)
         BuildParticle(pos, scale, fire: true,
-            burstCount: Mathf.RoundToInt(20f * scale),
-            startSpeed: 9f * scale,
-            startSize: 0.12f * scale,
-            life: 0.7f,
-            startColor: new Color(1f, 0.92f, 0.44f, 1f),
-            gravity: 1.2f,
-            sphereShape: true);
-        // 4. 冲击波环
-        BuildShockwaveRing(pos, scale * 1.6f, new Color(1f, 0.68f, 0.20f, 0.78f));
-        // 5. 闪光
-        BuildFlash(pos + Vector3.up * 0.4f, scale * 2.2f, new Color(1f, 0.88f, 0.50f, 0.85f), 0.18f);
+            burstCount: Mathf.RoundToInt(24f * scale),
+            startSpeed: 9.5f * scale,
+            startSize: 0.14f * scale,
+            life: 0.70f,
+            startColor: new Color(1.0f, 0.70f, 0.10f, 1f),
+            gravity: 1.35f,
+            sphereShape: true,
+            additive: true);
+        // 4. 地面扩散激波环 (带有热浪火光的扩散环)
+        BuildShockwaveRing(pos, scale * 1.8f, new Color(1.0f, 0.45f, 0.08f, 0.75f));
+        // 5. 瞬间爆炸火光闪烁 (温暖写实的爆轰光芒，非冷白色)
+        BuildFlash(pos + Vector3.up * 0.35f, scale * 2.2f, new Color(1.0f, 0.52f, 0.14f, 0.80f), 0.15f);
     }
 
     static void FallbackImpact(Vector3 pos, Color tint, float scale)
@@ -580,7 +607,7 @@ public class EffectsManager : MonoBehaviour
     }
 
     static GameObject BuildParticle(Vector3 pos, float scale, bool fire, int burstCount,
-        float startSpeed, float startSize, float life, Color startColor, float gravity, bool sphereShape)
+        float startSpeed, float startSize, float life, Color startColor, float gravity, bool sphereShape, bool additive = false)
     {
         var go = new GameObject(fire ? "FxFireParticles" : "FxSmokeParticles");
         go.transform.position = pos;
@@ -614,15 +641,33 @@ public class EffectsManager : MonoBehaviour
         if (fire)
         {
             grad.SetKeys(
-                new[] { new GradientColorKey(startColor, 0f), new GradientColorKey(new Color(0.65f, 0.18f, 0.06f), 0.55f), new GradientColorKey(Color.black, 1f) },
-                new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0.85f, 0.4f), new GradientAlphaKey(0f, 1f) }
+                new[] {
+                    new GradientColorKey(new Color(1.0f, 0.78f, 0.18f), 0f),      // 0% 白炽金黄核心
+                    new GradientColorKey(new Color(1.0f, 0.38f, 0.04f), 0.30f),    // 30% 烈焰纯橙
+                    new GradientColorKey(new Color(0.72f, 0.12f, 0.02f), 0.65f),    // 65% 暗红余烬
+                    new GradientColorKey(new Color(0.14f, 0.08f, 0.06f), 1.0f)     // 100% 冷却黑碳
+                },
+                new[] {
+                    new GradientAlphaKey(1.0f, 0f),
+                    new GradientAlphaKey(0.92f, 0.35f),
+                    new GradientAlphaKey(0.70f, 0.70f),
+                    new GradientAlphaKey(0f, 1f)
+                }
             );
         }
         else
         {
             grad.SetKeys(
-                new[] { new GradientColorKey(startColor, 0f), new GradientColorKey(new Color(0.32f, 0.32f, 0.32f), 1f) },
-                new[] { new GradientAlphaKey(0.85f, 0.05f), new GradientAlphaKey(0.45f, 0.6f), new GradientAlphaKey(0f, 1f) }
+                new[] {
+                    new GradientColorKey(new Color(0.18f, 0.17f, 0.16f), 0f),
+                    new GradientColorKey(new Color(0.11f, 0.11f, 0.11f), 0.5f),
+                    new GradientColorKey(new Color(0.06f, 0.06f, 0.06f), 1f)
+                },
+                new[] {
+                    new GradientAlphaKey(0.88f, 0.05f),
+                    new GradientAlphaKey(0.55f, 0.6f),
+                    new GradientAlphaKey(0f, 1f)
+                }
             );
         }
         colorOverLife.color = grad;
@@ -638,9 +683,30 @@ public class EffectsManager : MonoBehaviour
         var renderer = ps.GetComponent<ParticleSystemRenderer>();
         if (renderer != null)
         {
-            var shader = Shader.Find("Particles/Standard Unlit") ?? Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Color");
-            renderer.material = new Material(shader);
-            RendererColorUtil.TrySetColor(renderer.material, startColor);
+            Shader shader = null;
+            if (additive)
+            {
+                shader = Shader.Find("Mobile/Particles/Additive")
+                    ?? Shader.Find("Legacy Shaders/Particles/Additive")
+                    ?? Shader.Find("Particles/Standard Unlit")
+                    ?? Shader.Find("Sprites/Default");
+            }
+            else
+            {
+                shader = Shader.Find("Mobile/Particles/Alpha Blended")
+                    ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended")
+                    ?? Shader.Find("Particles/Standard Unlit")
+                    ?? Shader.Find("Sprites/Default");
+            }
+
+            var mat = new Material(shader);
+            mat.mainTexture = GetSoftParticleTexture();
+            if (mat.HasProperty("_Color"))
+                mat.SetColor("_Color", Color.white);
+            if (mat.HasProperty("_TintColor"))
+                mat.SetColor("_TintColor", Color.white);
+
+            renderer.material = mat;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
         }
@@ -691,7 +757,8 @@ public class EffectsManager : MonoBehaviour
             life: 0.32f,
             startColor: color,
             gravity: 0f,
-            sphereShape: false);
+            sphereShape: false,
+            additive: true);
     }
 
     static GameObject BuildFlash(Vector3 pos, float maxScale, Color color, float life)
@@ -703,7 +770,8 @@ public class EffectsManager : MonoBehaviour
             life: life,
             startColor: color,
             gravity: 0f,
-            sphereShape: true);
+            sphereShape: true,
+            additive: true);
     }
 }
 

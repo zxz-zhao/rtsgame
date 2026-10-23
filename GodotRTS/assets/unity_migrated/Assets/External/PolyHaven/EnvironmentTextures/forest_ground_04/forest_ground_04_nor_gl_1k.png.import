@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cvuydadtpvb1j"
 path.s3tc="res://.godot/imported/forest_ground_04_nor_gl_1k.png-22d3c872362fe4f14cd3e2f3d881c5c1.s3tc.ctex"
+path.etc2="res://.godot/imported/forest_ground_04_nor_gl_1k.png-22d3c872362fe4f14cd3e2f3d881c5c1.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/PolyHaven/EnvironmentTextures/forest_ground_04/forest_ground_04_nor_gl_1k.png"
-dest_files=["res://.godot/imported/forest_ground_04_nor_gl_1k.png-22d3c872362fe4f14cd3e2f3d881c5c1.s3tc.ctex"]
+dest_files=["res://.godot/imported/forest_ground_04_nor_gl_1k.png-22d3c872362fe4f14cd3e2f3d881c5c1.s3tc.ctex", "res://.godot/imported/forest_ground_04_nor_gl_1k.png-22d3c872362fe4f14cd3e2f3d881c5c1.etc2.ctex"]
 
 [params]
 

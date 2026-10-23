@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bjqln1xvn5m7i"
 path.s3tc="res://.godot/imported/fa18_fighter_fa-18-low-map.png-2233cc5ef5610be596a57f40195d89d2.s3tc.ctex"
+path.etc2="res://.godot/imported/fa18_fighter_fa-18-low-map.png-2233cc5ef5610be596a57f40195d89d2.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/fa18_fighter_fa-18-low-map.png"
-dest_files=["res://.godot/imported/fa18_fighter_fa-18-low-map.png-2233cc5ef5610be596a57f40195d89d2.s3tc.ctex"]
+dest_files=["res://.godot/imported/fa18_fighter_fa-18-low-map.png-2233cc5ef5610be596a57f40195d89d2.s3tc.ctex", "res://.godot/imported/fa18_fighter_fa-18-low-map.png-2233cc5ef5610be596a57f40195d89d2.etc2.ctex"]
 
 [params]
 

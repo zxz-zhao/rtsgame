@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://s8v6fht5yb2n"
 path.s3tc="res://.godot/imported/f22_fighter_2.png-0f630386112a6e8efd1d2608bf2e6ba0.s3tc.ctex"
+path.etc2="res://.godot/imported/f22_fighter_2.png-0f630386112a6e8efd1d2608bf2e6ba0.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/f22_fighter_2.png"
-dest_files=["res://.godot/imported/f22_fighter_2.png-0f630386112a6e8efd1d2608bf2e6ba0.s3tc.ctex"]
+dest_files=["res://.godot/imported/f22_fighter_2.png-0f630386112a6e8efd1d2608bf2e6ba0.s3tc.ctex", "res://.godot/imported/f22_fighter_2.png-0f630386112a6e8efd1d2608bf2e6ba0.etc2.ctex"]
 
 [params]
 

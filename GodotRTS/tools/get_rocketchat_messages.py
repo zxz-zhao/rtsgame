@@ -11,7 +11,7 @@ ADMIN_TOKEN = "rocket_dify_admin_token_20260923"
 ADMIN_USER_ID = "ykykGuDpmeJqtiEHy"
 
 def get_history(room_id: str = "GENERAL", count: int = 5):
-    url = f"http://127.0.0.1:3000/api/v1/channels.history?roomId={room_id}&count={count}"
+    url = f"http://127.0.0.1:3001/api/v1/channels.history?roomId={room_id}&count={count}"
     req = urllib.request.Request(
         url,
         headers={

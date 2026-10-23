@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://gxdqg87ypduj"
 path.s3tc="res://.godot/imported/m_mtl_att_t10_p01_ar_coslo723_mag_ext1.png-4000e7ca3c938b89dd6fc6fe19a19bf4.s3tc.ctex"
+path.etc2="res://.godot/imported/m_mtl_att_t10_p01_ar_coslo723_mag_ext1.png-4000e7ca3c938b89dd6fc6fe19a19bf4.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Weapons/Merrick556/m_mtl_att_t10_p01_ar_coslo723_mag_ext1.png"
-dest_files=["res://.godot/imported/m_mtl_att_t10_p01_ar_coslo723_mag_ext1.png-4000e7ca3c938b89dd6fc6fe19a19bf4.s3tc.ctex"]
+dest_files=["res://.godot/imported/m_mtl_att_t10_p01_ar_coslo723_mag_ext1.png-4000e7ca3c938b89dd6fc6fe19a19bf4.s3tc.ctex", "res://.godot/imported/m_mtl_att_t10_p01_ar_coslo723_mag_ext1.png-4000e7ca3c938b89dd6fc6fe19a19bf4.etc2.ctex"]
 
 [params]
 

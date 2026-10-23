@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using System;
 using System.Linq;
 
@@ -12,11 +12,49 @@ public partial class BattleFeedback : Node
     public static BattleFeedback? Instance { get; private set; }
 
     readonly RandomNumberGenerator rng = new();
+    readonly System.Collections.Generic.Dictionary<string, AudioStream> cachedSamples = new();
 
     public override void _Ready()
     {
         Instance = this;
         rng.Randomize();
+        PreloadCombatAudio();
+    }
+
+    void PreloadCombatAudio()
+    {
+        string[] sampleNames =
+        {
+            "bomb_explosion", "heavy_explosion", "medium_explosion", "water_spout_explosion",
+            "bomb_whistle", "bomb_release", "cannon_fire", "heavy_artillery_fire",
+            "naval_cannon_fire", "missile_launch", "rifle_fire", "machinegun_fire",
+            "aa_cannon_fire", "armor_pierce_impact", "ricochet"
+        };
+
+        foreach (var name in sampleNames)
+        {
+            string path = $"res://assets/audio/combat/{name}.wav";
+            if (ResourceLoader.Exists(path))
+            {
+                try
+                {
+                    var stream = ResourceLoader.Load<AudioStream>(path);
+                    if (stream is not null)
+                    {
+                        cachedSamples[name] = stream;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    GD.PrintErr($"[BattleFeedback] Error loading sample {path}: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    AudioStream? GetSample(string name)
+    {
+        return cachedSamples.TryGetValue(name, out var s) ? s : null;
     }
 
     public override void _ExitTree()
@@ -27,28 +65,85 @@ public partial class BattleFeedback : Node
 
     public static void Ensure(Node owner)
     {
-        var root = owner.GetTree().CurrentScene ?? owner;
-        if (root.GetNodeOrNull<BattleFeedback>("BattleFeedback") is not null)
+        if (Instance is not null && GodotObject.IsInstanceValid(Instance))
             return;
-        root.AddChild(new BattleFeedback { Name = "BattleFeedback" });
+
+        var root = owner.GetTree()?.CurrentScene ?? owner;
+        if (root is null) return;
+        if (root.GetNodeOrNull<BattleFeedback>("BattleFeedback") is { } existing)
+        {
+            Instance = existing;
+            return;
+        }
+
+        var feedback = new BattleFeedback { Name = "BattleFeedback" };
+        if (root.IsNodeReady())
+        {
+            root.AddChild(feedback);
+        }
+        else
+        {
+            root.CallDeferred(Node.MethodName.AddChild, feedback);
+        }
     }
 
-    public static void Damage(Node owner, Vector3 worldPosition, float amount, bool targetPlayerOwned, bool lethal = false)
+    public static void Damage(
+        Node owner,
+        Vector3 worldPosition,
+        float amount,
+        bool targetPlayerOwned,
+        bool lethal = false,
+        bool isCrit = false,
+        bool isRearHit = false,
+        bool isRicochet = false)
     {
         Ensure(owner);
-        Instance?.SpawnFloatingText(worldPosition, $"-{Mathf.RoundToInt(amount)}", targetPlayerOwned ? new Color(1f, 0.36f, 0.30f) : new Color(1f, 0.78f, 0.28f), lethal ? 1.35f : 1f);
-        Instance?.PlayDamageSfx(worldPosition, targetPlayerOwned, lethal);
+        string text;
+        Color textColor;
+        float textScale;
 
-        // Trigger HUD invasion warning for player-owned units or buildings
+        if (isRicochet)
+        {
+            text = $"跳弹 -{Mathf.RoundToInt(amount)}";
+            textColor = new Color(0.72f, 0.88f, 1.0f);
+            textScale = 0.90f;
+            Instance?.PlayRicochetSfx(worldPosition);
+        }
+        else if (isCrit)
+        {
+            text = $"暴击! -{Mathf.RoundToInt(amount)}";
+            textColor = new Color(1.0f, 0.88f, 0.15f);
+            textScale = lethal ? 1.55f : 1.35f;
+            Instance?.PlayCriticalSfx(worldPosition);
+            Instance?.PlayDamageSfx(worldPosition, targetPlayerOwned, lethal);
+        }
+        else if (isRearHit)
+        {
+            text = $"背击 -{Mathf.RoundToInt(amount)}";
+            textColor = new Color(1.0f, 0.42f, 0.18f);
+            textScale = lethal ? 1.45f : 1.25f;
+            Instance?.PlayDamageSfx(worldPosition, targetPlayerOwned, lethal);
+        }
+        else
+        {
+            text = $"-{Mathf.RoundToInt(amount)}";
+            textColor = targetPlayerOwned ? new Color(1f, 0.36f, 0.30f) : new Color(1f, 0.78f, 0.28f);
+            textScale = lethal ? 1.35f : 1f;
+            Instance?.PlayDamageSfx(worldPosition, targetPlayerOwned, lethal);
+        }
+
+        Instance?.SpawnFloatingText(worldPosition, text, textColor, textScale);
+
+        // Trigger HUD invasion warning and minimap alert for player-owned units or buildings
         if (targetPlayerOwned && amount > 0.5f && owner.IsInsideTree())
         {
-            var hud = owner.GetTree().CurrentScene?.GetNodeOrNull<BattleHud>("HUD");
+            bool isMainBase = owner is RtsBuilding { IsMainBase: true };
+            BattleMinimap.Instance?.NotifyUnderAttack(worldPosition, isMainBase);
+
+            var hud = owner.GetTree().CurrentScene?.GetNodeOrNull<BattleHud>("HUD")
+                ?? owner.GetTree().Root.GetNodeOrNull<BattleHud>("HUD");
             if (hud is not null)
             {
-                bool isMainBase = false;
-                if (owner is RtsBuilding b && b.IsMainBase)
-                    isMainBase = true;
-
                 string warningMsg = isMainBase 
                     ? "【紧急警报】主基地正在遭受敌军直接打击！请火速守卫！" 
                     : "【战况警告】我方单位或前线建筑遭受敌军入侵攻击！";
@@ -81,6 +176,16 @@ public partial class BattleFeedback : Node
         Instance?.PlayWeaponFireSfx(worldPosition, profile, heavy);
     }
 
+    public static void BombRelease(Vector3 worldPosition)
+    {
+        Instance?.PlayBombReleaseSfx(worldPosition);
+    }
+
+    public static void BombWhistle(Vector3 worldPosition, float duration)
+    {
+        Instance?.PlayBombWhistleSfx(worldPosition, duration);
+    }
+
     public static void Command(Node owner, Vector3 worldPosition, string text, Color color)
     {
         Ensure(owner);
@@ -92,12 +197,63 @@ public partial class BattleFeedback : Node
     {
         Ensure(owner);
         Instance?.PlayImpactSfx(worldPosition, heavy);
+        ScorchManager.SpawnScorch(owner, worldPosition, heavy ? 2.6f : 1.5f);
+    }
+
+    public static void WaterSpout(Node owner, Vector3 worldPosition)
+    {
+        Ensure(owner);
+        Instance?.PlayWaterSpoutSfx(worldPosition);
+    }
+
+    public static void FlakAirburst(Node owner, Vector3 worldPosition)
+    {
+        Ensure(owner);
+        Instance?.PlayFlakAirburstSfx(worldPosition);
+    }
+
+    void PlayFlakAirburstSfx(Vector3 worldPosition)
+    {
+        if (GetSample("aa_cannon_fire") is { } s)
+        {
+            PlayWorldSfx(worldPosition, s, 0.02f, 75f);
+            return;
+        }
+        PlayImpactSfx(worldPosition, false);
+    }
+
+    public static void TriggerCameraShake(Vector3 worldPosition, float intensity = 0.08f, float duration = 0.30f)
+    {
+        if (RtsCamera.Instance is { } rtsCam && GodotObject.IsInstanceValid(rtsCam))
+        {
+            float dist = rtsCam.GlobalPosition.DistanceTo(worldPosition);
+            float distFactor = Mathf.Clamp(1.0f - (dist - 12f) / 45f, 0f, 1f);
+            float finalIntensity = intensity * distFactor;
+            if (finalIntensity > 0.005f)
+            {
+                rtsCam.TriggerShake(Mathf.Min(finalIntensity, 0.09f), duration);
+            }
+        }
+        else if (AutoCombatArenaController.Instance is { } arena && GodotObject.IsInstanceValid(arena))
+        {
+            Vector3 camPos = arena.ArenaCamera?.GlobalPosition ?? Vector3.Zero;
+            float dist = camPos.DistanceTo(worldPosition);
+            float distFactor = Mathf.Clamp(1.0f - (dist - 12f) / 45f, 0f, 1f);
+            float finalIntensity = intensity * distFactor;
+            if (finalIntensity > 0.005f)
+            {
+                arena.TriggerCameraShake(Mathf.Min(finalIntensity, 0.09f), duration);
+            }
+        }
     }
 
     public static void Destroyed(Node owner, Vector3 worldPosition, bool heavy)
     {
         Ensure(owner);
         Instance?.PlayDestroyedSfx(worldPosition, heavy);
+        CombatProjectile.SpawnExplosion(owner, worldPosition, heavy ? new Color(1.0f, 0.45f, 0.1f) : new Color(1.0f, 0.7f, 0.2f), heavy);
+        TriggerCameraShake(worldPosition, heavy ? 0.08f : 0.04f, heavy ? 0.30f : 0.20f);
+        ScorchManager.SpawnScorch(owner, worldPosition, heavy ? 3.6f : 2.2f);
     }
 
     public static void Selection(Node owner, int selectedCount, bool containsPlayerOwned, bool containsEnemy)
@@ -118,6 +274,28 @@ public partial class BattleFeedback : Node
             0.06f);
     }
 
+    public static void PlayEnemySpottedAlert()
+    {
+        if (Instance is null || !GodotObject.IsInstanceValid(Instance)) return;
+        var stream = CreateLayeredTone(
+            new ToneLayer(820f, 0.09f, 0.22f, Wave.Sine, 0f, 0.008f, 0.025f),
+            new ToneLayer(1240f, 0.14f, 0.26f, Wave.Sine, 0.08f, 0.008f, 0.040f),
+            new ToneLayer(1860f, 0.10f, 0.12f, Wave.Triangle, 0.10f, 0.005f, 0.030f)
+        );
+        Instance.PlayUiSfx(stream, 0.01f);
+    }
+
+    public static void PlayUnderAttackAlert()
+    {
+        if (Instance is null || !GodotObject.IsInstanceValid(Instance)) return;
+        var stream = CreateLayeredTone(
+            new ToneLayer(640f, 0.09f, 0.24f, Wave.Square, 0f, 0.005f, 0.020f),
+            new ToneLayer(480f, 0.09f, 0.24f, Wave.Square, 0.09f, 0.005f, 0.020f),
+            new ToneLayer(760f, 0.12f, 0.20f, Wave.Saw, 0.18f, 0.006f, 0.030f)
+        );
+        Instance.PlayUiSfx(stream, 0.01f);
+    }
+
     public static void UiConfirm(Node owner)
     {
         Ensure(owner);
@@ -128,8 +306,13 @@ public partial class BattleFeedback : Node
             0.02f);
     }
 
+    int activeFloatingTextCount;
+
     void SpawnFloatingText(Vector3 worldPosition, string text, Color color, float scale)
     {
+        if (activeFloatingTextCount >= 24)
+            return;
+
         var root = GetTree().CurrentScene ?? this;
         var lengthScale = text.Length switch
         {
@@ -153,6 +336,7 @@ public partial class BattleFeedback : Node
             VerticalAlignment = VerticalAlignment.Center
         };
         root.AddChild(label);
+        activeFloatingTextCount++;
         label.GlobalPosition = worldPosition + new Vector3(rng.RandfRange(-0.30f, 0.30f), rng.RandfRange(1.10f, 1.72f), rng.RandfRange(-0.22f, 0.22f));
 
         var end = label.Position + new Vector3(rng.RandfRange(-0.14f, 0.14f), 0.92f, 0f);
@@ -160,61 +344,204 @@ public partial class BattleFeedback : Node
         tween.SetParallel(true);
         tween.TweenProperty(label, "position", end, 0.62).SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Cubic);
         tween.TweenProperty(label, "modulate:a", 0f, 0.62).SetEase(Tween.EaseType.In);
-        tween.TweenCallback(Callable.From(label.QueueFree)).SetDelay(0.62);
+        tween.TweenCallback(Callable.From(() =>
+        {
+            activeFloatingTextCount--;
+            if (activeFloatingTextCount < 0) activeFloatingTextCount = 0;
+            label.QueueFree();
+        })).SetDelay(0.62);
     }
 
     void SpawnCommandMarker(Vector3 worldPosition, string text, Color color)
     {
         var root = GetTree().CurrentScene ?? this;
-        var marker = new MeshInstance3D
+        var upperText = text.Trim().ToUpperInvariant();
+        bool isAttackCommand = upperText is "ATTACK" or "FIRE" or "BOMB";
+        bool isStandardUnitOrder = upperText is "MOVE" or "ATTACK" or "FIRE" or "BOMB" or "PATROL" or "RALLY" or "DEFEND" or "BUILD";
+
+        var markerRoot = new Node3D
         {
-            Name = "CommandMarker",
-            Mesh = new CylinderMesh
+            Name = "CommandMarkerRoot"
+        };
+        root.AddChild(markerRoot);
+        markerRoot.GlobalPosition = new Vector3(worldPosition.X, 0.08f, worldPosition.Z);
+
+        if (isAttackCommand)
+        {
+            // === 攻击/开火/轰炸：军用战术锁定准星 (Military Combat Snap-Lock Reticle) ===
+            var reticleColor = new Color(1.0f, 0.22f, 0.20f, 0.95f);
+            var reticleMat = new StandardMaterial3D
             {
-                TopRadius = 1.15f,
-                BottomRadius = 1.15f,
-                Height = 0.035f,
-                RadialSegments = 40
-            },
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-            MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = new Color(color.R, color.G, color.B, 0.24f),
-                EmissionEnabled = true,
-                Emission = color,
-                EmissionEnergyMultiplier = 0.45f,
+                AlbedoColor = reticleColor,
                 ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            }
-        };
-        root.AddChild(marker);
-        marker.GlobalPosition = new Vector3(worldPosition.X, 0.06f, worldPosition.Z);
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+                DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+            };
 
-        var label = new Label3D
+            var outerRing = new MeshInstance3D
+            {
+                Name = "TargetOuterRing",
+                Mesh = new TorusMesh
+                {
+                    InnerRadius = 0.95f,
+                    OuterRadius = 1.08f,
+                    RingSegments = 40
+                },
+                MaterialOverride = reticleMat,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+            };
+            markerRoot.AddChild(outerRing);
+
+            var innerRing = new MeshInstance3D
+            {
+                Name = "TargetInnerRing",
+                Mesh = new TorusMesh
+                {
+                    InnerRadius = 0.42f,
+                    OuterRadius = 0.50f,
+                    RingSegments = 32
+                },
+                MaterialOverride = reticleMat,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+            };
+            markerRoot.AddChild(innerRing);
+
+            // 十字刻度线
+            var crossH = new MeshInstance3D
+            {
+                Name = "CrossH",
+                Mesh = new BoxMesh { Size = new Vector3(2.4f, 0.02f, 0.08f) },
+                MaterialOverride = reticleMat,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+            };
+            markerRoot.AddChild(crossH);
+
+            var crossV = new MeshInstance3D
+            {
+                Name = "CrossV",
+                Mesh = new BoxMesh { Size = new Vector3(0.08f, 0.02f, 2.4f) },
+                MaterialOverride = reticleMat,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+            };
+            markerRoot.AddChild(crossV);
+
+            markerRoot.Scale = new Vector3(1.85f, 1f, 1.85f);
+            var tween = markerRoot.CreateTween();
+            tween.SetParallel(true);
+            tween.TweenProperty(markerRoot, "scale", new Vector3(0.92f, 1f, 0.92f), 0.16)
+                .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Back);
+            tween.TweenProperty(markerRoot, "rotation:y", Mathf.DegToRad(45f), 0.16)
+                .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Cubic);
+
+            tween.Chain().TweenProperty(markerRoot, "scale", new Vector3(1.05f, 1f, 1.05f), 0.22)
+                .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Quad);
+            tween.Parallel().TweenProperty(reticleMat, "albedo_color:a", 0f, 0.22)
+                .SetEase(Tween.EaseType.In);
+            tween.TweenCallback(Callable.From(markerRoot.QueueFree)).SetDelay(0.40);
+        }
+        else
         {
-            Name = "CommandMarkerLabel",
-            Text = text,
-            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
-            NoDepthTest = true,
-            FixedSize = true,
-            FontSize = 28,
-            PixelSize = CommandMarkerPixelSize,
-            Modulate = color,
-            OutlineModulate = new Color(0f, 0f, 0f, 0.88f),
-            OutlineSize = 3,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        root.AddChild(label);
-        label.GlobalPosition = new Vector3(worldPosition.X, 1.2f, worldPosition.Z);
+            // === 移动/巡逻/集结点/防守：高科技双环脉冲扩散波 (High-Tech Double Ground Pulse Ripple) ===
+            var pulseColor = upperText switch
+            {
+                "RALLY" => new Color(1.0f, 0.85f, 0.25f, 0.95f),
+                "DEFEND" => new Color(0.25f, 0.75f, 1.0f, 0.95f),
+                "PATROL" => new Color(0.85f, 1.0f, 0.30f, 0.95f),
+                _ => new Color(0.20f, 0.95f, 0.70f, 0.95f) // 经典科技青绿
+            };
 
-        var tween = marker.CreateTween();
-        tween.SetParallel(true);
-        tween.TweenProperty(marker, "scale", new Vector3(1.45f, 1f, 1.45f), 0.34).SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Cubic);
-        tween.TweenProperty(label, "position:y", label.Position.Y + 0.65f, 0.50).SetEase(Tween.EaseType.Out);
-        tween.TweenProperty(label, "modulate:a", 0f, 0.50).SetEase(Tween.EaseType.In);
-        tween.TweenCallback(Callable.From(marker.QueueFree)).SetDelay(0.52);
-        tween.TweenCallback(Callable.From(label.QueueFree)).SetDelay(0.52);
+            var outerMat = new StandardMaterial3D
+            {
+                AlbedoColor = pulseColor,
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+                DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+            };
+
+            var outerRing = new MeshInstance3D
+            {
+                Name = "PulseOuterRing",
+                Mesh = new TorusMesh
+                {
+                    InnerRadius = 0.72f,
+                    OuterRadius = 0.84f,
+                    RingSegments = 36
+                },
+                MaterialOverride = outerMat,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+            };
+            markerRoot.AddChild(outerRing);
+
+            var innerMat = new StandardMaterial3D
+            {
+                AlbedoColor = pulseColor,
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+                DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+            };
+
+            var innerRing = new MeshInstance3D
+            {
+                Name = "PulseInnerRing",
+                Mesh = new TorusMesh
+                {
+                    InnerRadius = 0.32f,
+                    OuterRadius = 0.40f,
+                    RingSegments = 28
+                },
+                MaterialOverride = innerMat,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+            };
+            markerRoot.AddChild(innerRing);
+
+            outerRing.Scale = new Vector3(0.35f, 1f, 0.35f);
+            innerRing.Scale = new Vector3(0.20f, 1f, 0.20f);
+
+            var tween = markerRoot.CreateTween();
+            tween.SetParallel(true);
+            tween.TweenProperty(outerRing, "scale", new Vector3(1.55f, 1f, 1.55f), 0.35)
+                .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Cubic);
+            tween.TweenProperty(outerMat, "albedo_color:a", 0f, 0.35)
+                .SetEase(Tween.EaseType.In);
+
+            tween.TweenProperty(innerRing, "scale", new Vector3(1.10f, 1f, 1.10f), 0.28)
+                .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Quad);
+            tween.TweenProperty(innerMat, "albedo_color:a", 0f, 0.28)
+                .SetEase(Tween.EaseType.In);
+
+            tween.TweenCallback(Callable.From(markerRoot.QueueFree)).SetDelay(0.38);
+        }
+
+        // 仅在非标准单位指令（即关卡剧情横幅、特殊系统通告）时保留信息标签
+        if (!isStandardUnitOrder && !string.IsNullOrWhiteSpace(text))
+        {
+            var label = new Label3D
+            {
+                Name = "CommandMarkerLabel",
+                Text = text,
+                Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+                NoDepthTest = true,
+                FixedSize = true,
+                FontSize = 28,
+                PixelSize = CommandMarkerPixelSize,
+                Modulate = color,
+                OutlineModulate = new Color(0f, 0f, 0f, 0.88f),
+                OutlineSize = 3,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            root.AddChild(label);
+            label.GlobalPosition = new Vector3(worldPosition.X, 1.2f, worldPosition.Z);
+
+            var labelTween = label.CreateTween();
+            labelTween.SetParallel(true);
+            labelTween.TweenProperty(label, "position:y", label.Position.Y + 0.65f, 0.50).SetEase(Tween.EaseType.Out);
+            labelTween.TweenProperty(label, "modulate:a", 0f, 0.50).SetEase(Tween.EaseType.In);
+            labelTween.TweenCallback(Callable.From(label.QueueFree)).SetDelay(0.52);
+        }
     }
 
     void PlayDamageSfx(Vector3 worldPosition, bool targetPlayerOwned, bool lethal)
@@ -231,6 +558,38 @@ public partial class BattleFeedback : Node
         PlayWorldSfx(worldPosition, stream, lethal ? 0.08f : 0.02f, lethal ? 82f : 56f);
     }
 
+    public void PlayRicochetSfx(Vector3 worldPosition)
+    {
+        if (GetSample("ricochet") is { } s)
+        {
+            PlayWorldSfx(worldPosition, s, 0.05f, 65f);
+            return;
+        }
+
+        // 钢板跳弹清脆金属鸣响 (1280Hz -> 820Hz)
+        var stream = CreateLayeredTone(
+            new ToneLayer(1280f, 0.08f, 0.18f, Wave.Sine, 0f, 0.001f, 0.040f),
+            new ToneLayer(960f, 0.06f, 0.12f, Wave.Triangle, 0.005f, 0.002f, 0.035f),
+            new ToneLayer(320f, 0.04f, 0.06f, Wave.Noise, 0f, 0.001f, 0.020f));
+        PlayWorldSfx(worldPosition, stream, 0.08f, 55f);
+    }
+
+    public void PlayCriticalSfx(Vector3 worldPosition)
+    {
+        if (GetSample("armor_pierce_impact") is { } s)
+        {
+            PlayWorldSfx(worldPosition, s, 0.04f, 82f);
+            return;
+        }
+
+        // 暴击重击破甲冲击 (低频下潜震荡)
+        var stream = CreateLayeredTone(
+            new ToneLayer(95f, 0.25f, 0.32f, Wave.Triangle, 0f, 0.004f, 0.080f),
+            new ToneLayer(180f, 0.14f, 0.22f, Wave.Square, 0.002f, 0.004f, 0.045f),
+            new ToneLayer(80f, 0.30f, 0.18f, Wave.Noise, 0f, 0.008f, 0.060f));
+        PlayWorldSfx(worldPosition, stream, 0.04f, 75f);
+    }
+
     void PlayRepairSfx(Vector3 worldPosition)
     {
         PlayWorldSfx(
@@ -245,6 +604,27 @@ public partial class BattleFeedback : Node
     void PlayWeaponFireSfx(Vector3 worldPosition, string profile, bool heavy)
     {
         var normalized = string.IsNullOrWhiteSpace(profile) ? "cannon" : profile.Trim().ToLowerInvariant();
+
+        // 优先使用高品质军工实录采样 (Hollywood Military Foley)
+        string? sampleKey = normalized switch
+        {
+            "rifle" => "rifle_fire",
+            "machinegun" => "machinegun_fire",
+            "aa" => "aa_cannon_fire",
+            "artillery" => "heavy_artillery_fire",
+            "mortar" => "heavy_artillery_fire",
+            "naval" => "naval_cannon_fire",
+            "bomb" => "bomb_release",
+            "cannon" => heavy ? "heavy_artillery_fire" : "cannon_fire",
+            _ => heavy ? "cannon_fire" : "rifle_fire"
+        };
+
+        if (sampleKey is not null && GetSample(sampleKey) is { } sample)
+        {
+            PlayWorldSfx(worldPosition, sample, 0.04f, heavy ? 92f : 68f);
+            return;
+        }
+
         var stream = normalized switch
         {
             "rifle" => CreateLayeredTone(
@@ -253,6 +633,9 @@ public partial class BattleFeedback : Node
             "machinegun" => CreateLayeredTone(
                 new ToneLayer(950f, 0.040f, 0.10f, Wave.Square, 0f, 0.0020f, 0.008f),
                 new ToneLayer(240f, 0.055f, 0.08f, Wave.Noise, 0.0015f, 0.003f, 0.018f)),
+            "mortar" => CreateLayeredTone(
+                new ToneLayer(320f, 0.08f, 0.22f, Wave.Noise, 0f, 0.005f, 0.040f),
+                new ToneLayer(90f, 0.18f, 0.25f, Wave.Sine, 0.002f, 0.010f, 0.060f)),
             "flame" => CreateLayeredTone(
                 new ToneLayer(120f, 0.16f, 0.18f, Wave.Noise, 0f, 0.010f, 0.040f),
                 new ToneLayer(260f, 0.12f, 0.08f, Wave.Saw, 0.006f, 0.008f, 0.030f)),
@@ -266,6 +649,10 @@ public partial class BattleFeedback : Node
             "bomb" => CreateLayeredTone(
                 new ToneLayer(140f, 0.16f, 0.16f, Wave.Saw, 0f, 0.008f, 0.045f),
                 new ToneLayer(72f, 0.24f, 0.16f, Wave.Noise, 0.010f, 0.012f, 0.065f)),
+            "catapult" => CreateLayeredTone(
+                new ToneLayer(320f, 0.28f, 0.22f, Wave.Noise, 0f, 0.012f, 0.080f),
+                new ToneLayer(640f, 0.32f, 0.14f, Wave.Saw, 0.015f, 0.008f, 0.055f),
+                new ToneLayer(110f, 0.25f, 0.18f, Wave.Sine, 0.010f, 0.015f, 0.065f)),
             "artillery" => CreateLayeredTone(
                 new ToneLayer(126f, 0.16f, 0.17f, Wave.Noise, 0f, 0.006f, 0.040f),
                 new ToneLayer(92f, 0.22f, 0.14f, Wave.Saw, 0.004f, 0.010f, 0.065f),
@@ -281,6 +668,37 @@ public partial class BattleFeedback : Node
         };
 
         PlayWorldSfx(worldPosition, stream, 0.01f, heavy ? 84f : 60f);
+    }
+
+    void PlayBombReleaseSfx(Vector3 worldPosition)
+    {
+        if (GetSample("bomb_release") is { } s)
+        {
+            PlayWorldSfx(worldPosition, s, 0.03f, 78f);
+            return;
+        }
+
+        var stream = CreateLayeredTone(
+            new ToneLayer(460f, 0.06f, 0.16f, Wave.Triangle, 0f, 0.003f, 0.018f),
+            new ToneLayer(115f, 0.24f, 0.22f, Wave.Noise, 0.008f, 0.012f, 0.065f),
+            new ToneLayer(68f, 0.20f, 0.28f, Wave.Saw, 0f, 0.006f, 0.045f));
+        PlayWorldSfx(worldPosition, stream, 0.02f, 75f);
+    }
+
+    void PlayBombWhistleSfx(Vector3 worldPosition, float duration)
+    {
+        if (GetSample("bomb_whistle") is { } s)
+        {
+            PlayWorldSfx(worldPosition, s, 0.02f, 88f);
+            return;
+        }
+
+        float playDur = Mathf.Clamp(duration, 0.45f, 1.25f);
+        var stream = CreateLayeredTone(
+            new ToneLayer(820f, playDur, 0.16f, Wave.Sine, 0f, playDur * 0.2f, playDur * 0.15f),
+            new ToneLayer(440f, playDur, 0.12f, Wave.Triangle, 0.04f, playDur * 0.25f, playDur * 0.12f),
+            new ToneLayer(180f, playDur * 0.8f, 0.10f, Wave.Noise, 0.08f, playDur * 0.15f, playDur * 0.15f));
+        PlayWorldSfx(worldPosition, stream, 0.03f, 80f);
     }
 
     void PlayCommandSfx(Vector3 worldPosition, string text)
@@ -307,6 +725,13 @@ public partial class BattleFeedback : Node
 
     void PlayImpactSfx(Vector3 worldPosition, bool heavy)
     {
+        var sampleKey = heavy ? "heavy_explosion" : "medium_explosion";
+        if (GetSample(sampleKey) is { } s)
+        {
+            PlayWorldSfx(worldPosition, s, 0.04f, heavy ? 95f : 65f);
+            return;
+        }
+
         var stream = heavy
             ? CreateLayeredTone(
                 new ToneLayer(90f, 0.28f, 0.28f, Wave.Noise, 0f, 0.010f, 0.070f),
@@ -319,8 +744,25 @@ public partial class BattleFeedback : Node
         PlayWorldSfx(worldPosition, stream, 0.03f, heavy ? 88f : 58f);
     }
 
+    void PlayWaterSpoutSfx(Vector3 worldPosition)
+    {
+        if (GetSample("water_spout_explosion") is { } s)
+        {
+            PlayWorldSfx(worldPosition, s, 0.04f, 98f);
+            return;
+        }
+        PlayImpactSfx(worldPosition, true);
+    }
+
     void PlayDestroyedSfx(Vector3 worldPosition, bool heavy)
     {
+        var sampleKey = heavy ? "bomb_explosion" : "heavy_explosion";
+        if (GetSample(sampleKey) is { } s)
+        {
+            PlayWorldSfx(worldPosition, s, 0.04f, heavy ? 105f : 78f);
+            return;
+        }
+
         var stream = CreateLayeredTone(
             new ToneLayer(72f, heavy ? 0.46f : 0.32f, heavy ? 0.36f : 0.24f, Wave.Noise, 0f, 0.014f, heavy ? 0.11f : 0.08f),
             new ToneLayer(48f, heavy ? 0.58f : 0.40f, heavy ? 0.20f : 0.14f, Wave.Saw, 0.010f, 0.020f, heavy ? 0.16f : 0.12f),

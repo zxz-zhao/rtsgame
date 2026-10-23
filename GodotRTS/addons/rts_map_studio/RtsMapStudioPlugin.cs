@@ -1,3 +1,4 @@
+#if TOOLS
 using Godot;
 
 [Tool]
@@ -74,3 +75,4 @@ public partial class RtsMapStudioPlugin : EditorPlugin
         mapStudioDock?.RefreshFromScene(true);
     }
 }
+#endif

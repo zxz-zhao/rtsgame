@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bt3tye33o7cfp"
 path.s3tc="res://.godot/imported/texture-r.png-65ff24a90e3b0924e3cee236c0b36259.s3tc.ctex"
+path.etc2="res://.godot/imported/texture-r.png-65ff24a90e3b0924e3cee236c0b36259.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Kenney/BlockyCharacters/Models/FBX format/Textures/texture-r.png"
-dest_files=["res://.godot/imported/texture-r.png-65ff24a90e3b0924e3cee236c0b36259.s3tc.ctex"]
+dest_files=["res://.godot/imported/texture-r.png-65ff24a90e3b0924e3cee236c0b36259.s3tc.ctex", "res://.godot/imported/texture-r.png-65ff24a90e3b0924e3cee236c0b36259.etc2.ctex"]
 
 [params]
 

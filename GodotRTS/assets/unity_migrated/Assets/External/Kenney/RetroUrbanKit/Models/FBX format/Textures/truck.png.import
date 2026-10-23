@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://pcm35rbt5ykj"
 path.s3tc="res://.godot/imported/truck.png-7937909ac8234b959d15da2bdc41d881.s3tc.ctex"
+path.etc2="res://.godot/imported/truck.png-7937909ac8234b959d15da2bdc41d881.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Kenney/RetroUrbanKit/Models/FBX format/Textures/truck.png"
-dest_files=["res://.godot/imported/truck.png-7937909ac8234b959d15da2bdc41d881.s3tc.ctex"]
+dest_files=["res://.godot/imported/truck.png-7937909ac8234b959d15da2bdc41d881.s3tc.ctex", "res://.godot/imported/truck.png-7937909ac8234b959d15da2bdc41d881.etc2.ctex"]
 
 [params]
 

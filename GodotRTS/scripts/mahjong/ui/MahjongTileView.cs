@@ -271,9 +271,12 @@ namespace GodotRTS.Mahjong
         {
             if (!IsInteractable || IsFaceDown) return;
 
-            if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left)
+            bool isLeftClick = @event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left;
+            bool isTouch = @event is InputEventScreenTouch;
+            if (isLeftClick || isTouch)
             {
-                if (mb.Pressed)
+                bool isPressed = isLeftClick ? ((InputEventMouseButton)@event).Pressed : ((InputEventScreenTouch)@event).Pressed;
+                if (isPressed)
                 {
                     // 触感按压凹陷微反馈 (Press Compress Feedback)
                     Scale = new Vector2(0.92f, 0.92f);

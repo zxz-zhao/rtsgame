@@ -10,8 +10,8 @@ public partial class RadarCalloutPanel : Control
 
     public override void _Ready()
     {
-        _confirmButton = GetNode<Button>("MarginContainer/PanelContainer/VBoxContainer/HBoxContainer/ConfirmButton");
-        _cancelButton = GetNode<Button>("MarginContainer/PanelContainer/VBoxContainer/HBoxContainer/CancelButton");
+        _confirmButton = GetNodeOrNull<Button>("%ConfirmButton");
+        _cancelButton = GetNodeOrNull<Button>("%CancelButton");
 
         if (_confirmButton != null)
         {
@@ -25,7 +25,7 @@ public partial class RadarCalloutPanel : Control
         // 入场动效
         Modulate = new Color(1, 1, 1, 0);
         var tween = CreateTween();
-        tween.TweenProperty(this, "modulate:a", 1.0f, 0.3f);
+        tween.TweenProperty(this, "modulate:a", 1.0f, 0.25f);
     }
 
     private void OnConfirmPressed()
@@ -43,7 +43,7 @@ public partial class RadarCalloutPanel : Control
     public override void _ExitTree()
     {
         if (_confirmButton != null)
-        { 
+        {
             _confirmButton.Pressed -= OnConfirmPressed;
         }
         if (_cancelButton != null)

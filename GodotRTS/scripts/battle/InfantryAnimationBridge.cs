@@ -11,16 +11,24 @@ public static class InfantryAnimationBridge
     const string MixamoRoot = "res://assets/unity_migrated/Assets/External/Mixamo/BasicShooter/";
 
     // 注入后的动画名称（供 ResolveVisualAnimationNames 识别）
-    public const string IdleAnimName = "infantry_idle";
-    public const string WalkAnimName = "infantry_walk";
-    public const string FireAnimName = "infantry_fire";
+    public const string IdleAnimName    = "infantry_idle";
+    public const string WalkAnimName    = "infantry_walk";
+    public const string RunAnimName     = "infantry_run";
+    public const string FireAnimName    = "infantry_fire";
+    public const string HitAnimName     = "infantry_hit";
+    public const string ReloadAnimName  = "infantry_reload";
+    public const string GrenadeAnimName = "infantry_grenade";
 
     // 动画源 FBX 路径（Mixamo BasicShooter – X Bot 骨骼）
     static readonly (string path, string targetName)[] AnimSources =
     {
         (MixamoRoot + "rifle aiming idle.fbx", IdleAnimName),
-        (MixamoRoot + "rifle run.fbx",          WalkAnimName),
+        (MixamoRoot + "walking.fbx",           WalkAnimName),
+        (MixamoRoot + "rifle run.fbx",          RunAnimName),
         (MixamoRoot + "firing rifle.fbx",      FireAnimName),
+        (MixamoRoot + "hit reaction.fbx",       HitAnimName),
+        (MixamoRoot + "reloading.fbx",         ReloadAnimName),
+        (MixamoRoot + "toss grenade.fbx",      GrenadeAnimName),
     };
 
     // 已提取的动画缓存（避免反复实例化 FBX）
@@ -32,7 +40,7 @@ public static class InfantryAnimationBridge
     /// character_medium.glb 若没有内置 AnimationPlayer，会自动创建一个并绑定到 Skeleton3D。
     /// 在 AddInfantryVisual 实例化 model 后调用一次即可。
     /// </summary>
-    public static void InjectAnimations(Node3D model)
+    public static void InjectAnimations(Node3D model, string unitKey = "")
     {
         EnsureCache();
 
@@ -72,8 +80,8 @@ public static class InfantryAnimationBridge
                 continue;
 
             // 动态将 Mixamo 的骨骼动画轨道映射到当前实际模型的 Skeleton3D 路径及骨骼名
-            var anim = RemapAnimation(sourceAnim, model, skeleton);
-            if (targetName == IdleAnimName || targetName == WalkAnimName)
+            var anim = RemapAnimation(sourceAnim, model, skeleton, unitKey, targetName);
+            if (targetName == IdleAnimName || targetName == WalkAnimName || targetName == RunAnimName)
             {
                 anim.LoopMode = Animation.LoopModeEnum.Linear;
             }
@@ -106,7 +114,7 @@ public static class InfantryAnimationBridge
         return string.Join("/", pathList);
     }
 
-    private static Animation RemapAnimation(Animation sourceAnim, Node3D model, Skeleton3D skeleton)
+    private static Animation RemapAnimation(Animation sourceAnim, Node3D model, Skeleton3D skeleton, string unitKey = "", string targetName = "")
     {
         var targetAnim = (Animation)sourceAnim.Duplicate(true);
         var skeletonPath = GetRelativePath(model, skeleton); // 例如 "Root/Skeleton3D"
@@ -136,16 +144,36 @@ public static class InfantryAnimationBridge
                     boneName = boneName.Substring("mixamorig_".Length);
                 }
 
-                // 针对骨骼命名差异进行别名映射
-                if (boneName == "LeftToeBase" || boneName == "LeftToe") boneName = "LeftToes";
-                else if (boneName == "RightToeBase" || boneName == "RightToe") boneName = "RightToes";
-                else if (boneName == "Spine1") boneName = "Chest";
-                else if (boneName == "Spine2") boneName = "UpperChest";
+                var rawBoneName = parts[1];
+                string targetBoneName = rawBoneName;
 
-                var targetBoneName = boneName;
-                if (skeleton.FindBone(targetBoneName) == -1 && skeleton.FindBone("mixamorig_" + targetBoneName) != -1)
+                // 优先直接匹配骨架中的骨骼名 (支持 mixamorig_ 前缀与无前缀)
+                if (skeleton.FindBone(targetBoneName) == -1)
                 {
-                    targetBoneName = "mixamorig_" + targetBoneName;
+                    if (skeleton.FindBone(boneName) != -1)
+                    {
+                        targetBoneName = boneName;
+                    }
+                    else if (skeleton.FindBone("mixamorig_" + boneName) != -1)
+                    {
+                        targetBoneName = "mixamorig_" + boneName;
+                    }
+                    else
+                    {
+                        // 针对非 Mixamo 骨骼命名差异进行别名回退映射 (例如旧版 character_medium.glb)
+                        string alias = boneName switch
+                        {
+                            "LeftToeBase" or "LeftToe" => "LeftToes",
+                            "RightToeBase" or "RightToe" => "RightToes",
+                            "Spine1" => "Chest",
+                            "Spine2" => "UpperChest",
+                            _ => boneName
+                        };
+                        if (skeleton.FindBone(alias) != -1)
+                            targetBoneName = alias;
+                        else if (skeleton.FindBone("mixamorig_" + alias) != -1)
+                            targetBoneName = "mixamorig_" + alias;
+                    }
                 }
 
                 int foundBoneIdx = skeleton.FindBone(targetBoneName);
@@ -177,11 +205,15 @@ public static class InfantryAnimationBridge
                             var keyPos = (Vector3)targetAnim.TrackGetKeyValue(i, k);
                             // 保留步态中自然微弱的骨盆上下起伏 (Pelvic Bobbing, 约 0.02m~0.04m)，完全归零前后 (Z) 与左右 (X) 位移
                             float deltaY = keyPos.Y - firstKeyPos.Y;
+                            // 严格按人体步态生理学钳制自然骨盆上下起伏 (-0.035m ~ +0.035m)，根除异常抽搐与失真
+                            deltaY = Mathf.Clamp(deltaY, -0.035f, 0.035f);
                             var inPlacePos = new Vector3(restOrigin.X, restOrigin.Y + deltaY, restOrigin.Z);
                             targetAnim.TrackSetKeyValue(i, k, inPlacePos);
                         }
                     }
                 }
+
+
 
                 var newPathStr = skeletonPath + ":" + targetBoneName;
                 if (parts.Length > 2)

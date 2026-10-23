@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cf8jkfs74kt6i"
 path.s3tc="res://.godot/imported/m2hb.bmp-7587d61bebf1c1ebb0fc5f97eca2e371.s3tc.ctex"
+path.etc2="res://.godot/imported/m2hb.bmp-7587d61bebf1c1ebb0fc5f97eca2e371.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Units/HeavyTank/m2hb.bmp"
-dest_files=["res://.godot/imported/m2hb.bmp-7587d61bebf1c1ebb0fc5f97eca2e371.s3tc.ctex"]
+dest_files=["res://.godot/imported/m2hb.bmp-7587d61bebf1c1ebb0fc5f97eca2e371.s3tc.ctex", "res://.godot/imported/m2hb.bmp-7587d61bebf1c1ebb0fc5f97eca2e371.etc2.ctex"]
 
 [params]
 

@@ -1,0 +1,243 @@
+app:
+  description: 针对模型回复或新版功能方案进行地毯式质检，比对历史雷区清单，严防旧病复发（防塌房裁判门禁）。
+  icon: 🛡️
+  icon_background: '#FFE8D6'
+  mode: workflow
+  name: RTS 研发防塌房与回归质检裁判
+kind: app
+version: 0.1.5
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+    - id: edge_start_to_judge
+      source: node_start
+      sourceHandle: source
+      target: node_llm_judge
+      targetHandle: target
+      type: custom
+    - id: edge_judge_to_parser
+      source: node_llm_judge
+      sourceHandle: source
+      target: node_code_parser
+      targetHandle: target
+      type: custom
+    - id: edge_parser_to_end
+      source: node_code_parser
+      sourceHandle: source
+      target: node_end
+      targetHandle: target
+      type: custom
+    nodes:
+    - id: node_start
+      type: custom
+      position:
+        x: 80
+        y: 280
+      data:
+        type: start
+        title: 质检输入
+        desc: 接收用户需求、候选回答以及历史禁止雷区
+        variables:
+        - label: user_query
+          max_length: 2000
+          options: []
+          required: true
+          type: paragraph
+          variable: user_query
+        - label: candidate_answer
+          max_length: 15000
+          options: []
+          required: true
+          type: paragraph
+          variable: candidate_answer
+        - label: historical_traps
+          max_length: 5000
+          options: []
+          required: false
+          type: paragraph
+          variable: historical_traps
+    - id: node_llm_judge
+      type: custom
+      position:
+        x: 420
+        y: 280
+      data:
+        type: llm
+        title: 防塌房裁判官 (Judge)
+        desc: 地毯式比对是否触犯历史雷区，严格输出结构化审计结论
+        model:
+          provider: langgenius/openai_api_compatible/openai_api_compatible
+          name: gemini-3.8-flash
+          mode: chat
+          completion_params:
+            temperature: 0.2
+            max_tokens: 4096
+        prompt_template:
+        - role: system
+          text: |
+            你是一名极其严苛的 AI 系统回归测试首席架构师与“防塌房”质检官。
+            你的首要天职是：对候选方案进行地毯式扫描，查验本次修改是否导致以前修复过的问题“旧病复发（Regression）”！
+
+            【核心质检规则】：
+            1. 检查候选回答是否完整、正确地满足了用户诉求。
+            2. 【重点审查】仔细核对历史禁止雷区（曾经踩过的坑）：
+               - 摄像机与小地图 180° 反转规则（Basis.X = (-1, 0, 0)，反向坐标 0.5f - x / 0.5f - z）
+               - 视口 4 角地面多边形全量边界裁剪（严禁只做单点 GetGroundCenter）
+               - 实机测试视频录制时长必须 >= 20 秒（frames >= 1200 @ 60 FPS）
+               - 物理帧循环严禁堆分配与闭包，必须零 GC
+               - 严禁使用废弃的 Godot 3 API
+               - UI 按键数量必须高度克制，深色 Sci-Fi 现代质感
+            3. 只要候选方案中显式或隐式命中了任何一条历史雷区，必须一票否决，判定为 FAIL！
+
+            【输出格式】：
+            你必须且只能输出严格的 JSON 代码块，严禁包含任何前缀闲聊：
+            {
+              "verdict": "PASS" 或 "FAIL",
+              "score": 0 到 100 的整数,
+              "has_regression": true 或 false,
+              "regressed_traps": [
+                "具体触犯的历史雷区与退化说明"
+              ],
+              "preserved_rules": [
+                "成功守住的核心铁律"
+              ],
+              "remediation_advice": "指导工程师如何修复回归问题的整改建议"
+            }
+        - role: user
+          text: |
+            【原始开发需求】：
+            {{#node_start.user_query#}}
+
+            【待审查的候选方案 / 模型回答】：
+            {{#node_start.candidate_answer#}}
+
+            【该场景下的历史避坑与雷区清单】：
+            {{#node_start.historical_traps#}}
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+    - id: node_code_parser
+      type: custom
+      position:
+        x: 760
+        y: 280
+      data:
+        type: code
+        title: 结果提取与格式化
+        desc: 解析裁判官输出的 JSON 并生成最终防塌房告警报告
+        code_language: python3
+        variables:
+        - variable: judge_raw
+          value_selector:
+          - node_llm_judge
+          - text
+        code: |
+          import json
+          import re
+
+          def main(judge_raw: str) -> dict:
+              text = judge_raw.strip()
+              m = re.search(r'\{[\s\S]*\}', text)
+              verdict = "FAIL"
+              score = "50"
+              has_regression = "true"
+              report_summary = ""
+              
+              if m:
+                  try:
+                      data = json.loads(m.group(0))
+                      verdict = str(data.get("verdict", "FAIL")).upper()
+                      score = str(data.get("score", 60))
+                      has_regression = "true" if data.get("has_regression", False) else "false"
+                      traps = data.get("regressed_traps", [])
+                      rules = data.get("preserved_rules", [])
+                      advice = data.get("remediation_advice", "无")
+                      
+                      traps_str = "\n".join([f"• ⚠️ 严重复发: {t}" for t in traps]) if traps else "无（未踩历史雷区）"
+                      rules_str = "\n".join([f"• 🟢 成功守住: {r}" for r in rules]) if rules else "基本合规"
+                      
+                      status_icon = "🟢 [PASS 绿灯可发布]" if verdict == "PASS" else "🔴 [FAIL 存在退化，阻断发布]"
+                      report_summary = f"""### {status_icon}
+          - **综合健康得分**: {score} / 100
+          - **是否发生历史退化**: {'是 (旧病复发)' if has_regression == 'true' else '否 (安全)'}
+
+          #### 历史雷区审查:
+          {traps_str}
+
+          #### 守住的核心规范:
+          {rules_str}
+
+          #### 质检整改意见:
+          {advice}
+          """
+                  except Exception as e:
+                      verdict = "FAIL"
+                      score = "40"
+                      has_regression = "true"
+                      report_summary = f"JSON 解析异常: {e}\n原始输出: {text}"
+              else:
+                  verdict = "PASS" if "pass" in text.lower() else "FAIL"
+                  score = "80" if verdict == "PASS" else "50"
+                  has_regression = "false" if verdict == "PASS" else "true"
+                  report_summary = text
+
+              return {
+                  "verdict": verdict,
+                  "score": score,
+                  "has_regression": has_regression,
+                  "report_summary": report_summary
+              }
+        outputs:
+          verdict:
+            type: string
+          score:
+            type: string
+          has_regression:
+            type: string
+          report_summary:
+            type: string
+    - id: node_end
+      type: custom
+      position:
+        x: 1080
+        y: 280
+      data:
+        type: end
+        title: 质检报告输出
+        desc: 输出体检结论与是否阻断发布
+        outputs:
+        - value_selector:
+          - node_code_parser
+          - verdict
+          variable: verdict
+        - value_selector:
+          - node_code_parser
+          - score
+          variable: score
+        - value_selector:
+          - node_code_parser
+          - has_regression
+          variable: has_regression
+        - value_selector:
+          - node_code_parser
+          - report_summary
+          variable: report_summary

@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://b0q3nlmsa0emn"
 path.s3tc="res://.godot/imported/truck_alien.png-ebf30a0d4e9659d73c6d4426bd2c6a0f.s3tc.ctex"
+path.etc2="res://.godot/imported/truck_alien.png-ebf30a0d4e9659d73c6d4426bd2c6a0f.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Kenney/RetroUrbanKit/Models/FBX format/Textures/truck_alien.png"
-dest_files=["res://.godot/imported/truck_alien.png-ebf30a0d4e9659d73c6d4426bd2c6a0f.s3tc.ctex"]
+dest_files=["res://.godot/imported/truck_alien.png-ebf30a0d4e9659d73c6d4426bd2c6a0f.s3tc.ctex", "res://.godot/imported/truck_alien.png-ebf30a0d4e9659d73c6d4426bd2c6a0f.etc2.ctex"]
 
 [params]
 

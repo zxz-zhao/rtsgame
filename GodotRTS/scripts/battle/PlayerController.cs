@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 
 
+using GodotRTS.Battle.Formation;
+
 public partial class PlayerController : Node
 {
     public enum CommandMode
     {
         None,
+        AttackMove,
         Patrol,
         AttackGround,
         BombingRunStart,
@@ -17,17 +20,13 @@ public partial class PlayerController : Node
     [Export] public NodePath CameraPath { get; set; } = "";
     [Export] public float SelectionRadius { get; set; } = 0.75f;
     [Export] public float DragThreshold { get; set; } = 8f;
-    [Export] public double LeftMouseCameraHoldDelayMs { get; set; } = 250.0;
-    [Export] public float LeftMouseCameraPanScale { get; set; } = 1.0f;
+    [Export] public bool EnableLeftClickMove { get; set; } = false;
 
     Camera3D camera = null!;
     RtsCamera? cameraRig;
     Vector2 dragStart;
     Vector2 dragEnd;
     bool dragging;
-    bool leftCameraPanCandidate;
-    bool leftCameraPanActive;
-    ulong leftPressStartedAtMs;
     bool touchTracking;
     int activeTouchIndex = -1;
     ulong suppressMouseUntilMs;
@@ -51,9 +50,10 @@ public partial class PlayerController : Node
 
     public string? BuildPlacementError { get; private set; }
 
-    public bool IsDraggingSelection => dragging && !leftCameraPanActive && dragStart.DistanceTo(dragEnd) >= DragThreshold;
+    public bool IsDraggingSelection => dragging && !touchTracking && dragStart.DistanceTo(dragEnd) >= DragThreshold;
     public Vector2 DragStart => dragStart;
     public Vector2 DragEnd => dragEnd;
+    public bool IsAttackMoveModeActive => activeCommandMode == CommandMode.AttackMove;
     public bool IsPatrolModeActive => activeCommandMode == CommandMode.Patrol;
     public bool IsAttackGroundModeActive => activeCommandMode == CommandMode.AttackGround;
     public bool IsBombingRunModeActive => activeCommandMode is CommandMode.BombingRunStart or CommandMode.BombingRunDirection;
@@ -94,6 +94,78 @@ public partial class PlayerController : Node
             return;
 
         var hud = FindHud();
+        if (evt is InputEventKey { Pressed: true, Echo: false } keyEvt)
+        {
+            if (keyEvt.Keycode == Key.A)
+            {
+                if (BeginAttackMoveMode(out var msg))
+                    hud?.ShowAlert(msg);
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (keyEvt.Keycode == Key.S)
+            {
+                StopSelectedUnits();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (keyEvt.Keycode == Key.H)
+            {
+                HoldPositionSelectedUnits();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (keyEvt.Keycode == Key.P)
+            {
+                if (BeginPatrolMode(out var msg))
+                    hud?.ShowAlert(msg);
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (keyEvt.Keycode == Key.F)
+            {
+                SpreadFormationSelectedUnits();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (keyEvt.Keycode == Key.D)
+            {
+                var artilleryUnits = GetSelectedOwnedUnits()
+                    .Where(u => BattleUnitCatalog.SupportsArtilleryDeploy(u.UnitKey))
+                    .ToList();
+                if (artilleryUnits.Count > 0)
+                {
+                    var anyUndeployed = artilleryUnits.Any(u => u.DeployState is RtsUnit.ArtilleryDeployState.Mobile or RtsUnit.ArtilleryDeployState.Undeploying);
+                    foreach (var u in artilleryUnits)
+                    {
+                        u.ToggleArtilleryDeploy();
+                    }
+                    hud?.ShowAlert(anyUndeployed ? $"下达搭炮架命令（{artilleryUnits.Count} 单位，快捷键 D）" : $"下达收起炮架命令（{artilleryUnits.Count} 单位，快捷键 D）");
+                    GetViewport().SetInputAsHandled();
+                    return;
+                }
+            }
+
+            if (keyEvt.Keycode == Key.B)
+            {
+                hud?.ToggleBuildMenuFromHotkey();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (keyEvt.Keycode == Key.T)
+            {
+                hud?.ToggleTechMenuFromHotkey();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+        }
+
         if (evt is InputEventMouseButton { ButtonIndex: MouseButton.Left } left)
         {
             if (left.Pressed)
@@ -101,9 +173,6 @@ public partial class PlayerController : Node
                 dragStart = left.Position;
                 dragEnd = left.Position;
                 dragging = true;
-                leftCameraPanCandidate = CanStartLeftMouseCameraPan(left.Position);
-                leftCameraPanActive = false;
-                leftPressStartedAtMs = Time.GetTicksMsec();
 
                 if (BattleGameManager.Instance is not null && !string.IsNullOrEmpty(BattleGameManager.Instance.PendingBuildKey))
                 {
@@ -112,18 +181,8 @@ public partial class PlayerController : Node
             }
             else
             {
-                if (leftCameraPanActive || IsLeftMouseCameraHoldSatisfied())
-                {
-                    dragging = false;
-                    leftCameraPanCandidate = false;
-                    leftCameraPanActive = false;
-                    GetViewport().SetInputAsHandled();
-                    return;
-                }
-
                 dragging = false;
                 HandlePrimaryRelease(left.Position, false);
-                leftCameraPanCandidate = false;
             }
         }
         else if (evt is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } right)
@@ -146,46 +205,7 @@ public partial class PlayerController : Node
         else if (evt is InputEventMouseMotion motion && dragging)
         {
             dragEnd = motion.Position;
-            if (ShouldPanCameraWithLeftMouse(motion.Position, motion.Relative))
-            {
-                leftCameraPanActive = true;
-                cameraRig?.PanByScreenDelta(motion.Relative, LeftMouseCameraPanScale);
-                GetViewport().SetInputAsHandled();
-            }
         }
-    }
-
-    bool CanStartLeftMouseCameraPan(Vector2 screenPos)
-    {
-        if (cameraRig is null || activeCommandMode != CommandMode.None)
-            return false;
-        if (FindHud()?.IsPointerOverBlockingHud(screenPos) == true)
-            return false;
-        if (BattleGameManager.Instance is { PendingBuildKey.Length: > 0 })
-            return false;
-        if (TryGetVisibleSelectable(screenPos) is not null)
-            return false;
-        return true;
-    }
-
-    bool IsLeftMouseCameraHoldSatisfied()
-    {
-        if (!leftCameraPanCandidate)
-            return false;
-
-        var heldForMs = (double)(Time.GetTicksMsec() - leftPressStartedAtMs);
-        return heldForMs >= LeftMouseCameraHoldDelayMs;
-    }
-
-    bool ShouldPanCameraWithLeftMouse(Vector2 screenPos, Vector2 motionDelta)
-    {
-        if (!leftCameraPanCandidate || cameraRig is null)
-            return false;
-        if (!IsLeftMouseCameraHoldSatisfied())
-            return false;
-        if (dragStart.DistanceTo(screenPos) < DragThreshold)
-            return false;
-        return motionDelta != Vector2.Zero;
     }
 
     void HandleTouch(InputEventScreenTouch touch)
@@ -208,7 +228,7 @@ public partial class PlayerController : Node
                 isMousePressedInPlacementMode = true;
             }
 
-            GetViewport().SetInputAsHandled();
+            // Do not call GetViewport().SetInputAsHandled() here so RtsCamera can track touches for pinch-zoom and pan.
             return;
         }
 
@@ -219,7 +239,7 @@ public partial class PlayerController : Node
         activeTouchIndex = -1;
         dragging = false;
         HandlePrimaryRelease(touch.Position, true);
-        GetViewport().SetInputAsHandled();
+        // Do not call GetViewport().SetInputAsHandled() here so RtsCamera can cleanly release touches.
     }
 
     void HandlePrimaryRelease(Vector2 screenPos, bool mobileTouch)
@@ -238,11 +258,14 @@ public partial class PlayerController : Node
             return;
         if (dragDistance >= DragThreshold)
         {
+            if (mobileTouch)
+                return;
+
             BoxSelect(dragStart, dragEnd);
             return;
         }
 
-        if (mobileTouch && TryHandleTouchTap(screenPos))
+        if ((mobileTouch || EnableLeftClickMove) && TryHandleTouchTap(screenPos))
             return;
 
         SelectAt(screenPos);
@@ -280,6 +303,89 @@ public partial class PlayerController : Node
 
         GameState.Instance?.SetSelection(System.Array.Empty<Node>());
         return true;
+    }
+
+    public bool BeginAttackMoveMode(out string message)
+    {
+        message = "";
+        if (GetSelectedOwnedUnits().Count == 0)
+        {
+            message = "请先选择己方单位";
+            return false;
+        }
+
+        activeCommandMode = CommandMode.AttackMove;
+        BattleFeedback.UiConfirm(this);
+        message = "进攻行军：点击地面全速搜索前进，遭遇敌军自动交火 (快捷键 A)";
+        return true;
+    }
+
+    public void StopSelectedUnits()
+    {
+        var selected = GetSelectedOwnedUnits();
+        if (selected.Count == 0)
+            return;
+
+        foreach (var unit in selected)
+        {
+            unit.Stop();
+            GameRelay.Instance?.SendStop(unit.NetId);
+        }
+
+        CancelCommandMode(false);
+        var centroid = Vector3.Zero;
+        foreach (var u in selected)
+            centroid += u.GlobalPosition;
+        centroid /= selected.Count;
+
+        BattleFeedback.Command(this, centroid, "STOP", new Color(0.92f, 0.35f, 0.32f));
+        FindHud()?.ShowAlert($"全体停火原地待命（{selected.Count} 单位，快捷键 S）");
+    }
+
+    public void HoldPositionSelectedUnits()
+    {
+        var selected = GetSelectedOwnedUnits();
+        if (selected.Count == 0)
+            return;
+
+        foreach (var unit in selected)
+        {
+            unit.HoldPosition();
+        }
+
+        CancelCommandMode(false);
+        var centroid = Vector3.Zero;
+        foreach (var u in selected)
+            centroid += u.GlobalPosition;
+        centroid /= selected.Count;
+
+        BattleFeedback.Command(this, centroid, "HOLD", new Color(0.40f, 0.75f, 1f));
+        FindHud()?.ShowAlert($"原地戒备驻守（{selected.Count} 单位，快捷键 H）");
+    }
+
+    public void SpreadFormationSelectedUnits()
+    {
+        var selected = GetSelectedOwnedUnits();
+        if (selected.Count <= 1)
+            return;
+
+        var centroid = Vector3.Zero;
+        foreach (var u in selected)
+            centroid += u.GlobalPosition;
+        centroid /= selected.Count;
+
+        float spreadRadius = Mathf.Max(4.5f, selected.Count * 0.85f);
+        for (int i = 0; i < selected.Count; i++)
+        {
+            float angle = (i / (float)selected.Count) * Mathf.Tau;
+            Vector3 scatterOffset = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * spreadRadius;
+            Vector3 dest = NormalizeOrderTarget(selected[i], centroid + scatterOffset);
+            selected[i].MoveTo(dest);
+            GameRelay.Instance?.SendMove(selected[i].NetId, dest);
+        }
+
+        BattleFeedback.Command(this, centroid, "SPREAD", new Color(0.45f, 0.95f, 0.70f));
+        FindHud()?.ShowAlert($"编队规避防炮分散（{selected.Count} 单位，快捷键 F）");
     }
 
     public bool BeginPatrolMode(out string message)
@@ -390,6 +496,9 @@ public partial class PlayerController : Node
 
         switch (activeCommandMode)
         {
+            case CommandMode.AttackMove:
+                IssueAttackMoveOrder(position);
+                break;
             case CommandMode.Patrol:
                 IssuePatrolOrder(position);
                 break;
@@ -490,7 +599,7 @@ public partial class PlayerController : Node
         var canPlace = manager.CanPlaceBuildingAt(pendingKey, previewPosition, true, out var placementError);
         BuildPlacementError = canPlace ? null : placementError;
 
-        var inBuildRange = manager.IsWithinBuildPlacementRange(previewPosition, true);
+        var inBuildRange = manager.IsWithinBuildPlacementRange(previewPosition, true, pendingKey);
         UpdateBuildPlacementRangeIndicator(manager, pendingKey, inBuildRange);
         buildPlacementPreview.Position = previewPosition;
         buildPlacementPreview.Visible = true;
@@ -533,6 +642,11 @@ public partial class PlayerController : Node
         {
             occupiedPlacementOverlays.Add(overlay);
             GetParent()?.AddChild(overlay);
+            if (overlay.HasMeta("world_pos"))
+            {
+                overlay.GlobalPosition = overlay.GetMeta("world_pos").AsVector3();
+                overlay.GlobalRotation = overlay.GetMeta("world_rot").AsVector3();
+            }
         }
     }
 
@@ -558,7 +672,7 @@ public partial class PlayerController : Node
 
     void UpdateBuildPlacementRangeIndicator(BattleGameManager manager, string buildKey, bool inRange)
     {
-        var ranges = manager.GetBuildPlacementRanges(true);
+        var ranges = manager.GetBuildPlacementRanges(true, buildKey);
         if (ranges.Length == 0)
         {
             ClearBuildPlacementRangeIndicator();
@@ -802,11 +916,11 @@ public partial class PlayerController : Node
         if (FindHud()?.IsPointerOverBlockingHud(screenPos) == true)
             return;
 
-        var hit = Raycast(screenPos);
-        if (hit.Count == 0 || GameState.Instance is null)
+        if (GameState.Instance is null)
             return;
 
-        var target = TryGetVisibleSelectable(screenPos, hit);
+        var hit = Raycast(screenPos);
+        var target = hit.Count > 0 ? TryGetVisibleSelectable(screenPos, hit) : null;
         var selected = GameState.Instance.Selected.OfType<RtsUnit>().Where(GodotObject.IsInstanceValid).ToList();
         var selectedProductionBuilding = GameState.Instance.Selected
             .OfType<RtsBuilding>()
@@ -822,42 +936,42 @@ public partial class PlayerController : Node
             return;
         }
 
+        if (target is RtsUnit carrierTarget && carrierTarget.PlayerOwned && carrierTarget.UnitKey == "aircraft_carrier")
+        {
+            var airUnits = selected.Where(u => BattleUnitCatalog.IsAirUnit(u.UnitKey)).ToList();
+            if (airUnits.Count > 0)
+            {
+                foreach (var plane in airUnits)
+                {
+                    plane.CarrierHome = carrierTarget;
+                    plane.ReturnToCarrierBase();
+                }
+                FindHud()?.ShowAlert($"已命令 {airUnits.Count} 架战机返航航母进行 10 秒补给与机体抢修");
+                BattleFeedback.Command(this, carrierTarget.GlobalPosition, "DEFEND", new Color(0.2f, 0.8f, 1f));
+                return;
+            }
+        }
+
         if (target is Node3D enemy && target.IsInGroup("enemy_owned"))
         {
             if (selected.Count == 0)
                 return;
 
-            int orderedCount = 0;
             bool targetIsUnit = enemy is RtsUnit;
             string enemyUnitKey = targetIsUnit ? ((RtsUnit)enemy).UnitKey : "";
 
-            // 军团多单位集火优化：沿目标外缘半月形弧度展开，避免全部单位挤向同一个单一点
-            int totalAttackers = selected.Count;
-            float totalArcSpread = Mathf.Clamp((totalAttackers - 1) * 0.22f, 0.35f, 2.1f);
-
+            var validAttackers = new List<RtsUnit>();
             for (int i = 0; i < selected.Count; i++)
             {
                 var unit = selected[i];
-                if (targetIsUnit)
-                {
-                    if (!BattleUnitCatalog.CanAttackTargetType(unit.UnitKey, enemyUnitKey))
-                        continue;
-                }
-
-                float slotAngleOffset = 0f;
-                if (totalAttackers > 1)
-                {
-                    float t = (float)i / (totalAttackers - 1);
-                    slotAngleOffset = (t - 0.5f) * totalArcSpread;
-                }
-
-                unit.Attack(enemy, slotAngleOffset);
-                GameRelay.Instance?.SendAttack(unit.NetId, GetNetId(enemy), target.IsInGroup("rts_buildings"));
-                orderedCount++;
+                if (targetIsUnit && !BattleUnitCatalog.CanAttackTargetType(unit.UnitKey, enemyUnitKey))
+                    continue;
+                validAttackers.Add(unit);
             }
 
-            if (orderedCount > 0)
+            if (validAttackers.Count > 0)
             {
+                LegionFormationSystem.DistributeLegionAttackTargets(validAttackers, enemy, GetTree());
                 BattleFeedback.Command(this, enemy.GlobalPosition, "ATTACK", new Color(1f, 0.38f, 0.30f));
             }
             else
@@ -916,7 +1030,7 @@ public partial class PlayerController : Node
 
         for (var i = 0; i < selected.Count; i++)
         {
-            var offset = FormationOffset(i, selected.Count, hasVehicles, marchHeading);
+            var offset = LegionFormationSystem.CalculateFormationOffset(i, selected.Count, selected[i].UnitKey, marchHeading, FormationLayout.BattleLine);
             var orderTarget = NormalizeOrderTarget(selected[i], position + offset);
             if (patrolOrder)
             {
@@ -942,6 +1056,36 @@ public partial class PlayerController : Node
             patrolOrder ? new Color(0.60f, 1f, 0.64f) : attackMove ? new Color(1f, 0.72f, 0.36f) : new Color(0.58f, 0.88f, 1f));
     }
 
+    void IssueAttackMoveOrder(Vector3 position)
+    {
+        var selected = GetSelectedOwnedUnits();
+        if (selected.Count == 0)
+        {
+            CancelCommandMode(false);
+            FindHud()?.ShowAlert("请先选择己方单位");
+            return;
+        }
+
+        Vector3 centroid = Vector3.Zero;
+        foreach (var u in selected)
+            centroid += u.GlobalPosition;
+        centroid /= selected.Count;
+        Vector3 marchHeading = (position - centroid);
+        marchHeading.Y = 0f;
+
+        for (var i = 0; i < selected.Count; i++)
+        {
+            var offset = LegionFormationSystem.CalculateFormationOffset(i, selected.Count, selected[i].UnitKey, marchHeading, FormationLayout.BattleLine);
+            var orderTarget = NormalizeOrderTarget(selected[i], position + offset);
+            selected[i].AttackMoveTo(orderTarget);
+            GameRelay.Instance?.SendAttackMove(selected[i].NetId, orderTarget);
+        }
+
+        CancelCommandMode(false);
+        FindHud()?.ShowAlert(selected.Count == 1 ? "已下达攻击移动命令" : $"{selected.Count} 个单位已全速攻击行军");
+        BattleFeedback.Command(this, position, "A-MOVE", new Color(1f, 0.72f, 0.36f));
+    }
+
     void IssuePatrolOrder(Vector3 position)
     {
         var selected = GetSelectedOwnedUnits();
@@ -962,7 +1106,7 @@ public partial class PlayerController : Node
 
         for (var i = 0; i < selected.Count; i++)
         {
-            var offset = FormationOffset(i, selected.Count, hasVehicles, marchHeading);
+            var offset = LegionFormationSystem.CalculateFormationOffset(i, selected.Count, selected[i].UnitKey, marchHeading, FormationLayout.BattleLine);
             var orderTarget = NormalizeOrderTarget(selected[i], position + offset);
             selected[i].PatrolTo(orderTarget);
             GameRelay.Instance?.SendPatrol(selected[i].NetId, selected[i].GlobalPosition, orderTarget);
@@ -1033,25 +1177,7 @@ public partial class PlayerController : Node
 
     static Vector3 FormationOffset(int index, int count, bool hasVehicles, Vector3 marchHeading = default)
     {
-        if (count <= 1)
-            return Vector3.Zero;
-
-        var columns = Mathf.CeilToInt(Mathf.Sqrt(count));
-        var rows = Mathf.CeilToInt(count / (float)columns);
-        var column = index % columns;
-        var row = index / columns;
-        var spacing = hasVehicles ? 3.6f : 2.6f; // 载具群间距为 3.6m，纯步兵群间距为 2.6m
-        var localOffset = new Vector3(
-            (column - (columns - 1) * 0.5f) * spacing,
-            0f,
-            (row - (rows - 1) * 0.5f) * spacing);
-
-        if (marchHeading.LengthSquared() > 0.04f)
-        {
-            float yaw = Mathf.Atan2(marchHeading.X, marchHeading.Z);
-            return localOffset.Rotated(Vector3.Up, yaw);
-        }
-        return localOffset;
+        return LegionFormationSystem.CalculateFormationOffset(index, count, hasVehicles ? "tank" : "infantry", marchHeading, FormationLayout.BattleLine);
     }
 
     static Vector3 NormalizeOrderTarget(RtsUnit unit, Vector3 position)
@@ -1071,7 +1197,7 @@ public partial class PlayerController : Node
         return BattleMapCatalog.ClampToMap(position, 4f);
     }
 
-    List<RtsUnit> GetSelectedOwnedUnits()
+    public List<RtsUnit> GetSelectedOwnedUnits()
     {
         return GameState.Instance?.Selected
             .OfType<RtsUnit>()

@@ -1,4 +1,4 @@
-using Godot;
+﻿using Godot;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -15,14 +15,31 @@ public partial class RtsCamera : Node3D
     Camera3D camera => _camera ??= GetNode<Camera3D>("Camera3D");
     bool dragging;
     readonly Dictionary<int, Vector2> touches = new();
+    readonly Dictionary<int, Vector2> touchStartPositions = new();
     bool touchGestureActive;
     float lastPinchDistance;
     Vector2 lastTouchCenter;
     ulong suppressMouseUntilMs;
     float initialRatio = 1.1f;
 
+    public static RtsCamera? Instance { get; private set; }
+
+    public override void _EnterTree()
+    {
+        Instance = this;
+    }
+
+    public override void _ExitTree()
+    {
+        if (Instance == this)
+            Instance = null;
+    }
+
     public override void _Ready()
     {
+        Instance = this;
+        if (!IsInGroup("rts_cameras"))
+            AddToGroup("rts_cameras");
         EnsureCameraConfigured();
     }
 
@@ -48,6 +65,28 @@ public partial class RtsCamera : Node3D
     /// <summary>
     /// 将镜头立即定位对齐到玩家当前的选定部队或主力部队集结处
     /// </summary>
+    /// <summary>
+    /// 将镜头立即定位对齐到己方主基地上空
+    /// </summary>
+    public void FocusOnMainBase()
+    {
+        if (BattleGameManager.Instance is { } manager)
+        {
+            manager.FocusCameraOnMainBase();
+            return;
+        }
+
+        var buildings = GetTree().GetNodesInGroup("player_owned")
+            .OfType<RtsBuilding>()
+            .Where(b => GodotObject.IsInstanceValid(b) && !b.IsRuined)
+            .ToList();
+        var mainBase = buildings.FirstOrDefault(b => b.IsMainBase) ?? buildings.FirstOrDefault();
+        if (mainBase is not null)
+        {
+            JumpTo(mainBase.GlobalPosition);
+        }
+    }
+
     public void FocusOnPlayerForces()
     {
         if (BattleGameManager.Instance is { } manager)
@@ -87,7 +126,7 @@ public partial class RtsCamera : Node3D
 
     public void TriggerShake(float intensity, float duration)
     {
-        shakeIntensity = intensity;
+        shakeIntensity = Mathf.Min(intensity, 0.10f);
         shakeDuration = duration;
         shakeTimer = duration;
     }
@@ -113,8 +152,8 @@ public partial class RtsCamera : Node3D
             var windowSize = viewport.GetVisibleRect().Size;
             const float edgeMargin = 12f; // 敏感判定宽度调回 12 像素，防止日常鼠标操作误触滚动
 
-            // 仅在鼠标位于窗口内部且贴近边缘时生效，防止鼠标移出窗口后镜头疯狂滚动
-            if (mousePos.X >= 0f && mousePos.X <= windowSize.X && mousePos.Y >= 0f && mousePos.Y <= windowSize.Y)
+            // 仅在鼠标位于窗口内部且贴近边缘、且未处于 UI 控件之上时生效，防止在操作 UI 时镜头意外发生边缘滚动
+            if (mousePos.X >= 0f && mousePos.X <= windowSize.X && mousePos.Y >= 0f && mousePos.Y <= windowSize.Y && !IsPointerOverBlockingHud(mousePos))
             {
                 if (mousePos.X < edgeMargin)
                 {
@@ -159,10 +198,16 @@ public partial class RtsCamera : Node3D
             else
             {
                 var ratio = shakeTimer / shakeDuration;
-                var currentIntensity = shakeIntensity * ratio;
-                camera.HOffset = (float)GD.RandRange(-currentIntensity, currentIntensity);
-                camera.VOffset = (float)GD.RandRange(-currentIntensity, currentIntensity);
+                var currentIntensity = shakeIntensity * (ratio * ratio);
+                const float ShakeFreq = 26.0f;
+                camera.HOffset = Mathf.Sin(shakeTimer * ShakeFreq) * currentIntensity;
+                camera.VOffset = Mathf.Cos(shakeTimer * (ShakeFreq * 0.82f)) * (currentIntensity * 0.65f);
             }
+        }
+        else if (camera.HOffset != 0f || camera.VOffset != 0f)
+        {
+            camera.HOffset = 0f;
+            camera.VOffset = 0f;
         }
     }
 
@@ -234,9 +279,17 @@ public partial class RtsCamera : Node3D
     {
         suppressMouseUntilMs = Time.GetTicksMsec() + 250UL;
         if (touch.Pressed)
+        {
+            if (IsPointerOverBlockingHud(touch.Position))
+                return;
             touches[touch.Index] = touch.Position;
+            touchStartPositions[touch.Index] = touch.Position;
+        }
         else
+        {
             touches.Remove(touch.Index);
+            touchStartPositions.Remove(touch.Index);
+        }
 
         if (touches.Count >= 2)
             BeginTouchGesture();
@@ -251,25 +304,50 @@ public partial class RtsCamera : Node3D
             return;
 
         touches[drag.Index] = drag.Position;
-        if (touches.Count < 2)
-            return;
 
-        var points = touches.Values.Take(2).ToArray();
-        var center = (points[0] + points[1]) * 0.5f;
-        var distance = points[0].DistanceTo(points[1]);
-        if (!touchGestureActive)
+        if (touches.Count >= 2)
         {
-            BeginTouchGesture();
+            var points = touches.Values.Take(2).ToArray();
+            var center = (points[0] + points[1]) * 0.5f;
+            var distance = points[0].DistanceTo(points[1]);
+            if (!touchGestureActive)
+            {
+                BeginTouchGesture();
+                return;
+            }
+
+            var centerDelta = center - lastTouchCenter;
+            PanByScreenDelta(centerDelta, 1.15f);
+
+            var pinchDelta = lastPinchDistance - distance;
+            if (Mathf.Abs(pinchDelta) > 0.5f)
+            {
+                AdjustZoom(pinchDelta * 0.035f, center);
+            }
+            lastTouchCenter = center;
+            lastPinchDistance = distance;
+            GetViewport().SetInputAsHandled();
             return;
         }
 
-        var centerDelta = center - lastTouchCenter;
-        PanByScreenDelta(centerDelta, 1.15f);
+        if (touches.Count == 1)
+        {
+            // Do not pan camera if placing a building preview
+            if (BattleGameManager.Instance is { PendingBuildKey.Length: > 0 })
+                return;
 
-        AdjustZoom((lastPinchDistance - distance) * 0.035f, center);
-        lastTouchCenter = center;
-        lastPinchDistance = distance;
-        GetViewport().SetInputAsHandled();
+            if (touchStartPositions.TryGetValue(drag.Index, out var startPos))
+            {
+                if (IsPointerOverBlockingHud(startPos))
+                    return;
+
+                if (startPos.DistanceTo(drag.Position) < 8f)
+                    return;
+            }
+
+            PanByScreenDelta(drag.Relative);
+            GetViewport().SetInputAsHandled();
+        }
     }
 
     void BeginTouchGesture()
@@ -283,7 +361,7 @@ public partial class RtsCamera : Node3D
         touchGestureActive = true;
     }
 
-    void AdjustZoom(float amount, Vector2? screenFocusPoint = null)
+    public void AdjustZoom(float amount, Vector2? screenFocusPoint = null)
     {
         var viewport = GetViewport();
         var focus = screenFocusPoint ?? (viewport?.GetVisibleRect().Size * 0.5f) ?? Vector2.Zero;
@@ -347,6 +425,8 @@ public partial class RtsCamera : Node3D
         return GlobalPosition;
     }
 
+    readonly Vector3[] cachedFrustumPolygon = new Vector3[4];
+
     public bool TryGetViewportGroundPolygon(out Vector3[] polygon)
     {
         EnsureCameraConfigured();
@@ -365,16 +445,16 @@ public partial class RtsCamera : Node3D
             rect.Position + rect.Size,
             rect.Position + new Vector2(0f, rect.Size.Y)
         };
-        polygon = new Vector3[samples.Length];
-        for (var i = 0; i < samples.Length; i++)
+        for (var i = 0; i < 4; i++)
         {
-            if (!TryProjectScreenPointToGround(samples[i], out polygon[i]))
+            if (!TryProjectScreenPointToGround(samples[i], out cachedFrustumPolygon[i]))
             {
                 polygon = System.Array.Empty<Vector3>();
                 return false;
             }
         }
 
+        polygon = cachedFrustumPolygon;
         return true;
     }
 
@@ -420,10 +500,16 @@ public partial class RtsCamera : Node3D
             return;
         }
 
-        var minX = polygon.Min(point => point.X);
-        var maxX = polygon.Max(point => point.X);
-        var minZ = polygon.Min(point => point.Z);
-        var maxZ = polygon.Max(point => point.Z);
+        float minX = polygon[0].X, maxX = polygon[0].X;
+        float minZ = polygon[0].Z, maxZ = polygon[0].Z;
+        for (int i = 1; i < polygon.Length; i++)
+        {
+            var p = polygon[i];
+            if (p.X < minX) minX = p.X;
+            if (p.X > maxX) maxX = p.X;
+            if (p.Z < minZ) minZ = p.Z;
+            if (p.Z > maxZ) maxZ = p.Z;
+        }
 
         var shiftX = 0f;
         if (minX < -limit)

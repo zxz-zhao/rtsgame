@@ -68,6 +68,7 @@ public partial class RtsBuilding : StaticBody3D
     [Export] public bool Powered { get; set; } = true;
     [Export] public int BuildingLevel { get; set; } = 1;
 
+    public static readonly List<RtsBuilding> AllActiveBuildings = new(64);
     public int NetId { get; set; }
     public float Health { get; private set; }
     public bool Selected { get; private set; }
@@ -119,9 +120,26 @@ public partial class RtsBuilding : StaticBody3D
     Label3D? powerWarningLabel;
     CpuParticles3D? constructionSmoke;
     readonly List<RuntimeTechBuff> techBuffs = new();
+    public bool HasActiveTechBuffs => techBuffs.Count > 0;
+    public IEnumerable<(string SourceId, float Remaining)> GetActiveTechBuffInfo()
+        => techBuffs.Select(b => (b.SourceId, b.Remaining));
+    float lastSpottedAlertTime = -999f;
+
+    /// <summary>
+    /// 是否为建造预览立面虚影。预览虚影不可作为活跃建筑登记、不可被攻击、不参与任何逻辑判定
+    /// </summary>
+    public bool IsPreviewGhost { get; set; } = false;
 
     public override void _Ready()
     {
+        if (IsPreviewGhost)
+            return;
+
+        if (!AllActiveBuildings.Contains(this))
+            AllActiveBuildings.Add(this);
+        if (!IsInGroup("rts_buildings"))
+            AddToGroup("rts_buildings");
+
         FogRevealed = PlayerOwned;
         FogExplored = PlayerOwned;
         if (Health <= 0f)
@@ -131,8 +149,18 @@ public partial class RtsBuilding : StaticBody3D
         EnsureCombatOverlays();
     }
 
+    public override void _ExitTree()
+    {
+        if (!IsPreviewGhost)
+            AllActiveBuildings.Remove(this);
+        base._ExitTree();
+    }
+
     public override void _Process(double delta)
     {
+        if (IsPreviewGhost)
+            return;
+
         var dt = (float)delta;
         ProcessConstruction(dt);
         ProcessRebuild(dt);
@@ -150,6 +178,9 @@ public partial class RtsBuilding : StaticBody3D
         ProcessProduction(dt);
 
         UpdatePowerWarningVisibility();
+
+        if (selectionRing is not null && selectionRing.Visible)
+            selectionRing.RotateY(0.20f * dt);
     }
 
     public void Configure(BattleBuildingDefinition def, bool playerOwned)
@@ -187,7 +218,7 @@ public partial class RtsBuilding : StaticBody3D
         productionRoster.Clear();
         productionRoster.AddRange(def.ProductionRoster);
         if (!HasRallyPoint)
-            RallyPoint = GlobalPosition + RallyOffset;
+            RallyPoint = (IsInsideTree() ? GlobalPosition : Position) + RallyOffset;
         RefreshMainBaseIdentity();
         UpdateVisualsForState();
     }
@@ -214,6 +245,8 @@ public partial class RtsBuilding : StaticBody3D
 
     public void EnqueueUnit(string unitKey)
     {
+        if (unitKey == "aircraft_carrier")
+            return;
         if (UnderConstruction || IsRuined || IsRebuilding)
             return;
         if (RequiresPower() && !Powered)
@@ -226,6 +259,8 @@ public partial class RtsBuilding : StaticBody3D
 
     public bool CanProduce(string unitKey)
     {
+        if (unitKey == "aircraft_carrier")
+            return false;
         if (UnderConstruction || IsRuined || IsRebuilding)
             return false;
         if (RequiresPower() && !Powered)
@@ -240,8 +275,18 @@ public partial class RtsBuilding : StaticBody3D
         if (fullRoster == null || fullRoster.Length == 0)
             return Array.Empty<string>();
 
-        int countToUnlock = Mathf.Clamp(BuildingLevel, 1, fullRoster.Length);
-        return fullRoster.Take(countToUnlock).ToArray();
+        int maxLvl = BattleBuildingUpgradeCatalog.GetMaxLevel(BuildKey);
+        if (BuildingLevel >= maxLvl)
+            return fullRoster;
+
+        if (BuildingLevel <= 1)
+        {
+            int initialCount = fullRoster.Length >= 4 ? 2 : 1;
+            return fullRoster.Take(initialCount).ToArray();
+        }
+
+        int midCount = fullRoster.Length >= 4 ? 3 : 2;
+        return fullRoster.Take(midCount).ToArray();
     }
 
     public string[] GetProductionQueueSnapshot()
@@ -293,7 +338,7 @@ public partial class RtsBuilding : StaticBody3D
         RecalculateTechBuffStats();
     }
 
-    public void ApplyDamage(float amount)
+    public void ApplyDamage(float amount, bool isCrit = false)
     {
         if (Health <= 0f || IsRebuilding)
             return;
@@ -303,7 +348,7 @@ public partial class RtsBuilding : StaticBody3D
 
         var before = Health;
         Health = Mathf.Max(0f, Health - amount);
-        BattleFeedback.Damage(this, GlobalPosition, before - Health, PlayerOwned, Health <= 0f);
+        BattleFeedback.Damage(this, GlobalPosition, before - Health, PlayerOwned, Health <= 0f, isCrit: isCrit);
         if (Health <= 0f)
         {
             GameState.Instance?.DeselectNode(this);
@@ -410,20 +455,42 @@ public partial class RtsBuilding : StaticBody3D
         UpdateMainBaseIdentityLabel();
     }
 
+    public Vector3 GetBuildingSelectionRingScale() =>
+        Vector3.One * (IsMainBase ? 3.4f : (IsDefenseTurret ? 1.8f : 2.5f));
+
     public void SetSelected(bool value)
     {
         Selected = value;
         if (selectionRing is not null)
+        {
             selectionRing.Visible = value && FogRevealed;
+            if (value)
+            {
+                selectionRing.Scale = GetBuildingSelectionRingScale() * 1.12f;
+                var tw = selectionRing.CreateTween();
+                tw.TweenProperty(selectionRing, "scale", GetBuildingSelectionRingScale(), 0.15)
+                    .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Back);
+            }
+        }
         if (rallyMarker is not null)
             rallyMarker.Visible = value && HasRallyPoint && FogRevealed;
     }
 
     public void SetFogRevealed(bool revealed)
     {
+        bool wasRevealed = FogRevealed;
+        bool wasExplored = FogExplored;
         FogRevealed = PlayerOwned || revealed;
         if (FogRevealed)
             FogExplored = true;
+
+        if (!PlayerOwned && !wasRevealed && FogRevealed)
+        {
+            OnEnemyBuildingSpotted();
+        }
+
+        if (wasRevealed == FogRevealed && (PlayerOwned || wasExplored == FogExplored))
+            return;
 
         if (PlayerOwned)
         {
@@ -457,6 +524,19 @@ public partial class RtsBuilding : StaticBody3D
         }
         UpdateMainBaseIdentityLabel();
         UpdatePowerWarningVisibility();
+    }
+
+    void OnEnemyBuildingSpotted()
+    {
+        if (Godot.Time.GetTicksMsec() < 1500)
+            return;
+
+        var now = (float)(Godot.Time.GetTicksMsec() / 1000.0);
+        if (now - lastSpottedAlertTime < 15.0f)
+            return;
+
+        lastSpottedAlertTime = now;
+        BattleMinimap.Instance?.NotifyEnemySpotted(GlobalPosition, DisplayName, true);
     }
 
     void ProcessConstruction(float delta)
@@ -858,8 +938,8 @@ public partial class RtsBuilding : StaticBody3D
         selectionRing = new MeshInstance3D
         {
             Name = "SelectionRing",
-            Position = new Vector3(0f, 0.05f, 0f),
-            Scale = Vector3.One * (IsMainBase ? 2.6f : 1.8f),
+            Position = new Vector3(0f, 0.08f, 0f),
+            Scale = GetBuildingSelectionRingScale(),
             Mesh = new TorusMesh
             {
                 InnerRadius = 1.75f,
@@ -869,14 +949,42 @@ public partial class RtsBuilding : StaticBody3D
             MaterialOverride = new StandardMaterial3D
             {
                 AlbedoColor = PlayerOwned
-                    ? new Color(0.18f, 0.80f, 1f, 0.90f)
-                    : new Color(1f, 0.28f, 0.18f, 0.90f),
+                    ? new Color(0.18f, 0.95f, 0.85f, 0.92f)
+                    : new Color(1f, 0.26f, 0.22f, 0.92f),
                 Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+                DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always,
+                RenderPriority = 1
             },
             Visible = false
         };
         AddChild(selectionRing);
+
+        var innerRing = new MeshInstance3D
+        {
+            Name = "InnerRing",
+            Mesh = new TorusMesh
+            {
+                InnerRadius = 0.95f,
+                OuterRadius = 1.05f,
+                RingSegments = 48
+            },
+            Position = Vector3.Zero,
+            MaterialOverride = new StandardMaterial3D
+            {
+                AlbedoColor = PlayerOwned
+                    ? new Color(0.18f, 0.95f, 0.85f, 0.45f)
+                    : new Color(1f, 0.26f, 0.22f, 0.45f),
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+                DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always,
+                RenderPriority = 1
+            }
+        };
+        selectionRing.AddChild(innerRing);
+
         EnsureRallyMarker();
         EnsureLevelBadge();
         EnsureMainBaseIdentityLabel();
@@ -1022,10 +1130,10 @@ public partial class RtsBuilding : StaticBody3D
             scaleCurve.AddPoint(new Vector2(0f, 0.4f));
             scaleCurve.AddPoint(new Vector2(1f, 1.8f));
 
-            var smokeColorRamp = new Gradient();
-            smokeColorRamp.AddPoint(0f, new Color(0.42f, 0.40f, 0.38f, 0.58f)); // dusty brown-grey smoke
-            smokeColorRamp.AddPoint(0.7f, new Color(0.32f, 0.30f, 0.28f, 0.3f));
-            smokeColorRamp.AddPoint(1f, new Color(0.20f, 0.20f, 0.20f, 0f));
+            var smokeColorRamp = CombatProjectile.CreateRamp(
+                new Color(0.42f, 0.40f, 0.38f, 0.58f), 0.7f,
+                new Color(0.32f, 0.30f, 0.28f, 0.3f),
+                new Color(0.20f, 0.20f, 0.20f, 0f));
 
             var width = IsMainBase ? 3.0f : 1.8f;
             var depth = IsMainBase ? 3.0f : 1.8f;

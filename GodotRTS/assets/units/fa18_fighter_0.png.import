@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cju8cvkvlt5m7"
 path.s3tc="res://.godot/imported/fa18_fighter_0.png-7df1394c4af8bd7e3de33c9919348883.s3tc.ctex"
+path.etc2="res://.godot/imported/fa18_fighter_0.png-7df1394c4af8bd7e3de33c9919348883.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/fa18_fighter_0.png"
-dest_files=["res://.godot/imported/fa18_fighter_0.png-7df1394c4af8bd7e3de33c9919348883.s3tc.ctex"]
+dest_files=["res://.godot/imported/fa18_fighter_0.png-7df1394c4af8bd7e3de33c9919348883.s3tc.ctex", "res://.godot/imported/fa18_fighter_0.png-7df1394c4af8bd7e3de33c9919348883.etc2.ctex"]
 
 [params]
 

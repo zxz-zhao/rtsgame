@@ -23,7 +23,7 @@ public readonly record struct BattleBuildingDefinition(
 public static class BattleBuildingCatalog
 {
     public static readonly BattleBuildingDefinition MainBase = new(
-        "main_base", "主基地", 0, 3000f, new Vector3(7f, 4.8f, 7f),
+        "main_base", "主基地", 0, 3000f, new Vector3(9.2f, 4.8f, 9.2f),
         10, 1, 5f, Array.Empty<string>(),
         true, false, 0f, 0f, 0f, 0, 0, new Color(0.31f, 0.38f, 0.42f));
 
@@ -34,12 +34,12 @@ public static class BattleBuildingCatalog
 
     public static readonly BattleBuildingDefinition TankFactory = new(
         "tank_factory", "特勤工厂", 400, 850f, new Vector3(7.2f, 3.6f, 8.0f),
-        0, 0, 5f, new[] { "artillery", "anti_air_gun", "flamethrower" },
+        0, 0, 5f, new[] { "artillery", "mlrs_rocket", "anti_air_gun", "sam_missile" },
         false, false, 0f, 0f, 0f, 0, 35, new Color(0.30f, 0.36f, 0.38f));
 
     public static readonly BattleBuildingDefinition ArmorFactory = new(
         "armor_factory", "坦克工厂", 450, 900f, new Vector3(8.0f, 3.8f, 8.2f),
-        0, 0, 5f, new[] { "light_tank", "tank", "heavy_tank" },
+        0, 0, 5f, new[] { "light_tank", "tank", "heavy_tank", "tank_destroyer" },
         false, false, 0f, 0f, 0f, 0, 40, new Color(0.32f, 0.36f, 0.38f));
 
     public static readonly BattleBuildingDefinition Airfield = new(
@@ -49,12 +49,12 @@ public static class BattleBuildingCatalog
 
     public static readonly BattleBuildingDefinition AirFactory = new(
         "air_factory", "飞机工厂", 400, 800f, new Vector3(8.2f, 3.6f, 8.2f),
-        0, 0, 5f, new[] { "scout_plane", "fighter", "bomber" },
+        0, 0, 5f, new[] { "scout_plane", "scout_helicopter", "fighter", "bomber" },
         false, false, 0f, 0f, 0f, 0, 30, new Color(0.26f, 0.36f, 0.46f));
 
     public static readonly BattleBuildingDefinition NavalYard = new(
         "naval_yard", "船坞", 360, 760f, new Vector3(8.8f, 2.4f, 7.6f),
-        0, 0, 5f, new[] { "destroyer_ship", "submarine", "battleship", "aircraft_carrier" },
+        0, 0, 5f, new[] { "patrol_boat", "destroyer_ship", "submarine", "battleship" },
         false, false, 0f, 0f, 0f, 0, 20, new Color(0.18f, 0.32f, 0.38f));
 
     public static readonly BattleBuildingDefinition Turret = new(
@@ -64,8 +64,8 @@ public static class BattleBuildingCatalog
 
     public static readonly BattleBuildingDefinition PowerPlant = new(
         "power_plant", "发电厂", 200, 600f, new Vector3(5.6f, 3.8f, 5.6f),
-        50, 0, 5f, Array.Empty<string>(),
-        false, false, 0f, 0f, 0f, 50, 0, new Color(0.24f, 0.42f, 0.48f));
+        0, 0, 5f, Array.Empty<string>(),
+        false, false, 0f, 0f, 0f, 250, 0, new Color(0.24f, 0.42f, 0.48f));
 
     public static readonly BattleBuildingDefinition GoldMine = new(
         "gold_mine", "金矿", 250, 500f, new Vector3(5.6f, 3.2f, 5.6f),

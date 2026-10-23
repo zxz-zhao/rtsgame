@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bkwp75p8xonmp"
 path.s3tc="res://.godot/imported/Tex_background buildings and aircraft apron_D.png-a8de9eb26846b0c3e6c9c8ae4b2d8bb1.s3tc.ctex"
+path.etc2="res://.godot/imported/Tex_background buildings and aircraft apron_D.png-a8de9eb26846b0c3e6c9c8ae4b2d8bb1.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Props/WarScene/Tex_background buildings and aircraft apron_D.png"
-dest_files=["res://.godot/imported/Tex_background buildings and aircraft apron_D.png-a8de9eb26846b0c3e6c9c8ae4b2d8bb1.s3tc.ctex"]
+dest_files=["res://.godot/imported/Tex_background buildings and aircraft apron_D.png-a8de9eb26846b0c3e6c9c8ae4b2d8bb1.s3tc.ctex", "res://.godot/imported/Tex_background buildings and aircraft apron_D.png-a8de9eb26846b0c3e6c9c8ae4b2d8bb1.etc2.ctex"]
 
 [params]
 

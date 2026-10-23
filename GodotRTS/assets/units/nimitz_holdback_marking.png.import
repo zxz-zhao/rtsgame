@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dikou7xucefde"
 path.s3tc="res://.godot/imported/nimitz_holdback_marking.png-9de333f9fc41f06eed14780a5d58f6d1.s3tc.ctex"
+path.etc2="res://.godot/imported/nimitz_holdback_marking.png-9de333f9fc41f06eed14780a5d58f6d1.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/nimitz_holdback_marking.png"
-dest_files=["res://.godot/imported/nimitz_holdback_marking.png-9de333f9fc41f06eed14780a5d58f6d1.s3tc.ctex"]
+dest_files=["res://.godot/imported/nimitz_holdback_marking.png-9de333f9fc41f06eed14780a5d58f6d1.s3tc.ctex", "res://.godot/imported/nimitz_holdback_marking.png-9de333f9fc41f06eed14780a5d58f6d1.etc2.ctex"]
 
 [params]
 

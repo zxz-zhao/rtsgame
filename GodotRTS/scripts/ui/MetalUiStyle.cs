@@ -1,5 +1,32 @@
 using Godot;
 
+public static class MetalPalette
+{
+    public static readonly Color Gold = new(1.0f, 0.78f, 0.15f);
+    public static readonly Color Steel = new(0.45f, 0.55f, 0.65f);
+    public static readonly Color BronzePanel = new(0.12f, 0.10f, 0.08f, 0.92f);
+    public static readonly Color Green = new(0.18f, 0.85f, 0.40f);
+    public static readonly Color Red = new(0.90f, 0.18f, 0.18f);
+    public static readonly Color Cyan = new(0.0f, 0.85f, 1.0f);
+    public static readonly Color CyanAccent = new(0.0f, 0.85f, 1.0f);
+    public static readonly Color DarkBg = new(0.05f, 0.07f, 0.10f, 0.95f);
+}
+
+namespace GodotRTS.UI
+{
+    public static class MetalPalette
+    {
+        public static readonly Color Gold = new(1.0f, 0.78f, 0.15f);
+        public static readonly Color Steel = new(0.45f, 0.55f, 0.65f);
+        public static readonly Color BronzePanel = new(0.12f, 0.10f, 0.08f, 0.92f);
+        public static readonly Color Green = new(0.18f, 0.85f, 0.40f);
+        public static readonly Color Red = new(0.90f, 0.18f, 0.18f);
+        public static readonly Color Cyan = new(0.0f, 0.85f, 1.0f);
+        public static readonly Color CyanAccent = new(0.0f, 0.85f, 1.0f);
+        public static readonly Color DarkBg = new(0.05f, 0.07f, 0.10f, 0.95f);
+    }
+}
+
 public static class MetalUiStyle
 {
     public readonly struct MetalPalette

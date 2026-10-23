@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dobp4pqvti45j"
 path.s3tc="res://.godot/imported/nimitz_H-60.png-4e92ec01cf0831e2305d52a532fbeeaa.s3tc.ctex"
+path.etc2="res://.godot/imported/nimitz_H-60.png-4e92ec01cf0831e2305d52a532fbeeaa.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/units/nimitz_H-60.png"
-dest_files=["res://.godot/imported/nimitz_H-60.png-4e92ec01cf0831e2305d52a532fbeeaa.s3tc.ctex"]
+dest_files=["res://.godot/imported/nimitz_H-60.png-4e92ec01cf0831e2305d52a532fbeeaa.s3tc.ctex", "res://.godot/imported/nimitz_H-60.png-4e92ec01cf0831e2305d52a532fbeeaa.etc2.ctex"]
 
 [params]
 

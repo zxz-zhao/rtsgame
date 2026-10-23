@@ -32,7 +32,7 @@ def create_integration():
     }
 
     req = urllib.request.Request(
-        "http://127.0.0.1:3000/api/v1/integrations.create",
+        "http://127.0.0.1:3001/api/v1/integrations.create",
         data=json.dumps(payload).encode('utf-8'),
         headers={
             "X-Auth-Token": ADMIN_TOKEN,

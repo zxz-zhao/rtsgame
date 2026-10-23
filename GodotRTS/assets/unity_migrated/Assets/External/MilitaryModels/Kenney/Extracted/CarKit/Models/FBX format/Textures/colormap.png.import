@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://b7um8k00lad27"
 path.s3tc="res://.godot/imported/colormap.png-579ecc5236962d040ccbd66f7019432f.s3tc.ctex"
+path.etc2="res://.godot/imported/colormap.png-579ecc5236962d040ccbd66f7019432f.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/MilitaryModels/Kenney/Extracted/CarKit/Models/FBX format/Textures/colormap.png"
-dest_files=["res://.godot/imported/colormap.png-579ecc5236962d040ccbd66f7019432f.s3tc.ctex"]
+dest_files=["res://.godot/imported/colormap.png-579ecc5236962d040ccbd66f7019432f.s3tc.ctex", "res://.godot/imported/colormap.png-579ecc5236962d040ccbd66f7019432f.etc2.ctex"]
 
 [params]
 

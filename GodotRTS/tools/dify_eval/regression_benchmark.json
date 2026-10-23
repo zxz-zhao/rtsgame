@@ -1,0 +1,89 @@
+[
+  {
+    "id": "TC-CAM-01",
+    "name": "摄像机与小地图 180° Yaw 反向映射规则",
+    "category": "Camera & Minimap",
+    "query": "请帮我实现一个 RTS 战术小地图的点击与拖拽同步脚本 (BattleMinimap.cs)，要求支持玩家在小地图上拖拽时直接调整 3D 摄像机视口位置。",
+    "expected_principles": [
+      "Camera3D 具有 180° Y-Yaw 反转设计（Basis.X = (-1, 0, 0)）",
+      "Screen Left 映射为 World +X，Screen Right 映射为 World -X，Screen Top 映射为 World +Z，Screen Bottom 映射为 World -Z",
+      "小地图坐标归一化转换必须使用 (0.5f - world.X) 和 (0.5f - world.Z) 的反向坐标计算"
+    ],
+    "fatal_traps": [
+      "错误地使用直接加减 (world.X + 0.5f) 或未做 180° 反转导致拖拽方向与画面反向颠倒",
+      "忽略摄像机 180° Yaw 旋转特性，把正向前进当成 -Z 或 +Z 搞混"
+    ]
+  },
+  {
+    "id": "TC-CAM-02",
+    "name": "视口地面四角多边形全量裁剪规则",
+    "category": "Camera Frustum Clamping",
+    "query": "请编写 RtsCamera.cs 中的 ClampVisibleAreaToMap 方法，限制玩家不能把镜头移出地图边界。",
+    "expected_principles": [
+      "必须获取视口 4 个地面投影角点（TryGetViewportGroundPolygon 或 4-corner frustum ground points）并对 4 个角点进行全量边界限制",
+      "必须保证倾斜的相机视锥体四个角都不会越过地形边界看到天空盒黑洞"
+    ],
+    "fatal_traps": [
+      "仅仅对视口中心点 GetGroundCenter() 进行 Clamp，忽视倾斜视锥边缘看到虚空黑洞的严重缺陷",
+      "使用硬编码的单点限制代替 4 角多边形投影裁剪"
+    ]
+  },
+  {
+    "id": "TC-TST-03",
+    "name": "实机功能测试视频时长硬约束 (>= 20秒)",
+    "category": "Test Automation",
+    "query": "我刚刚完成了一个防空导弹拦截敌机的空战功能，请指导我如何进行实机功能测试与视频录制验证？",
+    "expected_principles": [
+      "明确指出实机测试视频时长必须在 20 秒以上（硬约束：frames >= 1200 @ 60 FPS，标准默认 1860 帧 / 31 秒）",
+      "必须说明长时长的原因：确保防空雷达锁定、导弹机动弹道、拦截爆炸与残骸坠落的全周期战斗闭环完全可见"
+    ],
+    "fatal_traps": [
+      "建议录制 3 秒、5 秒或 10 秒以内的简短片段",
+      "遗漏 20 秒以上的硬性时长规范，未强调 1200 帧以上的门禁要求"
+    ]
+  },
+  {
+    "id": "TC-PERF-04",
+    "name": "高频物理帧循环零 GC 契约",
+    "category": "Zero-GC Performance",
+    "query": "请为游戏编写一个单位批量范围搜寻与索敌计算组件 (TargetFinder.cs)，在 _PhysicsProcess 中每秒执行 20 次检测。",
+    "expected_principles": [
+      "严禁在循环内或每帧分配堆内存（严禁 new List<T>、new Array、LINQ 查询）",
+      "必须使用类成员级复用缓冲区、Span<T>、Memory<T> 或对象池机制"
+    ],
+    "fatal_traps": [
+      "在 _PhysicsProcess 或高频检测循环内部使用 targets.Where(...).OrderBy(...) 等 LINQ 表达式",
+      "在每次检测时 new List<Unit>() 或频繁分配临时对象引发 GC 顿卡"
+    ]
+  },
+  {
+    "id": "TC-UI-05",
+    "name": "UI 极简科技感设计规范（克制与质感）",
+    "category": "UI Design",
+    "query": "帮我设计并编写一个选中单位信息卡片面板 (UnitStatusCard.tscn)，我想要一个高大上的界面，怎么布局好？",
+    "expected_principles": [
+      "按钮数量高度克制，严禁堆砌按钮，只保留最核心的 1~2 个主操作",
+      "采用深色科技感配色（如底色 #0A0F1D 配合半透明高光与科技青边框 #00C8FF，圆角倒角）",
+      "信息分层清晰：标题/类型 -> 核心生命与护甲状态微览 -> 极简行动区"
+    ],
+    "fatal_traps": [
+      "设计 6 个以上繁琐廉价的按钮堆满界面",
+      "使用粗糙刺眼的纯色（如纯白、纯黑、纯红、纯绿）默认风格，缺乏现代扁平科技感"
+    ]
+  },
+  {
+    "id": "TC-API-06",
+    "name": "Godot 4.x C# 规范与废弃 API 防御",
+    "category": "API Standards",
+    "query": "请编写一个通用的 3D 单位移动控制器 (UnitMover.cs)，支持旋转朝向并平滑插值移动。",
+    "expected_principles": [
+      "使用 Godot 4 API：继承 CharacterBody3D 或 Node3D，使用 MoveAndSlide()",
+      "旋转与四元数使用 Quaternion，变换使用 Transform3D",
+      "时间步进使用 double delta"
+    ],
+    "fatal_traps": [
+      "使用已被淘汰的 Godot 3 API：如 KinematicBody、Spatial、Quat、Transform",
+      "使用旧版 MoveAndSlide(Vector3) 传参方式（Godot 4 已经改为通过 Velocity 属性控制）"
+    ]
+  }
+]

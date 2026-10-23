@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bs7yavm3gpigv"
 path.s3tc="res://.godot/imported/colormap.png-e239dfe61405570783d59f11ae47b5e3.s3tc.ctex"
+path.etc2="res://.godot/imported/colormap.png-e239dfe61405570783d59f11ae47b5e3.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Kenney/BlasterKit/Models/FBX format/Textures/colormap.png"
-dest_files=["res://.godot/imported/colormap.png-e239dfe61405570783d59f11ae47b5e3.s3tc.ctex"]
+dest_files=["res://.godot/imported/colormap.png-e239dfe61405570783d59f11ae47b5e3.s3tc.ctex", "res://.godot/imported/colormap.png-e239dfe61405570783d59f11ae47b5e3.etc2.ctex"]
 
 [params]
 

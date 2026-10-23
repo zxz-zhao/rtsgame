@@ -1,6 +1,14 @@
-﻿using Godot;
+using Godot;
 using System.Collections.Generic;
 using System.Linq;
+
+public enum TechTargetDomain
+{
+    All = 0,
+    AirOnly = 1,
+    GroundOnly = 2,
+    NavalOnly = 3
+}
 
 public readonly record struct BattleTechDefinition(
     string Key,
@@ -20,10 +28,16 @@ public readonly record struct BattleTechDefinition(
     float DefenseReduction,
     float VisionBonus,
     float RegenPerSecond,
-    Color Tint);
+    Color Tint,
+    TechTargetDomain TargetDomain = TechTargetDomain.All)
+{
+    public string BackgroundPath => BackgroundTexturePath;
+    public string IconPath => $"res://assets/unity_migrated/Assets/Resources/BattleHud/TechIcons/tech_icon_{Key}.png";
+}
 
 public static class BattleTechCatalog
 {
+    public const int MaxBattleTechLoadout = 10;
     const string TechTextureRoot = "res://assets/unity_migrated/Assets/Resources/BattleHud/TechBackgrounds/";
 
     public static readonly BattleTechDefinition SpeedBoost = new(
@@ -186,6 +200,48 @@ public static class BattleTechCatalog
         0f,
         new Color(1f, 0.34f, 0.48f, 0.82f));
 
+    public static readonly BattleTechDefinition AirRefitBoost = new(
+        "air_refit",
+        "战鹰整备",
+        "【仅限战机生效】空中瞬间注满燃油并装填机载弹药，提供持续高额抢修自愈与加力巡航加速。",
+        0,
+        "main_base",
+        "鹰",
+        TechTextureRoot + "tech_bg_speed_wings.png",
+        16f,
+        14f,
+        32f,
+        1.35f,
+        1f,
+        0f,
+        1f,
+        0.15f,
+        0f,
+        36f,
+        new Color(0.24f, 0.95f, 0.82f, 0.88f),
+        TechTargetDomain.AirOnly);
+
+    public static readonly BattleTechDefinition OverdriveBoost = new(
+        "overdrive",
+        "极限过载",
+        "超负荷激发友军动力与武器核心：大幅提升攻击射速、移动速度与单发火力。",
+        0,
+        "main_base",
+        "超",
+        TechTextureRoot + "tech_bg_assault_arrows.png",
+        12f,
+        10f,
+        36f,
+        1.25f,
+        1.20f,
+        0f,
+        0.65f,
+        0f,
+        0f,
+        0f,
+        new Color(0.95f, 0.28f, 0.88f, 0.88f),
+        TechTargetDomain.All);
+
     public static BattleTechDefinition[] All { get; } =
     {
         SpeedBoost,
@@ -195,7 +251,9 @@ public static class BattleTechCatalog
         ReconBoost,
         RapidFireBoost,
         HoldBoost,
-        AssaultBoost
+        AssaultBoost,
+        AirRefitBoost,
+        OverdriveBoost
     };
 
     public static BattleTechDefinition Get(string key)
@@ -203,4 +261,14 @@ public static class BattleTechCatalog
 
     public static IReadOnlyList<BattleTechDefinition> GetForBuilding(string buildKey)
         => All.Where(tech => tech.RequiredBuildingKey == buildKey).ToArray();
+
+    public static IReadOnlyList<BattleTechDefinition> GetEquippedTechs(IEnumerable<string>? keys = null)
+    {
+        if (keys == null)
+            return All.Take(MaxBattleTechLoadout).ToArray();
+
+        var set = new HashSet<string>(keys);
+        var result = All.Where(tech => set.Contains(tech.Key)).Take(MaxBattleTechLoadout).ToArray();
+        return result.Length > 0 ? result : All.Take(MaxBattleTechLoadout).ToArray();
+    }
 }

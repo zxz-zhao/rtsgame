@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cdun4j0xbov8y"
 path.s3tc="res://.godot/imported/wall_garage.png-8dbc0f98a8b079513f7d567e67478313.s3tc.ctex"
+path.etc2="res://.godot/imported/wall_garage.png-8dbc0f98a8b079513f7d567e67478313.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Kenney/RetroUrbanKit/Models/FBX format/Textures/wall_garage.png"
-dest_files=["res://.godot/imported/wall_garage.png-8dbc0f98a8b079513f7d567e67478313.s3tc.ctex"]
+dest_files=["res://.godot/imported/wall_garage.png-8dbc0f98a8b079513f7d567e67478313.s3tc.ctex", "res://.godot/imported/wall_garage.png-8dbc0f98a8b079513f7d567e67478313.etc2.ctex"]
 
 [params]
 

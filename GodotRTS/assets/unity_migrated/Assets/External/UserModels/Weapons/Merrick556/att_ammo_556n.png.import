@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://danrsgi8vkf3n"
 path.s3tc="res://.godot/imported/att_ammo_556n.png-095f39811b0bd92d352861d93244a213.s3tc.ctex"
+path.etc2="res://.godot/imported/att_ammo_556n.png-095f39811b0bd92d352861d93244a213.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Weapons/Merrick556/att_ammo_556n.png"
-dest_files=["res://.godot/imported/att_ammo_556n.png-095f39811b0bd92d352861d93244a213.s3tc.ctex"]
+dest_files=["res://.godot/imported/att_ammo_556n.png-095f39811b0bd92d352861d93244a213.s3tc.ctex", "res://.godot/imported/att_ammo_556n.png-095f39811b0bd92d352861d93244a213.etc2.ctex"]
 
 [params]
 

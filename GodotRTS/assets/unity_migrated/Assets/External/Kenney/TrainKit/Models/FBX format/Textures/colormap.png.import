@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://mf442e6ml8em"
 path.s3tc="res://.godot/imported/colormap.png-ea11f593c68ea02b816d21273cd8733e.s3tc.ctex"
+path.etc2="res://.godot/imported/colormap.png-ea11f593c68ea02b816d21273cd8733e.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Kenney/TrainKit/Models/FBX format/Textures/colormap.png"
-dest_files=["res://.godot/imported/colormap.png-ea11f593c68ea02b816d21273cd8733e.s3tc.ctex"]
+dest_files=["res://.godot/imported/colormap.png-ea11f593c68ea02b816d21273cd8733e.s3tc.ctex", "res://.godot/imported/colormap.png-ea11f593c68ea02b816d21273cd8733e.etc2.ctex"]
 
 [params]
 

@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://laibynwo8fbq"
 path.s3tc="res://.godot/imported/colormap.png-3492af15fc3b2efa5100e0b8f7d12917.s3tc.ctex"
+path.etc2="res://.godot/imported/colormap.png-3492af15fc3b2efa5100e0b8f7d12917.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/props/kenney/castle/Textures/colormap.png"
-dest_files=["res://.godot/imported/colormap.png-3492af15fc3b2efa5100e0b8f7d12917.s3tc.ctex"]
+dest_files=["res://.godot/imported/colormap.png-3492af15fc3b2efa5100e0b8f7d12917.s3tc.ctex", "res://.godot/imported/colormap.png-3492af15fc3b2efa5100e0b8f7d12917.etc2.ctex"]
 
 [params]
 

@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://damge3k6gb6q1"
 path.s3tc="res://.godot/imported/Tex_base and pavement_D.png-2e87e054e314e70ac4c3abbdc3573d28.s3tc.ctex"
+path.etc2="res://.godot/imported/Tex_base and pavement_D.png-2e87e054e314e70ac4c3abbdc3573d28.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Props/WarScene/Tex_base and pavement_D.png"
-dest_files=["res://.godot/imported/Tex_base and pavement_D.png-2e87e054e314e70ac4c3abbdc3573d28.s3tc.ctex"]
+dest_files=["res://.godot/imported/Tex_base and pavement_D.png-2e87e054e314e70ac4c3abbdc3573d28.s3tc.ctex", "res://.godot/imported/Tex_base and pavement_D.png-2e87e054e314e70ac4c3abbdc3573d28.etc2.ctex"]
 
 [params]
 

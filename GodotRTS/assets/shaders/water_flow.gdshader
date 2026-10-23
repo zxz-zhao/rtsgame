@@ -1,16 +1,18 @@
 shader_type spatial;
-render_mode blend_mix, depth_draw_never, cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode blend_mix, cull_back, diffuse_burley, specular_schlick_ggx;
 
 // Core Material Uniforms
 uniform vec4 water_color : source_color = vec4(0.06, 0.28, 0.48, 0.58);
+uniform vec4 shallow_color : source_color = vec4(0.08, 0.68, 0.46, 0.85);
 uniform vec4 foam_color : source_color = vec4(0.88, 0.96, 1.0, 0.92);
 uniform float flow_speed = 0.46;
 uniform float wave_scale = 0.55;
 uniform float wave_strength = 0.42;
 uniform float edge_fade = 0.14;
 uniform float foam_scale = 0.38;
-uniform float metallic = 0.15;
-uniform float roughness = 0.08;
+uniform float metallic = 0.0;
+uniform float roughness = 0.12;
+uniform float specular = 0.5;
 uniform float ripple_scale = 12.5;
 uniform float ripple_strength = 0.15;
 uniform float shine_strength = 0.20;
@@ -70,8 +72,11 @@ void vertex() {
 
 	wave_elevation = p.y - grid_point.y;
 	world_pos = p;
-	VERTEX = (VIEW_MATRIX * vec4(p, 1.0)).xyz;
-	NORMAL = normalize(mat3(VIEW_MATRIX) * normalize(cross(binormal, tangent)));
+
+	// 在模型局部空间内实施顶点位移与法线计算，避免由 VIEW_MATRIX 二次叠加引起的镜头低角异常倾斜
+	vec3 model_disp = (inverse(MODEL_MATRIX) * vec4(p - grid_point, 0.0)).xyz;
+	VERTEX += model_disp;
+	NORMAL = normalize((inverse(MODEL_MATRIX) * vec4(cross(binormal, tangent), 0.0)).xyz);
 }
 
 // Procedural ripple noise
@@ -89,22 +94,62 @@ float ripple(vec2 pos, float time) {
 }
 
 void fragment() {
-	NORMAL = vec3(0.0, 1.0, 0.0);
+	// 动态波纹与扰动法线：在世界空间生成表面扰动向量，然后乘以 VIEW_MATRIX 转换为 Godot 期望的视图空间法线
+	float rip = ripple(world_pos.xz, TIME);
+	vec3 wave_norm_world = normalize(vec3((rip - 0.5) * ripple_strength, 1.0, (rip - 0.5) * ripple_strength));
+	NORMAL = normalize((VIEW_MATRIX * vec4(wave_norm_world, 0.0)).xyz);
 
-	// 1. Fetch underwater background scene (pillars, sea bed, docks)
-	vec2 offset = NORMAL.xz * 0.03;
-	vec3 underwater_scene = texture(screen_texture, SCREEN_UV + offset).rgb;
+	// 1. 水下透视折射 (Screen Refraction)
+	vec2 offset = wave_norm_world.xz * 0.015;
+	vec3 underwater_scene = textureLod(screen_texture, SCREEN_UV + offset, 0.0).rgb;
 
-	// 2. Blend crystal water tint over submerged objects
-	vec3 sea_base = mix(underwater_scene, water_color.rgb, 0.10);
+	// 2. 真实深度计算 (Depth Buffer Linearization & Cross-Renderer Fallback)
+	float edge_dist = min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y));
+	float uv_depth = clamp(edge_dist / max(0.01, edge_fade), 0.0, 1.0);
 
-	// 3. Subtle Fresnel Sky Reflection
-	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
-	sea_base = mix(sea_base, vec3(0.50, 0.85, 0.95), fresnel * 0.10);
+	float depth_raw = textureLod(depth_texture, SCREEN_UV, 0.0).r;
+	vec3 ndc;
+	#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+		ndc = vec3(SCREEN_UV, depth_raw) * 2.0 - 1.0;
+	#else
+		ndc = vec3(SCREEN_UV * 2.0 - 1.0, depth_raw);
+	#endif
+	vec4 view_pos = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
+	view_pos.xyz /= view_pos.w;
+	float linear_depth = -view_pos.z;
+	float diff = linear_depth + VERTEX.z;
+
+	float water_depth;
+	if (depth_raw > 0.0005 && depth_raw < 0.9995 && diff > 0.0) {
+		float depth_based = clamp(diff / max(0.01, edge_fade * 4.0), 0.0, 1.0);
+		water_depth = depth_based;
+	} else {
+		water_depth = uv_depth;
+	}
+
+	// 3. 浅水碧绿到深水深蓝过渡 (Commercial Shallow-to-Deep Oceanic Gradient)
+	vec3 deep_color = water_color.rgb;
+	vec3 shallow = shallow_color.a > 0.01 ? shallow_color.rgb : mix(deep_color, vec3(0.12, 0.78, 0.52), 0.35);
+	vec3 water_body = mix(shallow, deep_color, smoothstep(0.05, 0.75, water_depth));
+	// 吸收与透射混合：保持浓郁水体色彩主导，防止浅滩砂石反白冲淡水色
+	vec3 sea_base = mix(underwater_scene, water_body, clamp(0.70 + water_depth * 0.28, 0.70, 0.98));
+
+	// 4. 商用发布级近岸、岛礁与舰船吃水深度浪花泡沫 (Multi-Band Shoreline Depth Foam)
+	float shore_contact = 1.0 - smoothstep(0.0, 0.05, water_depth);
+	float surf_band = (1.0 - smoothstep(0.02, 0.16, water_depth)) * clamp(sin(water_depth * 38.0 - TIME * 3.4), 0.0, 1.0);
+	float foam_noise_a = sin(world_pos.x * 6.2 + TIME * 1.9) * cos(world_pos.z * 6.2 - TIME * 1.6) * 0.5 + 0.5;
+	float foam_noise_b = sin(world_pos.x * 14.5 - TIME * 2.8) * cos(world_pos.z * 14.5 + TIME * 2.4) * 0.5 + 0.5;
+	float combined_noise = mix(foam_noise_a, foam_noise_b, 0.35);
+	float foam = clamp(shore_contact * 0.85 + surf_band * 0.35 * combined_noise, 0.0, 1.0);
+	sea_base = mix(sea_base, foam_color.rgb, foam * foam_color.a * 0.75);
+
+	// 5. 菲涅尔天光镜面反射 (Physical Fresnel Glance - only at grazing angles)
+	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.5);
+	sea_base = mix(sea_base, vec3(0.65, 0.88, 0.85), fresnel * 0.20);
 
 	ALBEDO = sea_base;
-	ALPHA = clamp(water_color.a + fresnel * 0.06, 0.05, 0.60);
-	ROUGHNESS = 0.02;
-	METALLIC = 0.05;
-	SPECULAR = 0.50;
+	ALPHA = clamp(water_color.a + fresnel * 0.20 + foam * 0.25, 0.85, 0.99);
+	ROUGHNESS = roughness;
+	METALLIC = metallic;
+	SPECULAR = specular;
 }

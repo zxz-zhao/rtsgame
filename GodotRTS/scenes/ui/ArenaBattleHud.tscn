@@ -1,47 +1,131 @@
-[gd_scene load_steps=12 format=3 uid="uid://arenabattlehud001"]
+[gd_scene load_steps=21 format=3 uid="uid://arenabattlehud001"]
 
 [ext_resource type="Script" path="res://scripts/ui/ArenaBattleHud.cs" id="1_hud_controller"]
 [ext_resource type="Script" path="res://scripts/ui/TacticalRadar.cs" id="2_radar_script"]
+[ext_resource type="Texture2D" path="res://assets/unity_migrated/Assets/Resources/UI/ButtonBackdrops/prod_battleship_icon.png" id="3_icon_fighter"]
+[ext_resource type="Texture2D" path="res://assets/unity_migrated/Assets/Resources/UI/ButtonBackdrops/prod_heavy_tank_icon.png" id="4_icon_tank"]
+[ext_resource type="Texture2D" path="res://assets/unity_migrated/Assets/Resources/UI/ButtonBackdrops/prod_tank_icon.png" id="5_icon_artillery"]
+[ext_resource type="Texture2D" path="res://assets/unity_migrated/Assets/Resources/UI/ButtonBackdrops/prod_destroyer_ship_icon.png" id="6_icon_ship"]
+[ext_resource type="Texture2D" path="res://assets/unity_migrated/Assets/Resources/UI/ButtonBackdrops/prod_light_tank_icon.png" id="7_icon_infantry"]
+[ext_resource type="Texture2D" path="res://assets/unity_migrated/Assets/Resources/UI/ButtonBackdrops/build_tank_factory_icon.png" id="8_icon_wave"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_top_bar"]
-bg_color = Color(0.04, 0.07, 0.12, 0.88)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_top_pill"]
+bg_color = Color(0.04, 0.08, 0.14, 0.85)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.18, 0.58, 0.85, 0.75)
+border_color = Color(0.2, 0.6, 0.9, 0.65)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+shadow_color = Color(0, 0, 0, 0.45)
+shadow_size = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tug_blue"]
+bg_color = Color(0.15, 0.65, 1, 0.95)
+corner_radius_top_left = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tug_red"]
+bg_color = Color(1, 0.32, 0.28, 0.95)
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_quick_btn"]
+bg_color = Color(0.06, 0.12, 0.2, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25, 0.7, 1, 0.7)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_toggle_pill"]
+bg_color = Color(0.08, 0.28, 0.52, 0.92)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.35, 0.85, 1, 0.95)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+shadow_color = Color(0.1, 0.5, 0.9, 0.35)
+shadow_size = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_drawer_panel"]
+bg_color = Color(0.035, 0.07, 0.13, 0.92)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.65, 0.95, 0.75)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+shadow_color = Color(0, 0, 0, 0.6)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_radar_frame"]
+bg_color = Color(0.03, 0.06, 0.1, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.18, 0.5, 0.78, 0.7)
+corner_radius_top_left = 38
+corner_radius_top_right = 38
+corner_radius_bottom_right = 38
+corner_radius_bottom_left = 38
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_voice_panel"]
+bg_color = Color(0.035, 0.075, 0.14, 0.90)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.65, 0.95, 0.7)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_radio_menu"]
+bg_color = Color(0.03, 0.06, 0.12, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25, 0.75, 1, 0.85)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
 shadow_color = Color(0, 0, 0, 0.6)
-shadow_size = 8
-shadow_offset = Vector2(0, 3)
+shadow_size = 6
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tug_blue"]
-bg_color = Color(0.15, 0.65, 1, 0.95)
-corner_radius_top_left = 3
-corner_radius_bottom_left = 3
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tug_red"]
-bg_color = Color(1, 0.32, 0.28, 0.95)
-corner_radius_top_right = 3
-corner_radius_bottom_right = 3
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_corner_pod"]
-bg_color = Color(0.04, 0.07, 0.12, 0.9)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_radio_btn"]
+bg_color = Color(0.07, 0.13, 0.22, 0.9)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.18, 0.58, 0.85, 0.8)
-corner_radius_top_left = 10
-corner_radius_top_right = 10
-corner_radius_bottom_right = 10
-corner_radius_bottom_left = 10
-shadow_color = Color(0, 0, 0, 0.7)
-shadow_size = 10
-shadow_offset = Vector2(0, 3)
+border_color = Color(0.3, 0.75, 1, 0.7)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_card_blue"]
 bg_color = Color(0.06, 0.13, 0.22, 0.92)
@@ -54,8 +138,6 @@ corner_radius_top_left = 5
 corner_radius_top_right = 5
 corner_radius_bottom_right = 5
 corner_radius_bottom_left = 5
-shadow_color = Color(0, 0.45, 0.9, 0.25)
-shadow_size = 3
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_card_red"]
 bg_color = Color(0.2, 0.06, 0.08, 0.92)
@@ -68,8 +150,6 @@ corner_radius_top_left = 5
 corner_radius_top_right = 5
 corner_radius_bottom_right = 5
 corner_radius_bottom_left = 5
-shadow_color = Color(0.85, 0.2, 0.2, 0.25)
-shadow_size = 3
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_gold_btn"]
 bg_color = Color(0.28, 0.2, 0.04, 0.95)
@@ -82,8 +162,6 @@ corner_radius_top_left = 5
 corner_radius_top_right = 5
 corner_radius_bottom_right = 5
 corner_radius_bottom_left = 5
-shadow_color = Color(1, 0.82, 0.25, 0.35)
-shadow_size = 5
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_green_btn"]
 bg_color = Color(0.04, 0.22, 0.12, 0.92)
@@ -96,22 +174,6 @@ corner_radius_top_left = 5
 corner_radius_top_right = 5
 corner_radius_bottom_right = 5
 corner_radius_bottom_left = 5
-shadow_color = Color(0.25, 0.95, 0.55, 0.3)
-shadow_size = 5
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ops_btn"]
-bg_color = Color(0.06, 0.1, 0.16, 0.9)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.28, 0.45, 0.65, 0.75)
-corner_radius_top_left = 5
-corner_radius_top_right = 5
-corner_radius_bottom_right = 5
-corner_radius_bottom_left = 5
-shadow_color = Color(0, 0, 0, 0.5)
-shadow_size = 4
 
 [node name="ArenaBattleHud" type="CanvasLayer"]
 script = ExtResource("1_hud_controller")
@@ -131,456 +193,549 @@ layout_mode = 1
 anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
-offset_left = -340.0
-offset_top = 10.0
-offset_right = 340.0
-offset_bottom = 68.0
+offset_left = -175.0
+offset_top = 6.0
+offset_right = 175.0
+offset_bottom = 34.0
 grow_horizontal = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_top_bar")
+theme_override_styles/panel = SubResource("StyleBoxFlat_top_pill")
 
 [node name="Margin" type="MarginContainer" parent="RootControl/TopTelemetryBar"]
 layout_mode = 2
-theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 5
-theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 5
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 2
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 2
 
-[node name="VBox" type="VBoxContainer" parent="RootControl/TopTelemetryBar/Margin"]
+[node name="HBoxTelemetry" type="HBoxContainer" parent="RootControl/TopTelemetryBar/Margin"]
 layout_mode = 2
-theme_override_constants/separation = 3
-
-[node name="HBoxTelemetry" type="HBoxContainer" parent="RootControl/TopTelemetryBar/Margin/VBox"]
-layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="BlueForceBox" type="HBoxContainer" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry"]
-layout_mode = 2
-size_flags_horizontal = 3
 theme_override_constants/separation = 8
+alignment = 1
 
-[node name="BlueBadge" type="Label" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry/BlueForceBox"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.3, 0.8, 1, 1)
-theme_override_font_sizes/font_size = 13
-text = "🔷 蓝方"
-
-[node name="LblBlueUnits" type="Label" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry/BlueForceBox"]
+[node name="LblBlueUnits" type="Label" parent="RootControl/TopTelemetryBar/Margin/HBoxTelemetry"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.85, 0.95, 1, 1)
-theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.3, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 11
 text = "🛡️ 0"
 
-[node name="LblBlueKills" type="Label" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry/BlueForceBox"]
+[node name="LblBlueKills" type="Label" parent="RootControl/TopTelemetryBar/Margin/HBoxTelemetry"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.95, 0.65, 1)
-theme_override_font_sizes/font_size = 12
+theme_override_font_sizes/font_size = 10
 text = "⚔️ 0"
 
-[node name="CenterWarClockBox" type="VBoxContainer" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry"]
-layout_mode = 2
-theme_override_constants/separation = 2
-alignment = 1
-
-[node name="LblClock" type="Label" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry/CenterWarClockBox"]
+[node name="TugOfWarBar" type="ProgressBar" parent="RootControl/TopTelemetryBar/Margin/HBoxTelemetry"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 5)
 layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.88, 0.45, 1)
-theme_override_font_sizes/font_size = 13
-text = "⏱️ 00:00  |  1.0x"
-horizontal_alignment = 1
-
-[node name="TugOfWarBar" type="ProgressBar" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry/CenterWarClockBox"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 6)
-layout_mode = 2
+size_flags_vertical = 4
 theme_override_styles/background = SubResource("StyleBoxFlat_tug_red")
 theme_override_styles/fill = SubResource("StyleBoxFlat_tug_blue")
 value = 50.0
 show_percentage = false
 
-[node name="RedForceBox" type="HBoxContainer" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 8
-alignment = 2
-
-[node name="LblRedKills" type="Label" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry/RedForceBox"]
+[node name="LblRedKills" type="Label" parent="RootControl/TopTelemetryBar/Margin/HBoxTelemetry"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.65, 0.35, 1)
-theme_override_font_sizes/font_size = 12
+theme_override_font_sizes/font_size = 10
 text = "0 ⚔️"
 
-[node name="LblRedUnits" type="Label" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry/RedForceBox"]
+[node name="LblRedUnits" type="Label" parent="RootControl/TopTelemetryBar/Margin/HBoxTelemetry"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.85, 0.85, 1)
-theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(1, 0.45, 0.45, 1)
+theme_override_font_sizes/font_size = 11
 text = "0 🛡️"
 
-[node name="RedBadge" type="Label" parent="RootControl/TopTelemetryBar/Margin/VBox/HBoxTelemetry/RedForceBox"]
+[node name="Sep" type="Label" parent="RootControl/TopTelemetryBar/Margin/HBoxTelemetry"]
 layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.35, 0.35, 1)
-theme_override_font_sizes/font_size = 13
-text = "红方 🔴"
+theme_override_colors/font_color = Color(0.4, 0.55, 0.7, 0.8)
+theme_override_font_sizes/font_size = 10
+text = "|"
 
-[node name="LblAlertTicker" type="Label" parent="RootControl/TopTelemetryBar/Margin/VBox"]
+[node name="LblClock" type="Label" parent="RootControl/TopTelemetryBar/Margin/HBoxTelemetry"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.55, 0.78, 0.95, 0.85)
-theme_override_font_sizes/font_size = 10
-text = "📡 战况简报: 三维立体战役展开，海陆空部队已按战术序列推进"
-horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 0.88, 0.45, 1)
+theme_override_font_sizes/font_size = 11
+text = "⏱️ 00:00"
 
-[node name="BottomCommandDeck" type="Control" parent="RootControl"]
+[node name="LblAlertTicker" type="Label" parent="RootControl"]
 unique_name_in_owner = true
 layout_mode = 1
-anchors_preset = 12
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_top = -190.0
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -220.0
+offset_top = 37.0
+offset_right = 220.0
+offset_bottom = 49.0
 grow_horizontal = 2
-grow_vertical = 0
+theme_override_colors/font_color = Color(0.6, 0.8, 0.95, 0.7)
+theme_override_font_sizes/font_size = 8
+text = "📡 战区态势: 海陆空三维战役展开，全兵种协同推进建立接敌接触面"
+horizontal_alignment = 1
+
+[node name="MiniRadarPod" type="PanelContainer" parent="RootControl"]
+layout_mode = 1
+anchors_preset = 0
+offset_left = 10.0
+offset_top = 8.0
+offset_right = 84.0
+offset_bottom = 82.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_radar_frame")
+
+[node name="TacticalRadar" type="Control" parent="RootControl/MiniRadarPod"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(74, 74)
+layout_mode = 2
+mouse_filter = 0
+script = ExtResource("2_radar_script")
+
+[node name="CombatLogFeed" type="Control" parent="RootControl"]
+layout_mode = 1
+anchors_preset = 0
+offset_left = 10.0
+offset_top = 88.0
+offset_right = 265.0
+offset_bottom = 200.0
 mouse_filter = 2
 
-[node name="LeftRadarPod" type="PanelContainer" parent="RootControl/BottomCommandDeck"]
+[node name="LogContainer" type="VBoxContainer" parent="RootControl/CombatLogFeed"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 4
+mouse_filter = 2
+
+[node name="TopRightOpsBar" type="HBoxContainer" parent="RootControl"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -195.0
+offset_top = 6.0
+offset_right = -8.0
+offset_bottom = 34.0
+grow_horizontal = 0
+theme_override_constants/separation = 5
+
+[node name="BtnCamera" type="Button" parent="RootControl/TopRightOpsBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 26)
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+theme_override_styles/normal = SubResource("StyleBoxFlat_quick_btn")
+text = "🎥"
+
+[node name="BtnSpeed" type="Button" parent="RootControl/TopRightOpsBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(50, 26)
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+theme_override_styles/normal = SubResource("StyleBoxFlat_quick_btn")
+text = "⏩ 1.0x"
+
+[node name="BtnPause" type="Button" parent="RootControl/TopRightOpsBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 26)
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+theme_override_styles/normal = SubResource("StyleBoxFlat_quick_btn")
+text = "⏸️"
+
+[node name="BtnExit" type="Button" parent="RootControl/TopRightOpsBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 26)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.5, 0.5, 1)
+theme_override_font_sizes/font_size = 10
+theme_override_styles/normal = SubResource("StyleBoxFlat_quick_btn")
+text = "🚪"
+
+[node name="VoiceCommWidget" type="PanelContainer" parent="RootControl"]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
-offset_left = 16.0
-offset_top = -186.0
-offset_right = 186.0
-offset_bottom = -16.0
+offset_left = 10.0
+offset_top = -62.0
+offset_right = 222.0
+offset_bottom = -10.0
 grow_vertical = 0
-theme_override_styles/panel = SubResource("StyleBoxFlat_corner_pod")
+theme_override_styles/panel = SubResource("StyleBoxFlat_voice_panel")
 
-[node name="Margin" type="MarginContainer" parent="RootControl/BottomCommandDeck/LeftRadarPod"]
+[node name="Margin" type="MarginContainer" parent="RootControl/VoiceCommWidget"]
 layout_mode = 2
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_top = 6
-theme_override_constants/margin_right = 8
-theme_override_constants/margin_bottom = 6
+theme_override_constants/margin_left = 6
+theme_override_constants/margin_top = 3
+theme_override_constants/margin_right = 6
+theme_override_constants/margin_bottom = 3
 
-[node name="VBox" type="VBoxContainer" parent="RootControl/BottomCommandDeck/LeftRadarPod/Margin"]
+[node name="VBox" type="VBoxContainer" parent="RootControl/VoiceCommWidget/Margin"]
 layout_mode = 2
-theme_override_constants/separation = 4
-alignment = 1
+theme_override_constants/separation = 2
 
-[node name="LblTitle" type="Label" parent="RootControl/BottomCommandDeck/LeftRadarPod/Margin/VBox"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.35, 0.85, 1, 1)
-theme_override_font_sizes/font_size = 11
-text = "📡 态势雷达 // S-04"
-horizontal_alignment = 1
-
-[node name="RadarCenter" type="CenterContainer" parent="RootControl/BottomCommandDeck/LeftRadarPod/Margin/VBox"]
-layout_mode = 2
-
-[node name="TacticalRadar" type="Control" parent="RootControl/BottomCommandDeck/LeftRadarPod/Margin/VBox/RadarCenter"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(115, 115)
-layout_mode = 2
-mouse_filter = 2
-script = ExtResource("2_radar_script")
-
-[node name="LblCoords" type="Label" parent="RootControl/BottomCommandDeck/LeftRadarPod/Margin/VBox"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.45, 0.65, 0.78, 1)
-theme_override_font_sizes/font_size = 9
-text = "LAT: 45.2° // LIVE SCAN"
-horizontal_alignment = 1
-
-[node name="CenterOpsPill" type="PanelContainer" parent="RootControl/BottomCommandDeck"]
-layout_mode = 1
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -170.0
-offset_top = -54.0
-offset_right = 170.0
-offset_bottom = -16.0
-grow_horizontal = 2
-grow_vertical = 0
-theme_override_styles/panel = SubResource("StyleBoxFlat_ops_btn")
-
-[node name="Margin" type="MarginContainer" parent="RootControl/BottomCommandDeck/CenterOpsPill"]
-layout_mode = 2
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_top = 4
-theme_override_constants/margin_right = 8
-theme_override_constants/margin_bottom = 4
-
-[node name="HBoxOps" type="HBoxContainer" parent="RootControl/BottomCommandDeck/CenterOpsPill/Margin"]
+[node name="HBoxTop" type="HBoxContainer" parent="RootControl/VoiceCommWidget/Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 6
-alignment = 1
 
-[node name="BtnSpeed" type="Button" parent="RootControl/BottomCommandDeck/CenterOpsPill/Margin/HBoxOps"]
+[node name="LblVoiceStatus" type="Label" parent="RootControl/VoiceCommWidget/Margin/VBox/HBoxTop"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(58, 26)
 layout_mode = 2
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "⏩ 1.0x"
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.35, 0.85, 1, 1)
+theme_override_font_sizes/font_size = 9
+text = "🔊 战术通话 // 连线"
 
-[node name="BtnPause" type="Button" parent="RootControl/BottomCommandDeck/CenterOpsPill/Margin/HBoxOps"]
+[node name="LblVoiceWave" type="Label" parent="RootControl/VoiceCommWidget/Margin/VBox/HBoxTop"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(58, 26)
 layout_mode = 2
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "⏸️ 暂停"
+theme_override_colors/font_color = Color(0.35, 1, 0.65, 1)
+theme_override_font_sizes/font_size = 8
+text = " ▂▃ "
 
-[node name="BtnCamera" type="Button" parent="RootControl/BottomCommandDeck/CenterOpsPill/Margin/HBoxOps"]
+[node name="HBoxBottom" type="HBoxContainer" parent="RootControl/VoiceCommWidget/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="LblVoiceSpeaker" type="Label" parent="RootControl/VoiceCommWidget/Margin/VBox/HBoxBottom"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(62, 26)
 layout_mode = 2
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🎥 视角"
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.85, 0.94, 1, 0.9)
+theme_override_font_sizes/font_size = 8
+text = "[待命] 战术无线电就绪"
+clip_text = true
 
-[node name="BtnClear" type="Button" parent="RootControl/BottomCommandDeck/CenterOpsPill/Margin/HBoxOps"]
+[node name="BtnVoiceMic" type="Button" parent="RootControl/VoiceCommWidget/Margin/VBox/HBoxBottom"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(58, 26)
+custom_minimum_size = Vector2(40, 20)
 layout_mode = 2
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🧹 重置"
+theme_override_font_sizes/font_size = 9
+theme_override_styles/normal = SubResource("StyleBoxFlat_radio_btn")
+text = "🎙️ 通话"
 
-[node name="BtnExit" type="Button" parent="RootControl/BottomCommandDeck/CenterOpsPill/Margin/HBoxOps"]
+[node name="BtnQuickRadio" type="Button" parent="RootControl/VoiceCommWidget/Margin/VBox/HBoxBottom"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(58, 26)
+custom_minimum_size = Vector2(24, 20)
 layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.45, 0.45, 1)
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🚪 大厅"
+theme_override_font_sizes/font_size = 9
+theme_override_styles/normal = SubResource("StyleBoxFlat_radio_btn")
+text = "📻"
 
-[node name="RightCommandPod" type="PanelContainer" parent="RootControl/BottomCommandDeck"]
+[node name="QuickRadioMenu" type="PanelContainer" parent="RootControl"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = -160.0
+offset_right = 160.0
+offset_bottom = -66.0
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_radio_menu")
+
+[node name="Margin" type="MarginContainer" parent="RootControl/QuickRadioMenu"]
+layout_mode = 2
+theme_override_constants/margin_left = 4
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 4
+theme_override_constants/margin_bottom = 4
+
+[node name="VBox" type="VBoxContainer" parent="RootControl/QuickRadioMenu/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="BtnRadioCall1" type="Button" parent="RootControl/QuickRadioMenu/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+theme_override_font_sizes/font_size = 9
+theme_override_styles/normal = SubResource("StyleBoxFlat_radio_btn")
+text = "🎯 集中火力"
+
+[node name="BtnRadioCall2" type="Button" parent="RootControl/QuickRadioMenu/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+theme_override_font_sizes/font_size = 9
+theme_override_styles/normal = SubResource("StyleBoxFlat_radio_btn")
+text = "🛡️ 掩护阵地"
+
+[node name="BtnRadioCall3" type="Button" parent="RootControl/QuickRadioMenu/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+theme_override_font_sizes/font_size = 9
+theme_override_styles/normal = SubResource("StyleBoxFlat_radio_btn")
+text = "🚀 呼叫空袭"
+
+[node name="BtnToggleDeck" type="Button" parent="RootControl"]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 3
 anchor_left = 1.0
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = -468.0
-offset_top = -186.0
-offset_right = -16.0
-offset_bottom = -16.0
+offset_left = -132.0
+offset_top = -42.0
+offset_right = -10.0
+offset_bottom = -10.0
 grow_horizontal = 0
 grow_vertical = 0
-theme_override_styles/panel = SubResource("StyleBoxFlat_corner_pod")
+theme_override_colors/font_color = Color(0.9, 0.98, 1, 1)
+theme_override_font_sizes/font_size = 11
+theme_override_styles/normal = SubResource("StyleBoxFlat_toggle_pill")
+text = "⚔️ 战术指令 ▴"
 
-[node name="Margin" type="MarginContainer" parent="RootControl/BottomCommandDeck/RightCommandPod"]
-layout_mode = 2
-theme_override_constants/margin_left = 10
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 10
-theme_override_constants/margin_bottom = 8
-
-[node name="VBox" type="VBoxContainer" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin"]
-layout_mode = 2
-theme_override_constants/separation = 5
-
-[node name="HBoxTabs" type="HBoxContainer" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox"]
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="BtnTabBlue" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/HBoxTabs"]
+[node name="BottomCommandDeck" type="PanelContainer" parent="RootControl"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 24)
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -342.0
+offset_top = -205.0
+offset_right = -10.0
+offset_bottom = -48.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_drawer_panel")
+
+[node name="Margin" type="MarginContainer" parent="RootControl/BottomCommandDeck"]
+layout_mode = 2
+theme_override_constants/margin_left = 6
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 6
+theme_override_constants/margin_bottom = 4
+
+[node name="VBox" type="VBoxContainer" parent="RootControl/BottomCommandDeck/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="HBoxTabs" type="HBoxContainer" parent="RootControl/BottomCommandDeck/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="BtnTabBlue" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/HBoxTabs"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 22)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.4, 0.88, 1, 1)
-theme_override_font_sizes/font_size = 11
+theme_override_font_sizes/font_size = 10
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🔷 蓝方战备 (BLUE)"
+text = "🔷 蓝方"
 
-[node name="BtnTabRed" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/HBoxTabs"]
+[node name="BtnTabRed" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/HBoxTabs"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 24)
+custom_minimum_size = Vector2(0, 22)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(1, 0.6, 0.6, 1)
-theme_override_font_sizes/font_size = 11
+theme_override_font_sizes/font_size = 10
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🔴 红方模拟 (RED)"
+text = "🔴 红方"
 
-[node name="BlueGrid" type="GridContainer" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox"]
+[node name="BtnAllOutClash" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/HBoxTabs"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 22)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.95, 0.7, 1)
+theme_override_font_sizes/font_size = 10
+theme_override_styles/normal = SubResource("StyleBoxFlat_gold_btn")
+text = "⚔️ 决战"
+
+[node name="BtnAutoWave" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/HBoxTabs"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 22)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.7, 1, 0.8, 1)
+theme_override_font_sizes/font_size = 10
+theme_override_styles/normal = SubResource("StyleBoxFlat_green_btn")
+text = "🔄 自动"
+
+[node name="BtnClear" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/HBoxTabs"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(24, 22)
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
+text = "🧹"
+
+[node name="BlueGrid" type="GridContainer" parent="RootControl/BottomCommandDeck/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_constants/h_separation = 6
+theme_override_constants/h_separation = 4
 theme_override_constants/v_separation = 4
 columns = 3
 
-[node name="BtnBlueFighter" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/BlueGrid"]
+[node name="BtnBlueFighter" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/BlueGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.9, 0.96, 1, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "✈️ 战机 [Q]
-70⚡"
+text = "战机 70⚡"
+icon = ExtResource("3_icon_fighter")
+expand_icon = true
 
-[node name="BtnBlueTank" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/BlueGrid"]
+[node name="BtnBlueTank" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/BlueGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.9, 0.96, 1, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🛡️ 重坦 [W]
-95⚡"
+text = "重坦 95⚡"
+icon = ExtResource("4_icon_tank")
+expand_icon = true
 
-[node name="BtnBlueArtillery" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/BlueGrid"]
+[node name="BtnBlueArtillery" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/BlueGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.9, 0.96, 1, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🎯 重炮 [E]
-80⚡"
+text = "重炮 80⚡"
+icon = ExtResource("5_icon_artillery")
+expand_icon = true
 
-[node name="BtnBlueShip" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/BlueGrid"]
+[node name="BtnBlueShip" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/BlueGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.9, 0.96, 1, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "⚓ 战舰 [R]
-150⚡"
+text = "战舰 150⚡"
+icon = ExtResource("6_icon_ship")
+expand_icon = true
 
-[node name="BtnBlueInfantry" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/BlueGrid"]
+[node name="BtnBlueInfantry" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/BlueGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.9, 0.96, 1, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🎖️ 突击 [A]
-30⚡"
+text = "突击 30⚡"
+icon = ExtResource("7_icon_infantry")
+expand_icon = true
 
-[node name="BtnBlueWave" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/BlueGrid"]
+[node name="BtnBlueWave" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/BlueGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.3, 0.95, 0.6, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.9, 0.96, 1, 1)
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_blue")
-text = "🌊 混编 [S]
-320⚡"
+text = "混编 320⚡"
+icon = ExtResource("8_icon_wave")
+expand_icon = true
 
-[node name="RedGrid" type="GridContainer" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox"]
+[node name="RedGrid" type="GridContainer" parent="RootControl/BottomCommandDeck/Margin/VBox"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_constants/h_separation = 6
+theme_override_constants/h_separation = 4
 theme_override_constants/v_separation = 4
 columns = 3
 
-[node name="BtnRedFighter" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/RedGrid"]
+[node name="BtnRedFighter" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/RedGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(1, 0.9, 0.9, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_red")
-text = "✈️ 战机 [Q]
-70⚡"
+text = "战机 70⚡"
+icon = ExtResource("3_icon_fighter")
+expand_icon = true
 
-[node name="BtnRedTank" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/RedGrid"]
+[node name="BtnRedTank" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/RedGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(1, 0.9, 0.9, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_red")
-text = "🛡️ 重坦 [W]
-95⚡"
+text = "重坦 95⚡"
+icon = ExtResource("4_icon_tank")
+expand_icon = true
 
-[node name="BtnRedArtillery" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/RedGrid"]
+[node name="BtnRedArtillery" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/RedGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(1, 0.9, 0.9, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_red")
-text = "🎯 重炮 [E]
-80⚡"
+text = "重炮 80⚡"
+icon = ExtResource("5_icon_artillery")
+expand_icon = true
 
-[node name="BtnRedShip" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/RedGrid"]
+[node name="BtnRedShip" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/RedGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(1, 0.9, 0.9, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_red")
-text = "⚓ 战舰 [R]
-150⚡"
+text = "战舰 150⚡"
+icon = ExtResource("6_icon_ship")
+expand_icon = true
 
-[node name="BtnRedInfantry" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/RedGrid"]
+[node name="BtnRedInfantry" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/RedGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(1, 0.9, 0.9, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_red")
-text = "🎖️ 突击 [A]
-30⚡"
+text = "突击 30⚡"
+icon = ExtResource("7_icon_infantry")
+expand_icon = true
 
-[node name="BtnRedWave" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/RedGrid"]
+[node name="BtnRedWave" type="Button" parent="RootControl/BottomCommandDeck/Margin/VBox/RedGrid"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_colors/font_color = Color(1, 0.5, 0.5, 1)
-theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(1, 0.9, 0.9, 1)
+theme_override_font_sizes/font_size = 9
 theme_override_styles/normal = SubResource("StyleBoxFlat_card_red")
-text = "🌊 混编 [S]
-320⚡"
-
-[node name="HBoxKeyActions" type="HBoxContainer" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox"]
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="BtnAllOutClash" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/HBoxKeyActions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 36)
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_colors/font_color = Color(1, 0.9, 0.45, 1)
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_gold_btn")
-text = "⚔️ 全面决战 [D]"
-
-[node name="BtnAutoWave" type="Button" parent="RootControl/BottomCommandDeck/RightCommandPod/Margin/VBox/HBoxKeyActions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 36)
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.9, 1, 0.9, 1)
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_green_btn")
-text = "🔄 自动战意 [F]"
+text = "混编 320⚡"
+icon = ExtResource("8_icon_wave")
+expand_icon = true

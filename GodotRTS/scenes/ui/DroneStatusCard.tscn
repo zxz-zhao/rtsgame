@@ -1,0 +1,198 @@
+[gd_scene format=3 uid="uid://drone_status_card_001" load_steps=2 script_type="C#"]
+
+[ext_resource type="Script" path="res://scripts/ui/DroneStatusCard.cs" id="1_script"]
+
+[node name="DroneStatusCard" type="Control"]
+script = ExtResource("1_script")
+custom_minimum_size = Vector2(400, 520)
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -260.0
+offset_right = 200.0
+offset_bottom = 260.0
+
+[node name="RootPanel" type="PanelContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="MarginContainer" type="MarginContainer" parent="RootPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 22
+theme_override_constants/margin_right = 22
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_bottom = 22
+
+[node name="VBox" type="VBoxContainer" parent="RootPanel/MarginContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/separation = 12
+
+[node name="HeaderRow" type="HBoxContainer" parent="RootPanel/MarginContainer/VBox"]
+theme_override_constants/separation = 10
+
+[node name="IconLabel" type="Label" parent="RootPanel/MarginContainer/VBox/HeaderRow"]
+text = "\u2708"
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.302, 0.816, 0.882, 1)
+
+[node name="LblDroneId" type="Label" parent="RootPanel/MarginContainer/VBox/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "UAV-7 \u00b7 SHADOW"
+theme_override_font_sizes/font_size = 17
+theme_override_colors/font_color = Color(0.91, 0.784, 0.29, 1)
+
+[node name="LblStatusBadge" type="Label" parent="RootPanel/MarginContainer/VBox/HeaderRow"]
+unique_name_in_owner = true
+text = "\u25cf ONLINE"
+theme_override_font_sizes/font_size = 11
+theme_override_colors/font_color = Color(0.298, 0.686, 0.49, 1)
+
+[node name="TopSep" type="HSeparator" parent="RootPanel/MarginContainer/VBox"]
+theme_override_colors/separator_color = Color(0.302, 0.816, 0.882, 0.35)
+
+[node name="MetricsGrid" type="GridContainer" parent="RootPanel/MarginContainer/VBox"]
+columns = 2
+theme_override_constants/h_separation = 20
+theme_override_constants/v_separation = 10
+
+[node name="ColLeft" type="VBoxContainer" parent="RootPanel/MarginContainer/VBox/MetricsGrid"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="BatteryBlock" type="VBoxContainer" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft"]
+theme_override_constants/separation = 4
+
+[node name="BatteryHeader" type="HBoxContainer" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft/BatteryBlock"]
+
+[node name="LblBatteryKey" type="Label" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft/BatteryBlock/BatteryHeader"]
+size_flags_horizontal = 3
+text = "BATTERY"
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.478, 0.561, 0.651, 1)
+
+[node name="LblBatteryVal" type="Label" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft/BatteryBlock/BatteryHeader"]
+unique_name_in_owner = true
+text = "67%"
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.298, 0.686, 0.49, 1)
+
+[node name="BarBattery" type="ProgressBar" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft/BatteryBlock"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 6)
+value = 67.0
+show_percentage = false
+
+[node name="SignalBlock" type="VBoxContainer" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft"]
+theme_override_constants/separation = 4
+
+[node name="SignalHeader" type="HBoxContainer" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft/SignalBlock"]
+
+[node name="LblSignalKey" type="Label" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft/SignalBlock/SignalHeader"]
+size_flags_horizontal = 3
+text = "SIGNAL"
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.478, 0.561, 0.651, 1)
+
+[node name="LblSignalVal" type="Label" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft/SignalBlock/SignalHeader"]
+unique_name_in_owner = true
+text = "88%"
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.302, 0.816, 0.882, 1)
+
+[node name="BarSignal" type="ProgressBar" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColLeft/SignalBlock"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 6)
+value = 88.0
+show_percentage = false
+
+[node name="ColRight" type="VBoxContainer" parent="RootPanel/MarginContainer/VBox/MetricsGrid"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="AltBlock" type="VBoxContainer" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColRight"]
+theme_override_constants/separation = 2
+
+[node name="LblAltKey" type="Label" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColRight/AltBlock"]
+text = "ALTITUDE"
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.478, 0.561, 0.651, 1)
+
+[node name="LblAltitudeVal" type="Label" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColRight/AltBlock"]
+unique_name_in_owner = true
+text = "1240 m"
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.91, 0.784, 0.29, 1)
+
+[node name="SpeedBlock" type="VBoxContainer" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColRight"]
+theme_override_constants/separation = 2
+
+[node name="LblSpeedKey" type="Label" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColRight/SpeedBlock"]
+text = "SPEED"
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.478, 0.561, 0.651, 1)
+
+[node name="LblSpeedVal" type="Label" parent="RootPanel/MarginContainer/VBox/MetricsGrid/ColRight/SpeedBlock"]
+unique_name_in_owner = true
+text = "312 km/h"
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.302, 0.816, 0.882, 1)
+
+[node name="MidSep" type="HSeparator" parent="RootPanel/MarginContainer/VBox"]
+theme_override_colors/separator_color = Color(0.478, 0.561, 0.651, 0.25)
+
+[node name="CoordRow" type="HBoxContainer" parent="RootPanel/MarginContainer/VBox"]
+theme_override_constants/separation = 8
+
+[node name="LblCoordIcon" type="Label" parent="RootPanel/MarginContainer/VBox/CoordRow"]
+text = "\u25ce"
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.302, 0.816, 0.882, 0.7)
+
+[node name="LblLatLon" type="Label" parent="RootPanel/MarginContainer/VBox/CoordRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+text = "N 34\u00b012'41\"  E 108\u00b055'03\""
+theme_override_font_sizes/font_size = 11
+theme_override_colors/font_color = Color(0.6, 0.7, 0.78, 1)
+
+[node name="TimeRow" type="HBoxContainer" parent="RootPanel/MarginContainer/VBox"]
+theme_override_constants/separation = 8
+
+[node name="LblTimeIcon" type="Label" parent="RootPanel/MarginContainer/VBox/TimeRow"]
+text = "\u23f1"
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.478, 0.561, 0.651, 0.8)
+
+[node name="LblTimeKey" type="Label" parent="RootPanel/MarginContainer/VBox/TimeRow"]
+text = "MISSION TIME"
+theme_override_font_sizes/font_size = 11
+theme_override_colors/font_color = Color(0.478, 0.561, 0.651, 1)
+
+[node name="LblMissionTime" type="Label" parent="RootPanel/MarginContainer/VBox/TimeRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+horizontal_alignment = 2
+text = "01:24:37"
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.302, 0.816, 0.882, 1)
+
+[node name="BottomSep" type="HSeparator" parent="RootPanel/MarginContainer/VBox"]
+theme_override_colors/separator_color = Color(0.878, 0.322, 0.322, 0.4)
+
+[node name="BtnEmergency" type="Button" parent="RootPanel/MarginContainer/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+size_flags_horizontal = 3
+text = "\u26a0  \u7d27\u6025\u8fd4\u822a  RETURN TO BASE"
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(1, 0.9, 0.85, 1)

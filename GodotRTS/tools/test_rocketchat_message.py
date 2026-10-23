@@ -16,7 +16,7 @@ def post_message(text: str, channel: str = "#general"):
         "text": text
     }
     req = urllib.request.Request(
-        "http://127.0.0.1:3000/api/v1/chat.postMessage",
+        "http://127.0.0.1:3001/api/v1/chat.postMessage",
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "X-Auth-Token": ADMIN_TOKEN,

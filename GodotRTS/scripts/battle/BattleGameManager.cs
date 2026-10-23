@@ -118,6 +118,8 @@ public partial class BattleGameManager : Node
     bool enemyBaseSeen;
     float fogRefreshTimer;
     BattleMapDefinition currentMap = BattleMapCatalog.Get(BattleMapCatalog.DefaultMapName);
+    public BattleMapDefinition CurrentMap => currentMap;
+    public void SetCurrentMap(BattleMapDefinition map) => currentMap = map;
     readonly HashSet<string> researchedTechs = new();
     readonly Dictionary<string, float> playerBattleTechCooldownEnds = new();
     readonly Dictionary<string, float> enemyBattleTechCooldownEnds = new();
@@ -133,6 +135,8 @@ public partial class BattleGameManager : Node
     public override void _Ready()
     {
         Instance = this;
+        EffectPool.Ensure(this);
+        BattleFeedback.Ensure(this);
         currentMap = BattleMapCatalog.Get(BattleMapCatalog.RequestedMapName(GameState.Instance?.SelectedMapName));
         PlayerGold = InitialGold;
         EnemyGold = InitialGold;
@@ -140,10 +144,10 @@ public partial class BattleGameManager : Node
         EnemyPopCap = InitialPopCap;
         unitsRoot = GetNodeOrNull<Node3D>(UnitsPath);
         buildingsRoot = GetNodeOrNull<Node3D>(BuildingsPath);
-        ApplyGlobalConquestStarterIfNeeded();
+        EnsureInitialMainBasesExist();
+        // 开局不应该有部队，移除起始单位生成，仅提供初始资源
         // 将原本的异步等待改为同步加载，使重型 3D 资产（FBX模型）在加载界面背后装载完毕，避免进入战场画面后的瞬间发生二次卡顿
         RegisterExistingCombatants();
-        EnsureInitialMainBasesExist();
 
         // 战局开启时启动紧张氛围背景音乐
         StartTenseBattleBgm();
@@ -176,7 +180,7 @@ public partial class BattleGameManager : Node
 
             if (BattleUnitCatalog.IsNavalUnit(unit.UnitKey))
             {
-                if (currentMap.Waters.Length > 0 && !IsWaterPoint(unit.GlobalPosition, 0f))
+                if (!DisableWaterCheck && currentMap.Waters.Length > 0 && !IsWaterPoint(unit.GlobalPosition, 0f))
                 {
                     var offset = new Vector3(navalIndex * 14f - 14f, 0f, (navalIndex % 2 == 0 ? 3f : -3f));
                     var waterPos = BattleMapCatalog.ClosestWaterPoint(currentMap, unit.GlobalPosition + offset, 2f);
@@ -217,9 +221,9 @@ public partial class BattleGameManager : Node
         ForceRefreshFogOfWar();
         UpdateBaseSeenFlags();
         EmitSignal(SignalName.EconomyChanged);
-        // 初始化登记完毕后，立刻让镜头定位对准玩家兵力集结处（无兵力时对准主基地），首帧与延迟帧均执行确保准确定位
-        FocusCameraOnPlayerForces();
-        Callable.From(FocusCameraOnPlayerForces).CallDeferred();
+        // 初始化登记完毕后，开局镜头必须聚焦在己方主基地上空，首帧与延迟帧均执行确保准确定位
+        FocusCameraOnMainBase();
+        Callable.From(FocusCameraOnMainBase).CallDeferred();
     }
 
     /// <summary>
@@ -310,11 +314,25 @@ public partial class BattleGameManager : Node
     }
 
     /// <summary>
-    /// 兼容旧调用接口：定位到玩家兵力或主基地
+    /// 定位聚焦到玩家己方主基地上空。
     /// </summary>
     public void FocusCameraOnMainBase()
     {
-        FocusCameraOnPlayerForces();
+        var cameraRig = GetTree().CurrentScene?.GetNodeOrNull<RtsCamera>("CameraRig")
+            ?? GetTree().Root.FindChild("CameraRig", true, false) as RtsCamera;
+        if (cameraRig is null)
+            return;
+
+        var playerMainBase = GetBuildings().FirstOrDefault(b => b.PlayerOwned && b.IsMainBase && !b.IsRuined)
+            ?? GetBuildings().FirstOrDefault(b => b.PlayerOwned && !b.IsRuined);
+        if (playerMainBase is not null)
+        {
+            cameraRig.JumpTo(playerMainBase.GlobalPosition);
+            return;
+        }
+
+        var spawnPos = FindMapSpawnPos("PlayerBase", new Vector3(-currentMap.BaseSpawnOffset, 0f, -currentMap.BaseSpawnOffset));
+        cameraRig.JumpTo(spawnPos);
     }
 
     void EnsureInitialMainBasesExist()
@@ -350,20 +368,98 @@ public partial class BattleGameManager : Node
             nextNetId = netId + 1;
     }
 
-    public IReadOnlyList<RtsUnit> GetUnits()
-        => GetTree().GetNodesInGroup("rts_units").OfType<RtsUnit>().Where(GodotObject.IsInstanceValid).ToList();
+    ulong lastUnitsFilterFrame = ulong.MaxValue;
+    readonly List<RtsUnit> cachedPlayerUnits = new(128);
+    readonly List<RtsUnit> cachedEnemyUnits = new(128);
 
-    public IReadOnlyList<RtsBuilding> GetBuildings()
-        => GetTree().GetNodesInGroup("rts_buildings").OfType<RtsBuilding>().Where(GodotObject.IsInstanceValid).ToList();
+    public void InvalidateUnitCache() => lastUnitsFilterFrame = ulong.MaxValue;
+    public void InvalidateBuildingCache() => lastBuildingsFilterFrame = ulong.MaxValue;
+
+    void UpdateCachedUnitsIfDirty()
+    {
+        ulong currentFrame = Engine.GetProcessFrames();
+        if (lastUnitsFilterFrame == currentFrame)
+            return;
+        lastUnitsFilterFrame = currentFrame;
+
+        cachedPlayerUnits.Clear();
+        cachedEnemyUnits.Clear();
+
+        var allUnits = RtsUnit.AllActiveUnits;
+        for (int i = 0; i < allUnits.Count; i++)
+        {
+            var u = allUnits[i];
+            if (GodotObject.IsInstanceValid(u) && !u.IsDead)
+            {
+                if (u.PlayerOwned)
+                    cachedPlayerUnits.Add(u);
+                else
+                    cachedEnemyUnits.Add(u);
+            }
+        }
+    }
+
+    ulong lastBuildingsFilterFrame = ulong.MaxValue;
+    readonly List<RtsBuilding> cachedPlayerBuildings = new(64);
+    readonly List<RtsBuilding> cachedEnemyBuildings = new(64);
+    readonly List<RtsBuilding> cachedAllPlayerBuildings = new(64);
+    readonly List<RtsBuilding> cachedAllEnemyBuildings = new(64);
+
+    void UpdateCachedBuildingsIfDirty()
+    {
+        ulong currentFrame = Engine.GetProcessFrames();
+        if (lastBuildingsFilterFrame == currentFrame)
+            return;
+        lastBuildingsFilterFrame = currentFrame;
+
+        cachedPlayerBuildings.Clear();
+        cachedEnemyBuildings.Clear();
+        cachedAllPlayerBuildings.Clear();
+        cachedAllEnemyBuildings.Clear();
+
+        var allBuildings = RtsBuilding.AllActiveBuildings;
+        for (int i = 0; i < allBuildings.Count; i++)
+        {
+            var b = allBuildings[i];
+            if (GodotObject.IsInstanceValid(b) && !b.IsPreviewGhost)
+            {
+                if (b.PlayerOwned)
+                {
+                    cachedAllPlayerBuildings.Add(b);
+                    if (b.Health > 0f)
+                        cachedPlayerBuildings.Add(b);
+                }
+                else
+                {
+                    cachedAllEnemyBuildings.Add(b);
+                    if (b.Health > 0f)
+                        cachedEnemyBuildings.Add(b);
+                }
+            }
+        }
+    }
+
+    public IReadOnlyList<RtsUnit> GetUnits() => RtsUnit.AllActiveUnits;
+
+    public IReadOnlyList<RtsBuilding> GetBuildings() => RtsBuilding.AllActiveBuildings;
 
     public IReadOnlyList<RtsUnit> GetUnits(bool playerOwned)
-        => GetUnits().Where(u => u.PlayerOwned == playerOwned && !u.IsDead).ToList();
+    {
+        UpdateCachedUnitsIfDirty();
+        return playerOwned ? cachedPlayerUnits : cachedEnemyUnits;
+    }
 
     public IReadOnlyList<RtsBuilding> GetBuildings(bool playerOwned)
-        => GetBuildings().Where(b => b.PlayerOwned == playerOwned && b.Health > 0f).ToList();
+    {
+        UpdateCachedBuildingsIfDirty();
+        return playerOwned ? cachedPlayerBuildings : cachedEnemyBuildings;
+    }
 
     public IReadOnlyList<RtsBuilding> GetAllBuildings(bool playerOwned)
-        => GetBuildings().Where(b => b.PlayerOwned == playerOwned).ToList();
+    {
+        UpdateCachedBuildingsIfDirty();
+        return playerOwned ? cachedAllPlayerBuildings : cachedAllEnemyBuildings;
+    }
 
     public IReadOnlyList<RtsBuilding> GetMainBases(bool playerOwned, bool includeRuined = false)
     {
@@ -391,6 +487,14 @@ public partial class BattleGameManager : Node
     public Vector3 NormalizeUnitTarget(string unitKey, Vector3 target)
     {
         var clamped = BattleMapCatalog.ClampToMap(target, 4f);
+        if (DisableWaterCheck)
+        {
+            var height = BattleUnitCatalog.IsAirUnit(unitKey) || BattleUnitCatalog.IsNavalUnit(unitKey)
+                ? BattleUnitCatalog.SpawnHeight(unitKey)
+                : BattleMapCatalog.GetTerrainHeightAt(currentMap, clamped.X, clamped.Z, includeBridges: true);
+            return new Vector3(clamped.X, height, clamped.Z);
+        }
+
         if (BattleUnitCatalog.IsAirUnit(unitKey))
             return new Vector3(clamped.X, BattleUnitCatalog.SpawnHeight(unitKey), clamped.Z);
 
@@ -404,10 +508,14 @@ public partial class BattleGameManager : Node
         }
 
         if (!IsWaterPoint(clamped, 0f))
-            return new Vector3(clamped.X, 0f, clamped.Z);
+        {
+            float groundY = BattleMapCatalog.GetTerrainHeightAt(currentMap, clamped.X, clamped.Z, includeBridges: true);
+            return new Vector3(clamped.X, groundY, clamped.Z);
+        }
 
         var landTarget = BattleMapCatalog.ClosestLandPoint(currentMap, clamped, 0.5f);
-        return new Vector3(landTarget.X, 0f, landTarget.Z);
+        float landY = BattleMapCatalog.GetTerrainHeightAt(currentMap, landTarget.X, landTarget.Z, includeBridges: true);
+        return new Vector3(landTarget.X, landY, landTarget.Z);
     }
 
     Vector3? FindMapSpawn(string name)
@@ -612,6 +720,17 @@ public partial class BattleGameManager : Node
         return false;
     }
 
+    public float GetBaseBuildRadius(string? buildKey = null)
+    {
+        var baseRadius = currentMap?.BuildRadius > 0f ? currentMap.BuildRadius : 60f;
+        if (buildKey == "naval_yard")
+        {
+            // 船坞专属海岸线扩展建造半径（允许在主基地外缘 95m~110m 的海岸或港湾边缘平滑建造）
+            return Mathf.Max(baseRadius * 1.5f, 95f);
+        }
+        return baseRadius;
+    }
+
     bool CanPlaceBuildingWithUnityRules(Vector3 position, BattleBuildingDefinition def, bool playerOwned, out string message)
     {
         message = "";
@@ -626,39 +745,83 @@ public partial class BattleGameManager : Node
             return false;
         }
 
-        if (IsWaterPoint(position, 1f))
+        // 水域判定与船坞特殊建造规则 (Water Check & Naval Yard Shoreline Placement Rules)
+        if (def.Key == "naval_yard")
         {
-            message = "\u9646\u5730\u5efa\u7b51\u4e0d\u80fd\u653e\u5728\u6cb3\u9053\u6216\u6c34\u9762\u4e0a";
-            return false;
+            // 船坞允许紧贴海岸线放置（甚至浅滩基座），但不能深陷深水中央（-3.0f 水域内缩容差）
+            if (IsWaterPoint(position, -3.0f))
+            {
+                message = "船坞不能建在深水中央，需要放置在海岸线或水域边缘";
+                return false;
+            }
+            if (DistanceToWater(position) > 24f)
+            {
+                message = "船坞必须靠近水域（海岸线 24m 内）";
+                return false;
+            }
         }
-
-        if (def.Key == "naval_yard" && DistanceToWater(position) > 18f)
+        else
         {
-            message = "\u8239\u575e\u5fc5\u987b\u9760\u8fd1\u6c34\u57df";
-            return false;
+            if (IsWaterPoint(position, 1f))
+            {
+                message = "\u9646\u5730\u5efa\u7b51\u4e0d\u80fd\u653e\u5728\u6cb3\u9053\u6216\u6c34\u9762\u4e0a";
+                return false;
+            }
         }
 
         var footprintRadius = Mathf.Max(def.CollisionSize.X, def.CollisionSize.Z) * 0.5f;
         var mainBase = FindOperationalMainBase(playerOwned);
-        if (mainBase is not null && position.DistanceTo(mainBase.GlobalPosition) > Mathf.Max(8f, 60f - footprintRadius))
+        var baseBuildRadius = GetBaseBuildRadius(def.Key);
+
+        bool inRange = false;
+        if (mainBase is not null && position.DistanceTo(mainBase.GlobalPosition) <= Mathf.Max(8f, baseBuildRadius - footprintRadius))
         {
-            message = "\u5efa\u7b51\u9700\u8981\u653e\u572c\u4e3b\u57fa\u5730\u5efa\u9020\u8303\u56f4\u5185";
+            inRange = true;
+        }
+        else
+        {
+            // 经典 RTS 基地建筑网格延展（前哨/电厂/兵营等建筑可向外延展建造范围）
+            foreach (var b in GetBuildings())
+            {
+                if (b.PlayerOwned == playerOwned && !b.IsRuined && !b.IsRebuilding && b.Health > 0f)
+                {
+                    float extRadius = def.Key == "naval_yard" ? 36f : 28f;
+                    if (position.DistanceTo(b.GlobalPosition) <= extRadius)
+                    {
+                        inRange = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!inRange)
+        {
+            message = def.Key == "naval_yard" 
+                ? "船坞需要放置在基地海岸或临海领地范围内" 
+                : "\u5efa\u7b51\u9700\u8981\u653e\u572c\u4e3b\u57fa\u5730\u5efa\u9020\u8303\u56f4\u5185";
             return false;
         }
 
         var w1 = def.CollisionSize.X;
         var h1 = def.CollisionSize.Z;
-        const float minSpacing = 0.5f;
+        const float minSpacing = 0.05f;
         foreach (var building in GetBuildings())
         {
+            if (!GodotObject.IsInstanceValid(building) || building.IsPreviewGhost || building.Health <= 0f)
+                continue;
+
             var otherDef = BattleBuildingCatalog.Get(building.BuildKey);
-            var w2 = otherDef.CollisionSize.X;
-            var h2 = otherDef.CollisionSize.Z;
+            float rotY = building.GlobalRotation.Y;
+            float cos = Mathf.Abs(Mathf.Cos(rotY));
+            float sin = Mathf.Abs(Mathf.Sin(rotY));
+            var w2 = otherDef.CollisionSize.X * cos + otherDef.CollisionSize.Z * sin;
+            var h2 = otherDef.CollisionSize.X * sin + otherDef.CollisionSize.Z * cos;
             float dx = Mathf.Abs(position.X - building.GlobalPosition.X);
             float dz = Mathf.Abs(position.Z - building.GlobalPosition.Z);
-            if (dx < (w1 + w2) * 0.5f + minSpacing && dz < (h1 + h2) * 0.5f + minSpacing)
+            if (dx < (w1 + w2) * 0.5f - minSpacing && dz < (h1 + h2) * 0.5f - minSpacing)
             {
-                message = "\u8fd9\u91cc\u79bb\u5df2\u6709\u5efa\u7b51\u592a\u8fd1";
+                message = "这里与已有建筑重叠";
                 return false;
             }
         }
@@ -669,6 +832,11 @@ public partial class BattleGameManager : Node
     public bool TryQueueProduction(RtsBuilding building, string unitKey, out string message)
     {
         message = "";
+        if (unitKey == "aircraft_carrier")
+        {
+            message = "小地图及竞技对局中已禁用航母，航母不可制作";
+            return false;
+        }
         if (GetMainBaseLevel(building.PlayerOwned) <= 0)
         {
             message = building.PlayerOwned ? "\u4e3b\u57fa\u5730\u5df2\u5931\u6548\uff0c\u65e0\u6cd5\u751f\u4ea7\u5355\u4f4d" : "\u4e3b\u57fa\u5730\u5df2\u5931\u6548";
@@ -739,6 +907,11 @@ public partial class BattleGameManager : Node
     public bool TryQueueProductionForFaction(RtsBuilding building, string unitKey, bool playerOwned, out string message)
     {
         message = "";
+        if (unitKey == "aircraft_carrier")
+        {
+            message = "小地图及竞技对局中已禁用航母，航母不可制作";
+            return false;
+        }
         if (GameOver)
         {
             message = "战斗已经结束";
@@ -849,41 +1022,13 @@ public partial class BattleGameManager : Node
 
     public bool CanCastBattleTech(string techKey, out string message)
     {
-        message = "";
-        if (GameOver)
-        {
-            message = "战斗已经结束";
-            return false;
-        }
-
-        var tech = BattleTechCatalog.Get(techKey);
-        var mainBase = FindOperationalMainBase(true);
-        if (mainBase is null || !GodotObject.IsInstanceValid(mainBase) || mainBase.Health <= 0f)
-        {
-            message = "主基地已被摧毁，无法释放科技";
-            return false;
-        }
-
         if (!string.IsNullOrEmpty(PendingBuildKey))
         {
             message = "正在放置建筑，无法释放科技";
             return false;
         }
 
-        var remain = GetBattleTechCooldownRemaining(tech.Key);
-        if (remain > 0f)
-        {
-            message = $"{tech.DisplayName} 冷却中：{Mathf.CeilToInt(remain)}秒";
-            return false;
-        }
-
-        if (!HasReadyPlayerBuilding(tech.RequiredBuildingKey))
-        {
-            message = $"需要先拥有 {BattleBuildingCatalog.Get(tech.RequiredBuildingKey).DisplayName}";
-            return false;
-        }
-
-        return true;
+        return CanCastBattleTechForFaction(techKey, playerOwned: true, out message);
     }
 
     public float GetBattleTechCooldownRemaining(string techKey)
@@ -899,56 +1044,14 @@ public partial class BattleGameManager : Node
 
     public bool TryCastBattleTech(string techKey, Vector3 point, out string message, out int affected)
     {
-        affected = 0;
-        if (!CanCastBattleTech(techKey, out message))
+        if (!string.IsNullOrEmpty(PendingBuildKey))
+        {
+            message = "正在放置建筑，无法释放科技";
+            affected = 0;
             return false;
-
-        var tech = BattleTechCatalog.Get(techKey);
-        var center = new Vector2(point.X, point.Z);
-
-        // 判断当前模式与科技等级：争霸模式使用玩家实际等级，快速匹配直接满级 5 级
-        var level = 5;
-        if (GameState.Instance is not null && GameState.Instance.LastBattleMode == "全球争霸")
-        {
-            level = GameState.Instance.GetTechLevel(tech.Key);
         }
 
-        // 根据科研等级线性提升各项指标
-        var finalMove = tech.MoveMultiplier > 1f ? tech.MoveMultiplier + (level - 1) * 0.04f : tech.MoveMultiplier;
-        var finalDamage = tech.DamageMultiplier > 1f ? tech.DamageMultiplier + (level - 1) * 0.05f : tech.DamageMultiplier;
-        var finalRange = tech.AttackRangeBonus > 0f ? tech.AttackRangeBonus + (level - 1) * 0.5f : tech.AttackRangeBonus;
-        var finalCooldown = tech.AttackCooldownMultiplier < 1f ? tech.AttackCooldownMultiplier - (level - 1) * 0.04f : tech.AttackCooldownMultiplier;
-        var finalDefense = tech.DefenseReduction > 0f ? tech.DefenseReduction + (level - 1) * 0.05f : tech.DefenseReduction;
-        var finalVision = tech.VisionBonus > 0f ? tech.VisionBonus + (level - 1) * 3f : tech.VisionBonus;
-        var finalRegen = tech.RegenPerSecond > 0f ? tech.RegenPerSecond + (level - 1) * 4f : tech.RegenPerSecond;
-
-        foreach (var unit in GetUnits(true))
-        {
-            if (!GodotObject.IsInstanceValid(unit) || unit.IsDead)
-                continue;
-
-            var unitPos = unit.GlobalPosition;
-            if (new Vector2(unitPos.X, unitPos.Z).DistanceTo(center) > tech.Radius)
-                continue;
-
-            unit.ApplyTechBuff(
-                tech.Key,
-                tech.Duration,
-                finalMove,
-                finalDamage,
-                finalRange,
-                finalCooldown,
-                finalDefense,
-                finalVision,
-                finalRegen,
-                tech.Tint);
-            affected++;
-        }
-
-        playerBattleTechCooldownEnds[tech.Key] = GameTime + tech.Cooldown;
-        ForceRefreshFogOfWar();
-        message = $"{tech.DisplayName} (Lv.{level}) 已释放，影响 {affected} 个单位";
-        return true;
+        return TryCastBattleTechForFaction(techKey, point, playerOwned: true, out message, out affected);
     }
 
     public float GetBattleTechCooldownRemainingForFaction(string techKey, bool playerOwned)
@@ -957,6 +1060,12 @@ public partial class BattleGameManager : Node
         return cooldowns.TryGetValue(techKey, out var endTime)
             ? Mathf.Max(0f, endTime - GameTime)
             : 0f;
+    }
+
+    public void ResetBattleTechCooldown(string techKey, bool playerOwned = true)
+    {
+        var cooldowns = playerOwned ? playerBattleTechCooldownEnds : enemyBattleTechCooldownEnds;
+        cooldowns.Remove(techKey);
     }
 
     public bool CanCastBattleTechForFaction(string techKey, bool playerOwned, out string message)
@@ -1022,6 +1131,14 @@ public partial class BattleGameManager : Node
             if (!GodotObject.IsInstanceValid(unit) || unit.IsDead)
                 continue;
 
+            // 兵种目标范围过滤（如战鹰整备仅对飞机有效）
+            if (tech.TargetDomain == TechTargetDomain.AirOnly && !BattleUnitCatalog.IsAirUnit(unit.UnitKey))
+                continue;
+            if (tech.TargetDomain == TechTargetDomain.GroundOnly && (BattleUnitCatalog.IsAirUnit(unit.UnitKey) || BattleUnitCatalog.IsNavalUnit(unit.UnitKey)))
+                continue;
+            if (tech.TargetDomain == TechTargetDomain.NavalOnly && !BattleUnitCatalog.IsNavalUnit(unit.UnitKey))
+                continue;
+
             var unitPos = unit.GlobalPosition;
             if (new Vector2(unitPos.X, unitPos.Z).DistanceTo(center) > tech.Radius)
                 continue;
@@ -1037,7 +1154,40 @@ public partial class BattleGameManager : Node
                 finalVision,
                 finalRegen,
                 tech.Tint);
+
+            // 飞机专属整备：加满燃油、补充机载弹药并解除迫降警戒
+            if (tech.TargetDomain == TechTargetDomain.AirOnly && BattleUnitCatalog.IsAirUnit(unit.UnitKey))
+            {
+                unit.ReplenishAirSupply();
+            }
+
             affected++;
+        }
+
+        // 建筑与防御塔范围加成（战鹰整备仅限空中战机，其余通用及地面科技覆盖友方建筑）
+        if (tech.TargetDomain != TechTargetDomain.AirOnly)
+        {
+            foreach (var building in GetBuildings(playerOwned))
+            {
+                if (!GodotObject.IsInstanceValid(building) || building.IsDestroyed || building.UnderConstruction)
+                    continue;
+
+                var bPos = building.GlobalPosition;
+                if (new Vector2(bPos.X, bPos.Z).DistanceTo(center) > tech.Radius)
+                    continue;
+
+                building.ApplyTechBuff(
+                    tech.Key,
+                    tech.Duration,
+                    finalDamage,
+                    finalRange,
+                    finalCooldown,
+                    finalDefense,
+                    finalVision,
+                    finalRegen,
+                    tech.Tint);
+                affected++;
+            }
         }
 
         // 播放技能释放视觉扩展环和 3D 文字提示
@@ -1046,7 +1196,9 @@ public partial class BattleGameManager : Node
         var cooldowns = playerOwned ? playerBattleTechCooldownEnds : enemyBattleTechCooldownEnds;
         cooldowns[tech.Key] = GameTime + tech.Cooldown;
         ForceRefreshFogOfWar();
-        message = $"{tech.DisplayName} (Lv.{level}) 已释放，影响 {affected} 个单位";
+        message = tech.TargetDomain == TechTargetDomain.AirOnly
+            ? $"{tech.DisplayName} (Lv.{level}) 已释放，为 {affected} 架战机完成空中紧急整备"
+            : $"{tech.DisplayName} (Lv.{level}) 已释放，影响 {affected} 个单位";
         return true;
     }
 
@@ -1750,16 +1902,31 @@ public partial class BattleGameManager : Node
         };
         body.AddToGroup("rts_selectable");
         body.AddToGroup("rts_units");
-        body.AddToGroup(playerOwned ? "player_owned" : "enemy_owned");
-        body.Died += OnUnitDied;
-        unitsRoot.AddChild(body);
+        bool isAir = BattleUnitCatalog.IsAirUnit(def.Key);
+        float colRadius = BattleUnitCatalog.CollisionRadius(def.Key);
+        float colHeight = isAir ? 1.0f : (BattleUnitCatalog.IsInfantryLike(def.Key) ? 1.6f : 1.8f);
+
+        if (isAir)
+        {
+            body.CollisionLayer = 8u;
+            body.CollisionMask = 0u;
+        }
+        else
+        {
+            body.CollisionLayer = 1u | 2u;
+            body.CollisionMask = 1u | 2u | 4u;
+        }
 
         body.AddChild(new CollisionShape3D
         {
             Name = "CollisionShape3D",
-            Position = new Vector3(0f, 0.5f, 0f),
-            Shape = new BoxShape3D { Size = new Vector3(1.4f, 1f, 2f) }
+            Position = new Vector3(0f, colHeight * 0.5f, 0f),
+            Shape = new CylinderShape3D { Radius = colRadius, Height = colHeight }
         });
+
+        body.AddToGroup(playerOwned ? "player_owned" : "enemy_owned");
+        body.Died += OnUnitDied;
+        unitsRoot.AddChild(body);
 
         AddUnitVisual(body, def, playerOwned);
         FaceUnitTowardOpponentSpawn(body);
@@ -1767,6 +1934,7 @@ public partial class BattleGameManager : Node
             body.MoveTo(NormalizeUnitTarget(body, target));
         RecalculatePopulation();
         ForceRefreshFogOfWar();
+        InvalidateUnitCache();
         EmitSignal(SignalName.EconomyChanged);
         return body;
     }
@@ -1821,6 +1989,7 @@ public partial class BattleGameManager : Node
         CacheBaseSnapshot(building);
         RecalculatePopulation();
         ForceRefreshFogOfWar();
+        InvalidateBuildingCache();
         return building;
     }
 
@@ -1829,7 +1998,10 @@ public partial class BattleGameManager : Node
         if (unit.GetNodeOrNull<Node3D>("PanzerIV") is { } panzer)
         {
             unit.UnitKey = string.IsNullOrWhiteSpace(unit.UnitKey) ? "tank" : unit.UnitKey;
+            // 确保 PanzerIV 拥有标准的 180° Y 轴旋转（Mathf.Pi），使车头装甲与主炮正对 Godot -Z 前进方向
+            panzer.Rotation = ImportedModelRotation("tank", unit.PlayerOwned);
             unit.ConfigureVisualRig(unit.UnitKey, panzer);
+            RtsUnit.FixVehicleMeshMaterials(panzer, unit.PlayerOwned ? new Color(0.24f, 0.45f, 0.65f) : new Color(0.65f, 0.28f, 0.25f));
             return;
         }
 
@@ -1859,18 +2031,7 @@ public partial class BattleGameManager : Node
 
     void ApplyGlobalConquestStarterIfNeeded()
     {
-        if (currentMap.Name != BattleMapCatalog.GlobalConquestName || unitsRoot is null)
-            return;
-
-        var starterKey = GameState.Instance?.GlobalConquestStarterUnitKey ?? "tank";
-        if (!BattleUnitCatalog.IsGlobalConquestStarter(starterKey))
-            starterKey = "tank";
-
-        if (unitsRoot.GetNodeOrNull<RtsUnit>("PlayerTank") is { } playerStarter)
-            ConfigureGlobalConquestStarterUnit(playerStarter, BattleUnitCatalog.Get(starterKey), true);
-
-        if (unitsRoot.GetNodeOrNull<RtsUnit>("EnemyTank") is { } enemyStarter)
-            ConfigureGlobalConquestStarterUnit(enemyStarter, BattleUnitCatalog.Get("tank"), false);
+        // 开局不生成部队，仅提供初始资源和主基地
     }
 
     void ConfigureGlobalConquestStarterUnit(RtsUnit unit, BattleUnitDefinition def, bool playerOwned)
@@ -1937,6 +2098,7 @@ public partial class BattleGameManager : Node
             PlayerUnitsLost++;
         else
             PlayerUnitKills++;
+        InvalidateUnitCache();
         RecalculatePopulation();
         EmitSignal(SignalName.EconomyChanged);
     }
@@ -1948,6 +2110,7 @@ public partial class BattleGameManager : Node
             PlayerBuildingsLost++;
         else
             PlayerBuildingKills++;
+        InvalidateBuildingCache();
         RecalculatePopulation();
         EmitSignal(SignalName.EconomyChanged);
         CheckWinLose();
@@ -1957,6 +2120,7 @@ public partial class BattleGameManager : Node
     {
         _ = state;
         CacheBaseSnapshot(building);
+        InvalidateBuildingCache();
         RecalculatePopulation();
         RecalculatePower();
         EmitSignal(SignalName.EconomyChanged);
@@ -2439,17 +2603,23 @@ public partial class BattleGameManager : Node
 
         var w1 = def.CollisionSize.X;
         var h1 = def.CollisionSize.Z;
-        const float minSpacing = 0.5f;
+        const float minSpacing = 0.05f;
         foreach (var building in GetBuildings())
         {
+            if (!GodotObject.IsInstanceValid(building) || building.IsPreviewGhost || building.Health <= 0f)
+                continue;
+
             var otherDef = BattleBuildingCatalog.Get(building.BuildKey);
-            var w2 = otherDef.CollisionSize.X;
-            var h2 = otherDef.CollisionSize.Z;
+            float rotY = building.GlobalRotation.Y;
+            float cos = Mathf.Abs(Mathf.Cos(rotY));
+            float sin = Mathf.Abs(Mathf.Sin(rotY));
+            var w2 = otherDef.CollisionSize.X * cos + otherDef.CollisionSize.Z * sin;
+            var h2 = otherDef.CollisionSize.X * sin + otherDef.CollisionSize.Z * cos;
             float dx = Mathf.Abs(position.X - building.GlobalPosition.X);
             float dz = Mathf.Abs(position.Z - building.GlobalPosition.Z);
-            if (dx < (w1 + w2) * 0.5f + minSpacing && dz < (h1 + h2) * 0.5f + minSpacing)
+            if (dx < (w1 + w2) * 0.5f - minSpacing && dz < (h1 + h2) * 0.5f - minSpacing)
             {
-                message = "这里离已有建筑太近";
+                message = "这里与已有建筑重叠";
                 return false;
             }
         }
@@ -2484,8 +2654,20 @@ public partial class BattleGameManager : Node
 
     public RtsBuilding? ResolveNearestAirfield(bool playerOwned, Vector3 origin)
     {
-        return GetBuildings(playerOwned)
+        var primary = GetBuildings(playerOwned)
             .Where(building => building.BuildKey == "airfield" && !building.UnderConstruction && building.Health > 0f)
+            .OrderBy(building => building.GlobalPosition.DistanceSquaredTo(origin))
+            .FirstOrDefault();
+        if (primary is not null) return primary;
+
+        var secondary = GetBuildings(playerOwned)
+            .Where(building => building.BuildKey == "air_factory" && !building.UnderConstruction && building.Health > 0f)
+            .OrderBy(building => building.GlobalPosition.DistanceSquaredTo(origin))
+            .FirstOrDefault();
+        if (secondary is not null) return secondary;
+
+        return GetBuildings(playerOwned)
+            .Where(building => building.IsMainBase && !building.UnderConstruction && building.Health > 0f)
             .OrderBy(building => building.GlobalPosition.DistanceSquaredTo(origin))
             .FirstOrDefault();
     }
@@ -2517,6 +2699,16 @@ public partial class BattleGameManager : Node
                 2 => new Vector3(-2.6f, 0f, 2.4f),
                 _ => new Vector3(2.6f, 0f, 2.4f)
             };
+            if (airfield.IsMainBase)
+            {
+                offset = slotIndex switch
+                {
+                    0 => new Vector3(-4.8f, 0f, -4.8f),
+                    1 => new Vector3(4.8f, 0f, -4.8f),
+                    2 => new Vector3(-4.8f, 0f, 4.8f),
+                    _ => new Vector3(4.8f, 0f, 4.8f)
+                };
+            }
             stored = airfield.GlobalPosition + offset;
             aircraftParkingSlots[key] = stored;
         }
@@ -2540,15 +2732,9 @@ public partial class BattleGameManager : Node
                     && existing.GlobalPosition.DistanceSquaredTo(carrier.GlobalPosition) < 64f);
             slotIndex %= BattleUnitCatalog.CarrierSlotCount;
 
-            // 甲板位：前两个靠舰首，后两个靠舰尾，横向各偏 1.6 m
-            var offset = slotIndex switch
-            {
-                0 => new Vector3(-1.6f, 0.9f, -3.0f),
-                1 => new Vector3( 1.6f, 0.9f, -3.0f),
-                2 => new Vector3(-1.6f, 0.9f,  1.8f),
-                _ => new Vector3( 1.6f, 0.9f,  1.8f)
-            };
-            stored = carrier.GlobalPosition + offset;
+            // 甲板位：依照航母局部基底变换精准映射到当前飞行甲板停机位
+            var offset = BattleUnitCatalog.CarrierDeckSlots[slotIndex % BattleUnitCatalog.CarrierDeckSlots.Length];
+            stored = carrier.GlobalPosition + carrier.GlobalTransform.Basis * offset;
             aircraftParkingSlots[key] = stored;
         }
         else
@@ -2588,22 +2774,21 @@ public partial class BattleGameManager : Node
 
     void AddUnitVisual(RtsUnit unit, BattleUnitDefinition def, bool playerOwned)
     {
-        if (def.Key == "scout_plane" && ScoutPlaneScene is not null)
-        {
-            AddPackedUnitVisual(unit, ScoutPlaneScene, "ScoutHelicopter", def, playerOwned);
-            AddAirShadow(unit);
-            return;
-        }
-
+        // 1. 空军战机/直升机/轰炸机 (严格采用高精度军用仿真 3D 模型，杜绝像素积木玩具)
         if (BattleUnitCatalog.IsAirUnit(def.Key))
         {
             var airScene = def.Key switch
             {
+                "scout_plane" when ResourceLoader.Exists("res://assets/units/f22_fighter.glb") => ResourceLoader.Load<PackedScene>("res://assets/units/f22_fighter.glb"),
+                "scout_plane" when ScoutPlaneScene is not null => ScoutPlaneScene,
+                "scout_plane" when ResourceLoader.Exists("res://assets/units/converted/scout_helicopter.glb") => ResourceLoader.Load<PackedScene>("res://assets/units/converted/scout_helicopter.glb"),
+                "scout_helicopter" when ResourceLoader.Exists("res://assets/units/converted/scout_helicopter.glb") => ResourceLoader.Load<PackedScene>("res://assets/units/converted/scout_helicopter.glb"),
+                "scout_helicopter" when ScoutPlaneScene is not null => ScoutPlaneScene,
                 "fighter" when FighterScene is not null => FighterScene,
                 "fighter" when ResourceLoader.Exists("res://assets/units/fa18_fighter.glb") => ResourceLoader.Load<PackedScene>("res://assets/units/fa18_fighter.glb"),
                 "bomber" when BomberScene is not null => BomberScene,
-                "bomber" when ResourceLoader.Exists("res://assets/models/bomber.glb") => ResourceLoader.Load<PackedScene>("res://assets/models/bomber.glb"),
                 "bomber" when ResourceLoader.Exists("res://assets/units/b2_spirit.glb") => ResourceLoader.Load<PackedScene>("res://assets/units/b2_spirit.glb"),
+                "bomber" when ResourceLoader.Exists("res://assets/models/bomber.glb") => ResourceLoader.Load<PackedScene>("res://assets/models/bomber.glb"),
                 _ => null
             };
             if (airScene is not null)
@@ -2618,6 +2803,7 @@ public partial class BattleGameManager : Node
             return;
         }
 
+        // 2. 海军舰艇 (战列舰、驱逐舰、潜艇、巡逻艇)
         if (BattleUnitCatalog.IsNavalUnit(def.Key))
         {
             if (def.Key == "aircraft_carrier" && AircraftCarrierScene is not null)
@@ -2629,44 +2815,67 @@ public partial class BattleGameManager : Node
             return;
         }
 
+        // 3. 陆军步兵 (全面使用真实比例人体、骨骼跑动与射击姿态及枪械，彻底淘汰卡通小人)
         if (BattleUnitCatalog.IsInfantryLike(def.Key))
         {
             AddInfantryVisual(unit, def, playerOwned);
             return;
         }
 
-        string[] candidateVehiclePaths = new string[]
+        // 4. 装甲战车与重工火炮 (全面使用高精仿真装甲模型)
+        EnsureVehicleScenesLoaded();
+
+        PackedScene? vehicleScene = null;
+        if (def.Key == "sam_missile" || def.Key == "anti_air_gun")
         {
-            $"res://assets/models/{def.Key}.glb",
-            $"res://assets/models/{def.Key}.gltf",
-            $"res://assets/models/{def.Key}.fbx",
-            $"res://assets/models/{def.Key}.obj",
-            $"res://assets/units/converted/{def.Key}.glb",
-            $"res://assets/units/converted/{def.Key}.fbx"
-        };
-        foreach (var path in candidateVehiclePaths)
+            if (ResourceLoader.Exists("res://assets/models/anti_air_gun.glb"))
+                vehicleScene = ResourceLoader.Load<PackedScene>("res://assets/models/anti_air_gun.glb");
+        }
+        else if (def.Key == "tank_destroyer")
         {
-            if (Godot.FileAccess.FileExists(path) && ResourceLoader.Exists(path))
+            if (ResourceLoader.Exists("res://assets/models/modern_tank.glb"))
+                vehicleScene = ResourceLoader.Load<PackedScene>("res://assets/models/modern_tank.glb");
+            else
+                vehicleScene = HeavyTankScene ?? TankScene;
+        }
+        else if (def.Key == "light_tank")
+        {
+            vehicleScene = LightTankScene ?? TankScene;
+        }
+        else if (def.Key == "heavy_tank")
+        {
+            vehicleScene = HeavyTankScene ?? TankScene;
+        }
+        else if (def.Key == "artillery" || def.Key == "mlrs_rocket")
+        {
+            vehicleScene = ArtilleryScene ?? TankScene;
+        }
+        else if (def.Key == "tank" || def.Key == "medium_tank")
+        {
+            vehicleScene = TankScene;
+        }
+
+        if (vehicleScene is null)
+        {
+            string[] candidateVehiclePaths = new string[]
             {
-                var scene = GD.Load<PackedScene>(path);
-                if (scene != null)
+                $"res://assets/units/converted/{def.Key}.glb",
+                $"res://assets/models/{def.Key}.glb",
+                $"res://assets/models/realistic_{def.Key}.glb"
+            };
+            foreach (var path in candidateVehiclePaths)
+            {
+                if (Godot.FileAccess.FileExists(path) && ResourceLoader.Exists(path))
                 {
-                    AddPackedUnitVisual(unit, scene, def.Key + "_model", def, playerOwned);
-                    return;
+                    vehicleScene = GD.Load<PackedScene>(path);
+                    if (vehicleScene != null) break;
                 }
             }
         }
 
-        EnsureVehicleScenesLoaded();
+        vehicleScene ??= TankScene;
 
-        var vehicleScene = def.Key switch
-        {
-            "light_tank" => LightTankScene ?? TankScene,
-            "heavy_tank" => HeavyTankScene ?? TankScene,
-            "artillery" => ArtilleryScene ?? TankScene,
-            _ => TankScene
-        };
-        if (vehicleScene is not null && !BattleUnitCatalog.IsInfantryLike(def.Key))
+        if (vehicleScene is not null)
         {
             AddPackedUnitVisual(unit, vehicleScene, def.Key + "_model", def, playerOwned);
             return;
@@ -2685,6 +2894,11 @@ public partial class BattleGameManager : Node
 
     void AddInfantryVisual(RtsUnit unit, BattleUnitDefinition def, bool playerOwned)
     {
+        if (InfantryScene is null && ResourceLoader.Exists("res://assets/unity_migrated/Assets/External/Mixamo/BasicShooter/X Bot.fbx"))
+        {
+            InfantryScene = ResourceLoader.Load<PackedScene>("res://assets/unity_migrated/Assets/External/Mixamo/BasicShooter/X Bot.fbx");
+        }
+
         if (InfantryScene is null)
         {
             AddProceduralInfantryVisual(unit, def, playerOwned);
@@ -2719,7 +2933,7 @@ public partial class BattleGameManager : Node
             CenterImportedModel(model);
             TintImportedModel(soldierRoot, infantryTint, 0.72f);
             // 注入 Mixamo 骨骼动画（idle / walk / fire）
-            InfantryAnimationBridge.InjectAnimations(model);
+            InfantryAnimationBridge.InjectAnimations(model, def.Key);
             AttachWeaponToInfantry(model, def.Key);
             squad.AddChild(soldierRoot);
         }
@@ -2786,13 +3000,290 @@ public partial class BattleGameManager : Node
             position, 0.18f, 0.50f, new Vector3(0f, Mathf.Pi, 0f), Colors.White);
     }
 
+    static Node3D CreateShoulderCannonNode()
+    {
+        var root = new Node3D { Name = "ShoulderCannonRig" };
+
+        var metalDark = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.18f, 0.20f, 0.18f, 1f),
+            Metallic = 0.70f,
+            Roughness = 0.35f,
+            Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+        };
+
+        var metalAccent = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.32f, 0.35f, 0.30f, 1f),
+            Metallic = 0.55f,
+            Roughness = 0.45f,
+            Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+        };
+
+        var glassScope = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.15f, 0.65f, 0.85f, 1f),
+            EmissionEnabled = true,
+            Emission = new Color(0.10f, 0.45f, 0.70f),
+            Metallic = 0.85f,
+            Roughness = 0.15f,
+            Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+            DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+        };
+
+        // 1. 主炮管身管 (Main Launch Tube): 直径 0.13m，身长 1.35m，沿 +Z 朝向前方
+        var mainTube = new MeshInstance3D
+        {
+            Name = "MainTube",
+            Mesh = new CylinderMesh { TopRadius = 0.065f, BottomRadius = 0.065f, Height = 1.35f, RadialSegments = 16 },
+            MaterialOverride = metalDark,
+            Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+            Position = Vector3.Zero
+        };
+        root.AddChild(mainTube);
+
+        // 2. 前置加厚套筒与炮口制退环 (Muzzle Collar & Brake, 朝向前方 +Z)
+        var muzzleCollar = new MeshInstance3D
+        {
+            Name = "MuzzleCollar",
+            Mesh = new CylinderMesh { TopRadius = 0.082f, BottomRadius = 0.076f, Height = 0.25f, RadialSegments = 16 },
+            MaterialOverride = metalAccent,
+            Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+            Position = new Vector3(0f, 0f, 0.55f)
+        };
+        root.AddChild(muzzleCollar);
+
+        var muzzleRing = new MeshInstance3D
+        {
+            Name = "MuzzleRing",
+            Mesh = new TorusMesh { InnerRadius = 0.060f, OuterRadius = 0.090f, RingSegments = 16 },
+            MaterialOverride = metalDark,
+            Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+            Position = new Vector3(0f, 0f, 0.68f)
+        };
+        root.AddChild(muzzleRing);
+
+        // 3. 尾部排气喇叭口/导流锥 (Venturi Backblast Exhaust Nozzle, 伸出肩胛骨后方 -Z)
+        var exhaustCone = new MeshInstance3D
+        {
+            Name = "ExhaustCone",
+            Mesh = new CylinderMesh { TopRadius = 0.098f, BottomRadius = 0.068f, Height = 0.22f, RadialSegments = 16 },
+            MaterialOverride = metalAccent,
+            Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+            Position = new Vector3(0f, 0f, -0.65f)
+        };
+        root.AddChild(exhaustCone);
+
+        // 4. 光学瞄准镜模块 (Optical Targeting Scope, 位于内侧 +X 贴近士兵右眼视线)
+        var scopeMount = new MeshInstance3D
+        {
+            Name = "ScopeMount",
+            Mesh = new BoxMesh { Size = new Vector3(0.035f, 0.05f, 0.16f) },
+            MaterialOverride = metalDark,
+            Position = new Vector3(0.075f, 0.065f, 0.10f)
+        };
+        root.AddChild(scopeMount);
+
+        var scopeTube = new MeshInstance3D
+        {
+            Name = "ScopeTube",
+            Mesh = new CylinderMesh { TopRadius = 0.024f, BottomRadius = 0.024f, Height = 0.24f, RadialSegments = 12 },
+            MaterialOverride = metalAccent,
+            Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+            Position = new Vector3(0.095f, 0.085f, 0.10f)
+        };
+        root.AddChild(scopeTube);
+
+        var scopeLens = new MeshInstance3D
+        {
+            Name = "ScopeLens",
+            Mesh = new CylinderMesh { TopRadius = 0.022f, BottomRadius = 0.022f, Height = 0.015f, RadialSegments = 12 },
+            MaterialOverride = glassScope,
+            Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+            Position = new Vector3(0.095f, 0.085f, 0.22f)
+        };
+        root.AddChild(scopeLens);
+
+        // 5. 肩垫与前握把 (Shoulder Rest Pad & Grip)
+        var shoulderPad = new MeshInstance3D
+        {
+            Name = "ShoulderPad",
+            Mesh = new BoxMesh { Size = new Vector3(0.085f, 0.040f, 0.20f) },
+            MaterialOverride = metalAccent,
+            Position = new Vector3(0f, -0.068f, -0.04f)
+        };
+        root.AddChild(shoulderPad);
+
+        var frontGrip = new MeshInstance3D
+        {
+            Name = "FrontGrip",
+            Mesh = new CylinderMesh { TopRadius = 0.016f, BottomRadius = 0.014f, Height = 0.15f, RadialSegments = 10 },
+            MaterialOverride = metalDark,
+            Position = new Vector3(0f, -0.135f, 0.18f)
+        };
+        root.AddChild(frontGrip);
+
+        return root;
+    }
+
+    static Node3D CreateFlamethrowerBackpackNode()
+    {
+        var root = new Node3D { Name = "FlamethrowerBackpackRig" };
+
+        var tankOrange = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.88f, 0.36f, 0.12f, 1f),
+            Metallic = 0.72f,
+            Roughness = 0.32f,
+            Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+        };
+
+        var metalDark = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.20f, 0.22f, 0.24f, 1f),
+            Metallic = 0.80f,
+            Roughness = 0.30f,
+            Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+        };
+
+        var gaugeYellow = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(1.0f, 0.85f, 0.20f, 1f),
+            EmissionEnabled = true,
+            Emission = new Color(0.9f, 0.75f, 0.15f),
+            Metallic = 0.6f,
+            Roughness = 0.2f,
+            Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+            DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+        };
+
+        // 1. 左侧燃料罐 (Left Fuel Tank)
+        var leftTank = new MeshInstance3D
+        {
+            Name = "LeftTank",
+            Mesh = new CylinderMesh { TopRadius = 0.062f, BottomRadius = 0.062f, Height = 0.36f, RadialSegments = 16 },
+            MaterialOverride = tankOrange,
+            Position = new Vector3(-0.082f, 0f, 0f)
+        };
+        root.AddChild(leftTank);
+
+        // 2. 右侧燃料罐 (Right Fuel Tank)
+        var rightTank = new MeshInstance3D
+        {
+            Name = "RightTank",
+            Mesh = new CylinderMesh { TopRadius = 0.062f, BottomRadius = 0.062f, Height = 0.36f, RadialSegments = 16 },
+            MaterialOverride = tankOrange,
+            Position = new Vector3(0.082f, 0f, 0f)
+        };
+        root.AddChild(rightTank);
+
+        // 3. 顶部连通阀歧管与压力表 (Top Manifold & Gauge)
+        var manifold = new MeshInstance3D
+        {
+            Name = "Manifold",
+            Mesh = new BoxMesh { Size = new Vector3(0.22f, 0.05f, 0.07f) },
+            MaterialOverride = metalDark,
+            Position = new Vector3(0f, 0.13f, 0f)
+        };
+        root.AddChild(manifold);
+
+        var gauge = new MeshInstance3D
+        {
+            Name = "PressureGauge",
+            Mesh = new CylinderMesh { TopRadius = 0.024f, BottomRadius = 0.024f, Height = 0.025f, RadialSegments = 12 },
+            MaterialOverride = gaugeYellow,
+            Rotation = new Vector3(Mathf.Pi * 0.5f, 0f, 0f),
+            Position = new Vector3(0f, 0.13f, 0.04f)
+        };
+        root.AddChild(gauge);
+
+        // 4. 背板紧固架 (Backpack Plate Harness)
+        var harnessPlate = new MeshInstance3D
+        {
+            Name = "HarnessPlate",
+            Mesh = new BoxMesh { Size = new Vector3(0.24f, 0.32f, 0.035f) },
+            MaterialOverride = metalDark,
+            Position = new Vector3(0f, 0f, -0.05f)
+        };
+        root.AddChild(harnessPlate);
+
+        return root;
+    }
+
     static void AttachWeaponToInfantry(Node3D model, string unitKey)
     {
         var skeleton = FindSkeleton3D(model);
         if (skeleton is null)
             return;
 
+        if (unitKey == "infantry_artillery")
+        {
+            // 迫击炮兵/肩扛重炮步兵专属：将重型单兵火箭/无后坐力大炮稳固架设在右肩胛骨 (mixamorig_Spine2)
+            string shoulderBoneName = "mixamorig_Spine2";
+            int shoulderBoneIdx = skeleton.FindBone(shoulderBoneName);
+            if (shoulderBoneIdx < 0)
+            {
+                for (int b = 0; b < skeleton.GetBoneCount(); b++)
+                {
+                    var bname = skeleton.GetBoneName(b);
+                    if (bname.Contains("Shoulder", StringComparison.OrdinalIgnoreCase) && bname.Contains("Right", StringComparison.OrdinalIgnoreCase))
+                    {
+                        shoulderBoneName = bname;
+                        shoulderBoneIdx = b;
+                        break;
+                    }
+                }
+            }
+
+            var shoulderAttachment = new BoneAttachment3D
+            {
+                Name = "WeaponAttachment_ShoulderCannon"
+            };
+            skeleton.AddChild(shoulderAttachment);
+            shoulderAttachment.BoneName = shoulderBoneName;
+            if (shoulderBoneIdx >= 0)
+                shoulderAttachment.BoneIdx = shoulderBoneIdx;
+
+            var cannonInstance = CreateShoulderCannonNode();
+            cannonInstance.Name = "WeaponModel";
+            // 贴合右肩胛骨与颈部凹槽 (X = -0.06m, Y = 0.125m, Z = 0.04m)，身管平视/微仰朝向正前方
+            cannonInstance.Position = new Vector3(-0.06f, 0.125f, 0.04f);
+            cannonInstance.Rotation = new Vector3(-Mathf.DegToRad(18f), 0f, 0f);
+            shoulderAttachment.AddChild(cannonInstance);
+            return;
+        }
+
+        // 喷火兵专属后背燃料罐气瓶背包 (mixamorig_Spine2)
+        if (unitKey is "infantry_flamethrower" or "flamethrower")
+        {
+            string spineBoneName = "mixamorig_Spine2";
+            int spineBoneIdx = skeleton.FindBone(spineBoneName);
+            if (spineBoneIdx >= 0)
+            {
+                var spineAttachment = new BoneAttachment3D
+                {
+                    Name = "WeaponAttachment_FlamethrowerTanks"
+                };
+                skeleton.AddChild(spineAttachment);
+                spineAttachment.BoneName = spineBoneName;
+                spineAttachment.BoneIdx = spineBoneIdx;
+
+                var backpack = CreateFlamethrowerBackpackNode();
+                backpack.Position = new Vector3(0f, 0.08f, 0.16f);
+                spineAttachment.AddChild(backpack);
+            }
+        }
+
         string handBoneName = "";
+        int handBoneIdx = -1;
         for (int b = 0; b < skeleton.GetBoneCount(); b++)
         {
             var name = skeleton.GetBoneName(b);
@@ -2801,6 +3292,7 @@ public partial class BattleGameManager : Node
                 lower.Contains("hand_r") || lower.Contains("hand.r") || lower.Contains("wrist_r") || lower.Contains("wrist.r"))
             {
                 handBoneName = name;
+                handBoneIdx = b;
                 break;
             }
         }
@@ -2809,33 +3301,25 @@ public partial class BattleGameManager : Node
             return;
 
         string weaponPath = "";
-        Vector3 offsetPos = Vector3.Zero;
-        Vector3 offsetRot = Vector3.Zero;
-        Vector3 scale = Vector3.One;
+        Vector3 offsetPos = new Vector3(-0.03f, 0.08f, 0.05f);
+        Vector3 offsetRot = new Vector3(-1.464f, -1.930f, 0.258f);
+        Vector3 scale = Vector3.One * 0.70f;
 
-        if (unitKey == "infantry_artillery")
+        if (unitKey == "infantry")
         {
-            // 火箭筒模型 (blaster-o)
-            weaponPath = "res://assets/unity_migrated/Assets/External/Kenney/BlasterKit/Models/FBX format/blaster-o.fbx";
-            offsetPos = new Vector3(-0.06f, 0.08f, 0.04f);
-            offsetRot = new Vector3(0f, Mathf.Pi * 0.5f, -Mathf.Pi * 0.25f);
-            scale = Vector3.One * 0.65f;
-        }
-        else if (unitKey == "infantry")
-        {
-            // 步枪模型 (Merrick556)
-            weaponPath = "res://assets/unity_migrated/Assets/External/UserModels/Weapons/Merrick556/Merrick556.fbx";
-            offsetPos = new Vector3(-0.02f, 0.05f, 0.02f);
-            offsetRot = new Vector3(0f, Mathf.Pi * 0.5f, 0f);
-            scale = Vector3.One * 0.55f;
+            // 步枪兵：装备突击步枪 (blaster-d：战术枪管、瞄准镜与弹匣，手部正握正对前方射击线)
+            weaponPath = "res://assets/unity_migrated/Assets/External/Kenney/BlasterKit/Models/FBX format/blaster-d.fbx";
+            offsetPos = new Vector3(-0.03f, 0.08f, 0.05f);
+            offsetRot = new Vector3(-1.464f, -1.930f, 0.258f);
+            scale = Vector3.One * 0.70f;
         }
         else if (unitKey is "infantry_flamethrower" or "flamethrower")
         {
-            // 喷火器模型 (使用 blaster-g)
+            // 喷火兵：装备重型火焰喷射发射器 (blaster-g：加厚射流枪身与喷口，手部正握向前)
             weaponPath = "res://assets/unity_migrated/Assets/External/Kenney/BlasterKit/Models/FBX format/blaster-g.fbx";
-            offsetPos = new Vector3(-0.04f, 0.06f, 0.03f);
-            offsetRot = new Vector3(0f, Mathf.Pi * 0.5f, -Mathf.Pi * 0.15f);
-            scale = Vector3.One * 0.65f;
+            offsetPos = new Vector3(-0.03f, 0.08f, 0.05f);
+            offsetRot = new Vector3(-1.464f, -1.930f, 0.258f);
+            scale = Vector3.One * 0.72f;
         }
 
         if (string.IsNullOrEmpty(weaponPath))
@@ -2847,10 +3331,12 @@ public partial class BattleGameManager : Node
 
         var attachment = new BoneAttachment3D
         {
-            Name = "WeaponAttachment",
-            BoneName = handBoneName
+            Name = "WeaponAttachment"
         };
         skeleton.AddChild(attachment);
+        attachment.BoneName = handBoneName;
+        if (handBoneIdx >= 0)
+            attachment.BoneIdx = handBoneIdx;
 
         var weaponInstance = weaponScene.Instantiate<Node3D>();
         weaponInstance.Name = "WeaponModel";
@@ -2888,8 +3374,25 @@ public partial class BattleGameManager : Node
 
         var visual = scene.Instantiate<Node3D>();
         visual.Name = "Model";
+        if (def.Key == "aircraft_carrier")
+        {
+            // 尼米兹级航母模型真实 3D 轴向映射：甲板水平朝天(+Y)，舰首指向前进方向(-Z)，右舷舰岛(+X)
+            visual.Rotation = new Vector3(0f, -Mathf.Pi * 0.5f, 0f);
+            visual.Position = new Vector3(0f, -9.5f, -53.25f);
+        }
+        else if (def.Key == "bomber")
+        {
+            // B-2 隐身轰炸机机鼻沿 +X、机背沿 +Y 建模，在 visual 节点经 +90° Yaw 旋转后机头对准前向 -Z，机翼水平展平于 X 轴，座舱朝天 (+Y)
+            visual.Rotation = new Vector3(0f, Mathf.Pi * 0.5f, 0f);
+        }
+        else if (def.Key == "scout_helicopter")
+        {
+            // 武装侦察直升机机身沿 X 轴建模（机头在 -X，尾翼在 +X），在 visual 节点经 -90° Yaw 旋转后机头对准前向 -Z
+            visual.Rotation = new Vector3(0f, -Mathf.Pi * 0.5f, 0f);
+        }
         visualRoot.AddChild(visual);
-        CenterImportedModel(visual);
+        if (def.Key != "aircraft_carrier" && def.Key != "artillery")
+            CenterImportedModel(visual, def.Key);
 
         var tint = playerOwned ? def.Tint : new Color(0.56f, 0.22f, 0.18f);
         if (ShouldTintImportedModel(def.Key))
@@ -2900,6 +3403,38 @@ public partial class BattleGameManager : Node
 
         if (def.Key == "heavy_tank")
         {
+            // 为重装坦克主炮塔与车体表面挂载真实 2K 迷彩军工涂装纹理，避免纯白无贴图
+            var camoTex = ResourceLoader.Load<Texture2D>("res://assets/unity_migrated/Assets/External/UserModels/Units/HeavyTank/pt91-tanks.png");
+            if (camoTex is not null)
+            {
+                foreach (var child in visualRoot.FindChildren("*", "MeshInstance3D", true, false))
+                {
+                    if (child is MeshInstance3D mesh)
+                    {
+                        var surfCount = mesh.Mesh?.GetSurfaceCount() ?? 0;
+                        for (int s = 0; s < surfCount; s++)
+                        {
+                            var mat = (mesh.GetActiveMaterial(s) ?? mesh.Mesh?.SurfaceGetMaterial(s)) as BaseMaterial3D;
+                            if (mat is not null)
+                            {
+                                var dup = mat.Duplicate() as BaseMaterial3D;
+                                if (dup is not null)
+                                {
+                                    dup.AlbedoTexture = camoTex;
+                                    dup.AlbedoColor = playerOwned ? new Color(0.85f, 0.92f, 0.82f) : new Color(0.92f, 0.78f, 0.76f);
+                                    dup.Roughness = 0.55f;
+                                    dup.Metallic = 0.25f;
+                                    dup.Transparency = BaseMaterial3D.TransparencyEnum.Disabled;
+                                    dup.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+                                    dup.DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always;
+                                    mesh.SetSurfaceOverrideMaterial(s, dup);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Add secondary single-barrel defense turret on the heavy tank to make it look extra beefy
             TryAddSizedImportedProp(visualRoot, SpaceKitRoot + "turret_single.fbx", "HeavyDefenseGun",
                 new Vector3(0.35f, 0.55f, 0.6f), 0.5f, 0.6f, Vector3.Zero, tint, preserveMaterials: false);
@@ -2907,12 +3442,12 @@ public partial class BattleGameManager : Node
 
         if (def.Key == "submarine")
         {
-            ConfigureSubmarineRenderPriority(visualRoot);
+            ConfigureSubmarineVisual(visualRoot, playerOwned);
         }
 
         if (def.Key == "bomber")
         {
-            // 隐藏飞行中不需要的放下起落架组件，保留整洁流线型的隐身机身
+            // 隐藏飞行中不需要的放下起落架组件，保留整洁流线型的隐身机身与闭合舱门
             foreach (var node in visualRoot.FindChildren("*", "Node3D", true, false))
             {
                 var n = node.Name.ToString();
@@ -2921,82 +3456,191 @@ public partial class BattleGameManager : Node
                     if (node is Node3D n3d)
                         n3d.Visible = false;
                 }
+                if (n.Contains("landingOff", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (node is Node3D n3d)
+                        n3d.Visible = true;
+                }
             }
+        }
+
+        if (def.Key == "scout_plane" || def.Key == "scout_helicopter")
+        {
+            ConfigureScoutHelicopterVisual(visualRoot, visual);
         }
 
         unit.AddChild(visualRoot);
         unit.ConfigureVisualRig(def.Key, BattleUnitCatalog.IsAirUnit(def.Key) ? visualRoot : visual);
     }
 
-    static void ConfigureSubmarineRenderPriority(Node node)
+    static void ConfigureScoutHelicopterVisual(Node3D visualRoot, Node3D visual)
     {
+        // 1. 直升机骨骼动画配置：激活主旋翼与尾翼高频自转循环 (Linear Loop)
+        var animPlayers = visual.FindChildren("*", "AnimationPlayer", true, false);
+        foreach (var child in animPlayers)
+        {
+            if (child is AnimationPlayer ap)
+            {
+                foreach (var animName in ap.GetAnimationList())
+                {
+                    var anim = ap.GetAnimation(animName);
+                    if (anim is not null)
+                    {
+                        anim.LoopMode = Animation.LoopModeEnum.Linear;
+                    }
+                }
+                ap.SpeedScale = 4.8f;
+                var list = ap.GetAnimationList();
+                if (list.Length > 0)
+                {
+                    ap.Play(list[0]);
+                }
+            }
+        }
+
+        // 2. 直升机主旋翼与尾翼挂载高动态半透明旋转虚影盘 (Rotor Blur Discs)
+        var sk = FindSkeleton3D(visual);
+        if (sk is not null)
+        {
+            // 主旋翼：挂载在主旋翼骨骼 Blades 下，校正局部姿态使圆盘法线严格垂直朝上 (+Y)
+            int mainBone = sk.FindBone("Blades");
+            if (mainBone >= 0)
+            {
+                var mainAttach = new BoneAttachment3D
+                {
+                    Name = "MainRotorAttachment",
+                    BoneName = "Blades"
+                };
+                sk.AddChild(mainAttach);
+
+                var mainBlur = new MeshInstance3D
+                {
+                    Name = "MainRotorBlurDisc",
+                    Rotation = new Vector3(0f, 0f, Mathf.Pi * 0.5f), // 抵消 Blades 骨骼的 -90° Z 偏转，法线精准垂直朝上 (+Y)
+                    Position = new Vector3(-0.16f, 0f, 0f), // 精准平齐主旋翼桨毂上表面 (Y = 1.16m)
+                    Mesh = new CylinderMesh
+                    {
+                        TopRadius = 1.85f,
+                        BottomRadius = 1.85f,
+                        Height = 0.012f,
+                        RadialSegments = 48
+                    },
+                    MaterialOverride = PropellerBlurMaterial(new Color(0.72f, 0.82f, 0.88f, 0.26f))
+                };
+                mainAttach.AddChild(mainBlur);
+            }
+
+            // 尾旋翼：挂载在尾旋翼骨骼 Screw 下，在 Screw 骨骼局部空间中（局部 Y 轴即横向 Z 轴），Rotation = Vector3.Zero 使圆盘法线严格朝向侧方，且精准重合于尾翼桨叶中心
+            int tailBone = sk.FindBone("Screw");
+            if (tailBone >= 0)
+            {
+                var tailAttach = new BoneAttachment3D
+                {
+                    Name = "TailRotorAttachment",
+                    BoneName = "Screw"
+                };
+                sk.AddChild(tailAttach);
+
+                var tailBlur = new MeshInstance3D
+                {
+                    Name = "TailRotorBlurDisc",
+                    Rotation = Vector3.Zero, // Screw 骨骼局部 Y 轴与横向自转轴严格重合
+                    Position = Vector3.Zero,
+                    Mesh = new CylinderMesh
+                    {
+                        TopRadius = 0.44f,
+                        BottomRadius = 0.44f,
+                        Height = 0.010f,
+                        RadialSegments = 32
+                    },
+                    MaterialOverride = PropellerBlurMaterial(new Color(0.72f, 0.82f, 0.88f, 0.36f))
+                };
+                tailAttach.AddChild(tailBlur);
+            }
+        }
+    }
+
+    static void ConfigureSubmarineVisual(Node node, bool playerOwned)
+    {
+        var subMat = new StandardMaterial3D
+        {
+            AlbedoColor = playerOwned ? new Color(0.14f, 0.17f, 0.20f) : new Color(0.22f, 0.14f, 0.14f),
+            Metallic = 0.85f,
+            Roughness = 0.28f
+        };
         foreach (var child in node.FindChildren("*", "MeshInstance3D", true, false))
         {
             if (child is MeshInstance3D mesh)
             {
                 mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+                mesh.MaterialOverride = subMat;
             }
         }
     }
 
     static void AddFallbackAircraftPropellers(Node3D visualRoot, string unitKey)
     {
-        if (!BattleUnitCatalog.IsAirUnit(unitKey))
+        // 现代战机 (F/A-18, B-2) 与直升机 (scout_helicopter) 拥有自带真实矢量尾喷口/双旋翼骨骼，不再挂载老式机鼻螺旋桨
+        if (!BattleUnitCatalog.IsAirUnit(unitKey) || unitKey is "scout_plane" or "scout_helicopter" or "fighter" or "bomber")
             return;
 
-        if (unitKey == "bomber")
-            return;
-
-        AddPropeller(visualRoot, "PropellerNose", new Vector3(0f, 0.36f, -1.22f), unitKey == "scout_plane" ? 0.84f : 0.58f);
+        AddPropeller(visualRoot, "PropellerNose", new Vector3(0f, 0.36f, -1.22f), 0.58f);
     }
 
     static float ImportedModelScale(string key) => key switch
     {
         "light_tank" => 0.85f,
+        "tank" or "medium_tank" => 0.86f, // 适度收窄 Panzer IV 车身至约 4.5m，杜绝中坦比重坦还宽
         "heavy_tank" => 1.10f,
-        "artillery" => 42f,
+        "tank_destroyer" => 0.68f, // 坦克歼击车现代装甲
+        "artillery" => 92f, // 提升自行火炮/榴弹炮缩放倍率 (42f -> 92f)，实机车身宽 2.76m x 长 7.93m，完美匹配 1.55m 碰撞圈，彻底解决比轻坦还小的问题
+        "mlrs_rocket" => 92f, // 多管火箭炮底盘与发射架
+        "anti_air_gun" or "sam_missile" => 1.0f,
         "scout_plane" => 2.25f,
+        "scout_helicopter" => 0.88f,
         "fighter" => 0.58f,
-        "bomber" => 0.0105f, // B-2 隐身轰炸机黄金比例翼展
-        "aircraft_carrier" => 0.022f, // Downscale the modern carrier model to fit the game
-        "destroyer_ship" => 0.03f,
+        "bomber" => 0.0165f, // B-2 隐身轰炸机黄金比例翼展
+        "aircraft_carrier" => 0.028f, // 真实航母甲板比例 (约 17.3 米长，双向跑道)
+        "destroyer_ship" => 0.035f,
         "battleship" => 0.74f,
-        "submarine" => 0.0038f,
+        "patrol_boat" => 0.95f,
+        "submarine" => 0.42f, // 仿真潜艇 6.2 米长，吃水深潜
         _ => 1f
     };
 
     static Vector3 ImportedModelOffset(string key) => key switch
     {
-        "artillery" => new Vector3(0f, 0.08f, 0f),
+        "artillery" or "mlrs_rocket" => new Vector3(0f, 0.05f, 0f),
         "scout_plane" => new Vector3(0f, 0.08f, 0f),
-        "aircraft_carrier" => new Vector3(0f, 0.05f, 0f), // Align slightly above water
+        "aircraft_carrier" => Vector3.Zero, // 质心与吃水深度已在内部 Model Transform 精确校准
         "battleship" => new Vector3(0f, -0.22f, 0f), // Sits naturally in water line
+        "destroyer_ship" => new Vector3(0f, 0.08f, 0f), // 水线自然平齐
+        "submarine" => new Vector3(0f, -0.15f, 0f), // 隐蔽潜航，仅围壳与指挥台露头
         _ => Vector3.Zero
     };
 
     static Vector3 ImportedModelRotation(string key, bool playerOwned)
     {
-        if (key == "fighter")
+        if (key is "aircraft_carrier" or "fighter" or "scout_plane" or "bomber" or "scout_helicopter")
             return Vector3.Zero;
 
         var yaw = key switch
         {
-            "tank" or "light_tank" or "heavy_tank" or "anti_air_gun" => Mathf.Pi,
-            "artillery" => -Mathf.Pi * 0.5f,
-            "scout_plane" => -Mathf.Pi * 0.5f,
-            "bomber" => playerOwned ? -Mathf.Pi * 0.5f : Mathf.Pi * 0.5f,
-            "aircraft_carrier" => playerOwned ? -Mathf.Pi * 0.5f : Mathf.Pi * 0.5f,
+            "tank" or "medium_tank" => Mathf.Pi, // pzIV 模型主炮在 +Z 轴，经 180° Y 轴旋转后主炮与车首正对 Godot 前向 (-Z)
+            "tank_destroyer" or "heavy_tank" => 0f, // modern_tank 与 heavy_tank 模型主炮与车身均沿 -Z 前进方向建模，直面正前无需反转
+            "light_tank" or "anti_air_gun" or "sam_missile" => Mathf.Pi, // 经 180° Yaw 旋转后主炮与车首对准前向 (-Z)
+            "artillery" or "mlrs_rocket" => 0f, // 经 ImportedModelFineRotation (-90° Pitch) 矫正后严格对准车首前向 (-Z)
+            "battleship" or "destroyer_ship" => Mathf.Pi, // battleship.glb 大和战列舰模型舰首沿 +Z 建模，destroyer.glb 驱逐舰舰首沿 +Y 经 Pitch 90° 与 Yaw 180° 旋转后舰首正对 Godot 前向 (-Z)
             _ => 0f
         };
         return new Vector3(0f, yaw, 0f);
     }
 
     static bool ShouldTintImportedModel(string key)
-        => key is "light_tank" or "heavy_tank" or "artillery";
+        => key is "light_tank" or "artillery" or "mlrs_rocket";
 
     static Vector3 ImportedModelFineOffset(string key) => key switch
     {
-        "artillery" => new Vector3(0f, 0.12f, 0.10f),
         "heavy_tank" => new Vector3(0f, 0.02f, 0f),
         "light_tank" => new Vector3(0f, 0.02f, 0f),
         _ => Vector3.Zero
@@ -3004,19 +3648,26 @@ public partial class BattleGameManager : Node
 
     static Vector3 ImportedModelFineRotation(string key) => key switch
     {
-        "artillery" => new Vector3(-Mathf.Pi * 0.5f, 0f, 0f),
+        "artillery" or "mlrs_rocket" => new Vector3(-Mathf.Pi * 0.5f, 0f, 0f),
+        "destroyer_ship" => new Vector3(Mathf.Pi * 0.5f, 0f, 0f), // destroyer.glb 驱逐舰模型舰长沿 Y 轴、桅杆沿 -Z 建模，经 +90° X 轴微调与 180° Y 轴旋转后水平浮水、桅杆朝天 (+Y)、舰首朝前 (-Z)
         _ => Vector3.Zero
     };
 
-    static void CenterImportedModel(Node3D visual)
+    static void CenterImportedModel(Node3D visual, string unitKey = "")
     {
         if (!TryGetLocalBounds(visual, Transform3D.Identity, out var bounds))
             return;
 
         var center = bounds.Position + bounds.Size * 0.5f;
-        var isSubOrAir = visual.Name.ToString().Contains("sub", StringComparison.OrdinalIgnoreCase)
-            || visual.Name.ToString().Contains("bomber", StringComparison.OrdinalIgnoreCase)
-            || visual.Name.ToString().Contains("fighter", StringComparison.OrdinalIgnoreCase);
+        var parentName = visual.GetParent()?.Name.ToString() ?? "";
+        var isSubOrAir = BattleUnitCatalog.IsAirUnit(unitKey)
+            || BattleUnitCatalog.IsNavalUnit(unitKey)
+            || unitKey == "scout_plane"
+            || visual.Name.ToString().Contains("sub", StringComparison.OrdinalIgnoreCase)
+            || parentName.Contains("heli", StringComparison.OrdinalIgnoreCase)
+            || parentName.Contains("scout", StringComparison.OrdinalIgnoreCase)
+            || parentName.Contains("fighter", StringComparison.OrdinalIgnoreCase)
+            || parentName.Contains("bomber", StringComparison.OrdinalIgnoreCase);
         var offsetY = isSubOrAir ? -center.Y : -bounds.Position.Y;
         var offset = new Vector3(-center.X, offsetY, -center.Z);
 
@@ -3091,22 +3742,27 @@ public partial class BattleGameManager : Node
                     for (int s = 0; s < surfCount; s++)
                     {
                         var mat = (mesh.GetActiveMaterial(s) ?? mesh.Mesh.SurfaceGetMaterial(s)) as BaseMaterial3D;
-                        if (mat is not null)
+                        bool isMissingOrPlaceholder = mat is null 
+                            || (string.IsNullOrEmpty(mat.ResourceName) 
+                                && mat.AlbedoTexture is null 
+                                && mat.AlbedoColor.R >= 0.95f 
+                                && mat.AlbedoColor.G >= 0.95f 
+                                && mat.AlbedoColor.B >= 0.95f);
+
+                        if (!isMissingOrPlaceholder && mat is not null)
                         {
                             var dupMat = mat.Duplicate() as BaseMaterial3D;
                             if (dupMat is not null)
                             {
-                                var finalAlpha = dupMat.AlbedoColor.A;
-                                if (finalAlpha < 0.1f)
-                                {
-                                    finalAlpha = 1f;
-                                    dupMat.Transparency = BaseMaterial3D.TransparencyEnum.Disabled;
-                                }
+                                // 战车、坦克、枪炮部件强制禁用 Alpha 混合，避免 GLTF alphaMode: BLEND 导致深度写失效产生透明/幽灵炮管
+                                dupMat.Transparency = BaseMaterial3D.TransparencyEnum.Disabled;
+                                dupMat.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+                                dupMat.DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always;
                                 dupMat.AlbedoColor = new Color(
                                     Mathf.Lerp(dupMat.AlbedoColor.R, tint.R, lerpFactor),
                                     Mathf.Lerp(dupMat.AlbedoColor.G, tint.G, lerpFactor),
                                     Mathf.Lerp(dupMat.AlbedoColor.B, tint.B, lerpFactor),
-                                    finalAlpha
+                                    1.0f
                                 );
                                 if (lerpFactor > 0.60f)
                                 {
@@ -3117,6 +3773,31 @@ public partial class BattleGameManager : Node
                                 mesh.SetSurfaceOverrideMaterial(s, dupMat);
                                 successfullyTintedAny = true;
                             }
+                        }
+                        else
+                        {
+                            // 针对 GLTF 缺失材质的表面（如四号坦克主炮管主体 Primitive 0），赋予实体军工装甲材质，杜绝空材质透明
+                            var lower = child.Name.ToString().ToLowerInvariant();
+                            var solidMat = new StandardMaterial3D
+                            {
+                                Transparency = BaseMaterial3D.TransparencyEnum.Disabled,
+                                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+                                DepthDrawMode = BaseMaterial3D.DepthDrawModeEnum.Always
+                            };
+                            if (lower.Contains("barrel") || lower.Contains("gun") || lower.Contains("cannon") || lower.Contains("weapon"))
+                            {
+                                solidMat.AlbedoColor = new Color(0.20f, 0.21f, 0.20f, 1f);
+                                solidMat.Metallic = 0.65f;
+                                solidMat.Roughness = 0.38f;
+                            }
+                            else
+                            {
+                                solidMat.AlbedoColor = new Color(0.406f, 0.378f, 0.246f, 1f);
+                                solidMat.Metallic = 0.15f;
+                                solidMat.Roughness = 0.65f;
+                            }
+                            mesh.SetSurfaceOverrideMaterial(s, solidMat);
+                            successfullyTintedAny = true;
                         }
                     }
                 }
@@ -3191,10 +3872,12 @@ public partial class BattleGameManager : Node
 
     static void AddAirShadow(RtsUnit unit)
     {
+        float spawnH = BattleUnitCatalog.SpawnHeight(unit.UnitKey);
+        if (spawnH < 1.0f) spawnH = 8.0f;
         unit.AddChild(new MeshInstance3D
         {
             Name = "AirShadow",
-            Position = new Vector3(0f, -9.3f, 0f),
+            Position = new Vector3(0f, -spawnH + 0.05f, 0f),
             Mesh = new CylinderMesh { TopRadius = 1.8f, BottomRadius = 1.8f, Height = 0.035f, RadialSegments = 28 },
             MaterialOverride = new StandardMaterial3D
             {
@@ -3212,13 +3895,10 @@ public partial class BattleGameManager : Node
         if (def.Key == "aircraft_carrier")
         {
             // 真实 3D 尼米兹号航空母舰 GLB 模型 (nimitz.glb) - 拥有 3D 飞行甲板、跑道划线、双弹射器、岛式舰桥与舰载机
-            if (TryInstanceScene("res://assets/units/nimitz.glb", "NimitzCarrier") is { } carrier)
+            var carrierScene = GD.Load<PackedScene>("res://assets/units/nimitz.glb");
+            if (carrierScene != null)
             {
-                carrier.Scale = Vector3.One * 0.045f;
-                carrier.Rotation = new Vector3(0f, playerOwned ? -Mathf.Pi * 0.5f : Mathf.Pi * 0.5f, 0f);
-                carrier.Position = new Vector3(0f, -0.22f, 0f);
-                unit.AddChild(carrier);
-                unit.ConfigureVisualRig(def.Key, carrier);
+                AddPackedUnitVisual(unit, carrierScene, "AircraftCarrier", def, playerOwned);
                 return;
             }
         }
@@ -3227,7 +3907,7 @@ public partial class BattleGameManager : Node
         {
             if (unit.GetNodeOrNull("SubmarineVisual") is Node3D existingSub)
             {
-                ConfigureSubmarineRenderPriority(existingSub);
+                ConfigureSubmarineVisual(existingSub, playerOwned);
                 unit.ConfigureVisualRig(def.Key, existingSub);
                 return;
             }
@@ -3779,11 +4459,6 @@ public partial class BattleGameManager : Node
             };
             cvRoot.AddChild(cvMastTower);
 
-            // 甲板停放舰载战斗机 (Parked Carrier Jet Fighters)
-            TryAddSizedImportedProp(cvRoot, SpaceKitRoot + "craft_cargoA.fbx", "DeckJetA",
-                new Vector3(-0.65f, 1.48f, 2.2f), 1.1f, 1.8f, new Vector3(0f, Mathf.DegToRad(25f), 0f), cvMat.AlbedoColor.Lightened(0.12f), preserveMaterials: false);
-            TryAddSizedImportedProp(cvRoot, SpaceKitRoot + "craft_cargoB.fbx", "DeckJetB",
-                new Vector3(0.55f, 1.48f, 3.0f), 1.1f, 1.8f, new Vector3(0f, Mathf.DegToRad(-15f), 0f), cvMat.AlbedoColor.Lightened(0.08f), preserveMaterials: false);
 
             // 防空近防炮 (CIWS / Double Defense Turret)
             TryAddSizedImportedProp(cvRoot, SpaceKitRoot + "turret_double.fbx", "CarrierCIWS",
@@ -3831,6 +4506,37 @@ public partial class BattleGameManager : Node
         _ = playerOwned;
     }
 
+    public static Node3D CreateBuildingVisualNode(string buildKey, bool playerOwned, Color tint)
+    {
+        var key = buildKey;
+        var isMechanical = key.StartsWith("int_");
+        if (isMechanical)
+        {
+            key = key.Substring(4);
+        }
+
+        var visualY = 0.16f;
+        // 针对不同红警风格 3D 建筑模型的底部基础面高度进行微调，确保地台贴合地面
+        if (key == "main_base")
+            visualY = 0.22f;
+        else if (key == "tank_factory" || key == "armor_factory" || key == "air_factory" || key == "airfield")
+            visualY = 0.18f;
+        else if (key == "barracks")
+            visualY = isMechanical ? 0.32f : 0.18f;
+        else if (key == "power_plant" || key == "gold_mine" || key == "turret" || key == "naval_yard")
+            visualY = 0.18f;
+
+        var visual = new Node3D { Name = "BuildingVisual", Position = new Vector3(0f, visualY, 0f) };
+        var actualTint = isMechanical 
+            ? new Color(0.2f, 0.75f, 1.0f) 
+            : (playerOwned ? tint : new Color(0.85f, 0.25f, 0.20f));
+
+        // 彻底杜绝像素世界/低模积木玩具，使用真实 PBR 装甲钢板、工业花纹钢板与强化混凝土材质构建现代仿真军工建筑群
+        RealisticBuildingBuilder.BuildRealisticBuilding(visual, key, playerOwned, actualTint);
+        CenterImportedModel(visual);
+        return visual;
+    }
+
     void EnsureBuildingVisual(RtsBuilding building, BattleBuildingDefinition def)
     {
         // 隐藏编辑器预置的占位白色立方体网格
@@ -3844,171 +4550,15 @@ public partial class BattleGameManager : Node
 
         if (building.GetNodeOrNull<Node3D>("BuildingVisual") is { } existingVisual)
         {
-            var toRemove = new List<Node>();
-            foreach (var child in existingVisual.GetChildren())
-            {
-                if (child is Node3D child3D)
-                {
-                    if (child3D.Name.ToString().Contains("Tower") || child3D.Name.ToString().Contains("Radar") || child3D.Name.ToString().Contains("Antenna"))
-                    {
-                        toRemove.Add(child3D);
-                    }
-                    else if (child3D.Name.ToString().Contains("Hall") || child3D.Name.ToString().Contains("Base") || child3D.Name.ToString().Contains("Main Building"))
-                    {
-                        FitImportedNode(child3D, def.IsMainBase ? 5.2f : 4.8f, def.IsMainBase ? 6.4f : 5.2f);
-                    }
-                }
-            }
-            foreach (var n in toRemove)
-            {
-                existingVisual.RemoveChild(n);
-                n.QueueFree();
-            }
-            CenterImportedModel(existingVisual);
-            building.UpdateVisualsForState();
-            return;
+            building.RemoveChild(existingVisual);
+            existingVisual.QueueFree();
         }
 
         if (building.GetNodeOrNull<MeshInstance3D>("Mesh") is { } oldMesh)
             oldMesh.Visible = false;
 
-        var key = def.Key;
-        var isMechanical = key.StartsWith("int_");
-        if (isMechanical)
-        {
-            key = key.Substring(4);
-        }
-
-        var visualY = 0.16f;
-        // 针对不同 FBX 建筑模型的底部基础面高度进行微调，防止建筑悬空或者陷入泥土中
-        if (key == "main_base")
-            visualY = 0.82f;
-        else if (key == "tank_factory" || key == "armor_factory" || key == "air_factory" || key == "airfield")
-            visualY = 0.45f;
-        else if (key == "barracks")
-            visualY = isMechanical ? 0.32f : 0.92f;
-        else if (key == "power_plant" || key == "gold_mine" || key == "turret" || key == "naval_yard")
-            visualY = 0.32f;
-
-        var visual = new Node3D { Name = "BuildingVisual", Position = new Vector3(0f, visualY, 0f) };
+        var visual = CreateBuildingVisualNode(def.Key, building.PlayerOwned, def.Tint);
         building.AddChild(visual);
-        
-        var tint = isMechanical ? new Color(0.2f, 0.75f, 1.0f) : def.Tint;
-
-        if (isMechanical)
-        {
-            switch (key)
-            {
-                case "barracks":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_smallB.fbx", "MechBarracksDome", Vector3.Zero, 4.2f, 5.0f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "MechBarracksPower", new Vector3(-2.0f, 0f, 1.8f), 2.2f, 2.0f, Vector3.Zero, tint.Lightened(0.1f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "barrel.fbx", "MechBarracksCylinder", new Vector3(2.0f, 0f, 1.6f), 1.4f, 1.2f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
-                    break;
-                case "tank_factory":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_largeA.fbx", "MechTankFactoryHangar", Vector3.Zero, 4.8f, 8.0f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generatorLarge.fbx", "MechTankFactoryCore", new Vector3(2.7f, 0f, 2.4f), 3.2f, 3.0f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wirelessCable.fbx", "MechTankFactoryDish", new Vector3(-2.8f, 0f, -1.6f), 3.8f, 2.2f, Vector3.Zero, tint.Lightened(0.15f));
-                    break;
-                case "armor_factory":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_largeB.fbx", "MechArmorFactoryHangar", Vector3.Zero, 4.8f, 8.0f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_barrelLarge.fbx", "MechArmorFactoryTankA", new Vector3(-2.5f, 0f, -2.0f), 2.5f, 2.0f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_barrelLarge.fbx", "MechArmorFactoryTankB", new Vector3(2.5f, 0f, 2.0f), 2.5f, 2.0f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish.fbx", "MechArmorFactoryRadar", new Vector3(0f, 0f, 2.2f), 3.4f, 2.2f, Vector3.Zero, tint.Lightened(0.08f));
-                    break;
-                case "airfield":
-                    AddBlock(visual, "RunwayPad", new Vector3(8.8f, 0.16f, 9.6f), new Vector3(0f, 0.08f, 0f), new Color(0.12f, 0.18f, 0.22f));
-                    AddBlock(visual, "RunwayGlowLine", new Vector3(0.36f, 0.18f, 8.2f), new Vector3(0f, 0.1f, 0f), tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wireless.fbx", "MechAirfieldDish", new Vector3(-3.1f, 0f, 2.6f), 4.8f, 2.0f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "craft_cargoB.fbx", "MechAirfieldFighter", new Vector3(1.6f, 0.18f, -1.4f), 1.5f, 2.8f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint.Lightened(0.1f));
-                    break;
-                case "air_factory":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_roundA.fbx", "MechAirFactoryHangar", Vector3.Zero, 4.8f, 8.0f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish_large.fbx", "MechAirFactoryRadar", new Vector3(2.8f, 0f, -2.0f), 4.2f, 2.6f, Vector3.Zero, tint.Lightened(0.1f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wireless.fbx", "MechAirFactoryTower", new Vector3(-2.8f, 0f, 2.2f), 3.8f, 1.8f, Vector3.Zero, new Color(0.22f, 0.25f, 0.28f));
-                    break;
-                case "naval_yard":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "platform_large.fbx", "MechDockPlatform", new Vector3(0f, 0.02f, 0f), 2.2f, 8.8f, Vector3.Zero, tint);
-                    AddBlock(visual, "DockWater", new Vector3(5.4f, 0.08f, 6.6f), new Vector3(0f, 0.08f, 0f), new Color(0.08f, 0.22f, 0.32f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_smallA.fbx", "MechDockHangar", new Vector3(-2.6f, 0f, 1.8f), 3.4f, 3.8f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
-                    break;
-                case "turret":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "turret_double.fbx", "MechTurretGun", new Vector3(0f, 2.2f, 0f), 2.2f, 3.2f, Vector3.Zero, tint);
-                    AddCylinder(visual, "TurretBase", 1.45f, 2.4f, new Vector3(0f, 1.2f, 0f), new Color(0.18f, 0.22f, 0.25f));
-                    break;
-                case "power_plant":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generatorLarge.fbx", "MechPlantReactor", Vector3.Zero, 4.8f, 5.0f, Vector3.Zero, new Color(0.18f, 0.22f, 0.25f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeB.fbx", "MechPlantCrystalA", new Vector3(-1.8f, 0.1f, 1.8f), 3.2f, 2.2f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeB.fbx", "MechPlantCrystalB", new Vector3(1.8f, 0.1f, -1.8f), 3.2f, 2.2f, Vector3.Zero, tint);
-                    break;
-                case "gold_mine":
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_generator.fbx", "MechMineDrill", Vector3.Zero, 4.2f, 4.2f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystals.fbx", "MechMineCrystals", new Vector3(0f, 0.1f, -1.8f), 2.5f, 3.0f, Vector3.Zero, new Color(0.95f, 0.78f, 0.24f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wireless.fbx", "MechMineUplink", new Vector3(2.0f, 0f, 1.6f), 3.2f, 1.6f, Vector3.Zero, tint.Lightened(0.12f));
-                    break;
-                default:
-                    AddSizedImportedProp(visual, SpaceKitRoot + "hangar_roundGlass.fbx", "MechCommandDome", Vector3.Zero, 5.2f, 6.4f, Vector3.Zero, tint);
-                    break;
-            }
-        }
-        else
-        {
-            switch (key)
-            {
-                case "barracks":
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-c.fbx", "BarracksMainBuilding", Vector3.Zero, 4.8f, 5.2f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, MilitaryFbxRoot + "crate.fbx", "BarracksCrateA", new Vector3(-2.2f, 0f, 1.8f), 0.9f, 1.1f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.44f, 0.34f, 0.22f));
-                    AddSizedImportedProp(visual, MilitaryFbxRoot + "crate-bottles.fbx", "BarracksCrateB", new Vector3(2.0f, 0f, 1.6f), 1.1f, 1.3f, new Vector3(0f, Mathf.DegToRad(-18f), 0f), new Color(0.42f, 0.32f, 0.20f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "machine_wirelessCable.fbx", "BarracksAntenna", new Vector3(-2.2f, 0f, -1.8f), 3.0f, 1.8f, Vector3.Zero, tint.Lightened(0.1f));
-                    break;
-                case "tank_factory":
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-b.fbx", "TankFactoryHall", Vector3.Zero, 4.8f, 7.8f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, FactoryKitRoot + "conveyor-long.fbx", "TankFactoryConveyor", new Vector3(0f, 1.35f, 2.4f), 1.2f, 5.6f, new Vector3(0f, Mathf.DegToRad(90f), 0f), new Color(0.44f, 0.48f, 0.42f));
-                    AddSizedImportedProp(visual, FactoryKitRoot + "crane.fbx", "TankFactoryCrane", new Vector3(-2.8f, 0f, -1.6f), 5.2f, 3.8f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.62f, 0.52f, 0.20f));
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "chimney-medium.fbx", "TankFactoryChimney", new Vector3(2.7f, 0f, 2.4f), 4.0f, 2.2f, Vector3.Zero, new Color(0.26f, 0.28f, 0.28f));
-                    break;
-                case "armor_factory":
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-m.fbx", "ArmorFactoryHall", Vector3.Zero, 5.0f, 8.4f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
-                    AddSizedImportedProp(visual, FactoryKitRoot + "machine-fortified.fbx", "ArmorFactoryMachine", new Vector3(0f, 0f, 1.9f), 2.0f, 3.8f, Vector3.Zero, new Color(0.34f, 0.36f, 0.38f));
-                    AddSizedImportedProp(visual, FactoryKitRoot + "crane-magnet.fbx", "ArmorFactoryCrane", new Vector3(-2.9f, 0f, -2.0f), 4.9f, 3.2f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.60f, 0.48f, 0.20f));
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "detail-tank.fbx", "ArmorFactoryTank", new Vector3(2.2f, 0f, 2.1f), 1.6f, 2.8f, new Vector3(0f, Mathf.DegToRad(40f), 0f), new Color(0.36f, 0.42f, 0.30f));
-                    break;
-                case "airfield":
-                    AddBlock(visual, "Runway", new Vector3(8.8f, 0.16f, 9.6f), new Vector3(0f, 0.08f, 0f), new Color(0.10f, 0.12f, 0.13f));
-                    AddBlock(visual, "RunwayStripe", new Vector3(0.28f, 0.18f, 7.6f), new Vector3(0f, 0.2f, 0f), new Color(0.86f, 0.82f, 0.62f));
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-h.fbx", "AirfieldTowerBase", new Vector3(-3.1f, 0f, 2.6f), 4.2f, 2.0f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish.fbx", "AirfieldRadar", new Vector3(-3.1f, 4.3f, 2.6f), 1.2f, 1.2f, new Vector3(0f, Mathf.DegToRad(-25f), 0f), new Color(0.65f, 0.70f, 0.75f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "craft_cargoA.fbx", "AirfieldParkedCraft", new Vector3(1.6f, 0.18f, -1.4f), 1.4f, 2.6f, new Vector3(0f, Mathf.DegToRad(90f), 0f), new Color(0.46f, 0.48f, 0.50f));
-                    break;
-                case "air_factory":
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-r.fbx", "AirFactoryHangar", Vector3.Zero, 4.8f, 8.0f, new Vector3(0f, Mathf.DegToRad(90f), 0f), tint);
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-o.fbx", "AirFactoryOffice", new Vector3(2.7f, 0f, 2.2f), 2.8f, 2.6f, new Vector3(0f, Mathf.DegToRad(180f), 0f), tint.Lightened(0.08f));
-                    AddSizedImportedProp(visual, SpaceKitRoot + "satelliteDish.fbx", "AirFactoryDish", new Vector3(-2.8f, 0f, -2.0f), 3.0f, 2.0f, new Vector3(0f, Mathf.DegToRad(30f), 0f), new Color(0.58f, 0.66f, 0.72f));
-                    break;
-                case "naval_yard":
-                    AddSizedImportedProp(visual, MilitaryFbxRoot + "structure-platform-dock.fbx", "ImportedDock", new Vector3(0f, 0.02f, 0f), 2.2f, 8.8f, Vector3.Zero, tint);
-                    AddBlock(visual, "DockWater", new Vector3(5.4f, 0.08f, 6.6f), new Vector3(0f, 0.08f, 0f), new Color(0.05f, 0.36f, 0.48f));
-                    AddSizedImportedProp(visual, FactoryKitRoot + "crane.fbx", "DockCrane", new Vector3(-2.8f, 0f, -2.5f), 4.8f, 3.2f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.22f, 0.20f, 0.14f));
-                    break;
-                case "turret":
-                    AddSizedImportedProp(visual, MilitaryFbxRoot + "cannon-mobile.fbx", "ImportedCannon", new Vector3(0f, 2.2f, -0.25f), 1.75f, 2.6f, new Vector3(0f, Mathf.Pi, 0f), new Color(0.26f, 0.28f, 0.25f));
-                    AddCylinder(visual, "TurretBase", 1.45f, 2.4f, new Vector3(0f, 1.2f, 0f), tint);
-                    break;
-                case "power_plant":
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-e.fbx", "PlantGeneratorBuilding", Vector3.Zero, 4.8f, 5.0f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "chimney-large.fbx", "PlantLargeChimney", new Vector3(1.8f, 0f, -1.8f), 6.2f, 1.8f, Vector3.Zero, new Color(0.22f, 0.24f, 0.25f));
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "detail-tank.fbx", "PlantCoolantTank", new Vector3(-1.8f, 0f, 1.8f), 2.2f, 1.8f, Vector3.Zero, new Color(0.28f, 0.34f, 0.38f));
-                    break;
-                case "gold_mine":
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-n.fbx", "MineRefinery", new Vector3(0f, 0f, 0.35f), 3.4f, 4.6f, Vector3.Zero, tint);
-                    AddSizedImportedProp(visual, SpaceKitRoot + "rock_crystalsLargeA.fbx", "ResourceCore", new Vector3(0f, 0.1f, -1.55f), 1.8f, 2.4f, new Vector3(0f, Mathf.DegToRad(22f), 0f), new Color(0.95f, 0.72f, 0.22f));
-                    AddSizedImportedProp(visual, FactoryKitRoot + "crane-lift.fbx", "MineCrane", new Vector3(2.3f, 0f, 0.1f), 4.0f, 2.4f, new Vector3(0f, Mathf.DegToRad(-90f), 0f), new Color(0.22f, 0.19f, 0.12f));
-                    break;
-                default:
-                    AddSizedImportedProp(visual, CityIndustrialRoot + "building-c.fbx", "CommandBase", new Vector3(0f, 0f, 0f), 5.2f, 6.4f, Vector3.Zero, tint);
-                    break;
-            }
-        }
-        CenterImportedModel(visual);
         building.UpdateVisualsForState();
     }
 
@@ -4237,10 +4787,17 @@ public partial class BattleGameManager : Node
         };
         preview.AddChild(mesh);
 
-        // 3D 建筑立面虚影
-        var ghost = new RtsBuilding { Name = "GhostModel", BuildKey = buildKey };
+        // 3D 建筑立面虚影 (使用轻量 Node3D 容器，严禁使用真实 RtsBuilding，彻底杜绝污染建筑列表与自重叠碰撞检测)
+        var ghost = new Node3D { Name = "GhostModel" };
         preview.AddChild(ghost);
-        EnsureBuildingVisual(ghost, def);
+        var visual = CreateBuildingVisualNode(def.Key, true, def.Tint);
+        ghost.AddChild(visual);
+
+        // 关闭预览虚影中的粒子系统（如排烟/蒸汽），保持静态半透明虚影
+        foreach (var p in ghost.FindChildren("*", "CpuParticles3D", true, false).OfType<CpuParticles3D>())
+        {
+            p.Emitting = false;
+        }
 
         foreach (var m in ghost.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>())
         {
@@ -4256,12 +4813,23 @@ public partial class BattleGameManager : Node
         return preview;
     }
 
-    public bool IsWithinBuildPlacementRange(Vector3 position, bool playerOwned)
+    public bool IsWithinBuildPlacementRange(Vector3 position, bool playerOwned, string? buildKey = null)
     {
         var mainBase = FindOperationalMainBase(playerOwned);
-        if (mainBase is null)
-            return false;
-        return position.DistanceTo(mainBase.GlobalPosition) <= 60f;
+        var baseRadius = GetBaseBuildRadius(buildKey);
+        if (mainBase is not null && position.DistanceTo(mainBase.GlobalPosition) <= baseRadius)
+            return true;
+
+        foreach (var b in GetBuildings())
+        {
+            if (b.PlayerOwned == playerOwned && !b.IsRuined && !b.IsRebuilding && b.Health > 0f)
+            {
+                float extRadius = buildKey == "naval_yard" ? 36f : 28f;
+                if (position.DistanceTo(b.GlobalPosition) <= extRadius)
+                    return true;
+            }
+        }
+        return false;
     }
 
     public void ApplyBuildingPlacementPreviewAppearance(Node3D preview, bool canPlace)
@@ -4291,7 +4859,7 @@ public partial class BattleGameManager : Node
             }
         }
 
-        if (preview.GetNodeOrNull<RtsBuilding>("GhostModel") is { } ghost)
+        if (preview.GetNodeOrNull<Node3D>("GhostModel") is { } ghost)
         {
             foreach (var m in ghost.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>())
             {
@@ -4316,13 +4884,18 @@ public partial class BattleGameManager : Node
         var overlays = new List<Node3D>();
         foreach (var building in GetBuildings())
         {
+            if (!GodotObject.IsInstanceValid(building) || building.IsPreviewGhost || building.Health <= 0f)
+                continue;
+
             var def = BattleBuildingCatalog.Get(building.BuildKey);
             var overlay = new Node3D
             {
                 Name = "OccupiedOverlay",
-                Position = new Vector3(building.GlobalPosition.X, 0.04f, building.GlobalPosition.Z),
-                Rotation = building.Rotation // 同步旋转角度，确保完美覆盖斜放建筑
+                Position = new Vector3(building.GlobalPosition.X, building.GlobalPosition.Y + 0.04f, building.GlobalPosition.Z),
+                Rotation = building.GlobalRotation // 同步全局旋转角度，确保完美覆盖斜放建筑
             };
+            overlay.SetMeta("world_pos", new Vector3(building.GlobalPosition.X, building.GlobalPosition.Y + 0.04f, building.GlobalPosition.Z));
+            overlay.SetMeta("world_rot", building.GlobalRotation);
 
             var mesh = new MeshInstance3D
             {
@@ -4345,13 +4918,14 @@ public partial class BattleGameManager : Node
         return overlays.ToArray();
     }
 
-    public (Vector3 center, float radius)[] GetBuildPlacementRanges(bool playerOwned)
+    public (Vector3 center, float radius)[] GetBuildPlacementRanges(bool playerOwned, string? buildKey = null)
     {
         var ranges = new List<(Vector3, float)>();
         var mainBase = FindOperationalMainBase(playerOwned);
+        var baseRadius = GetBaseBuildRadius(buildKey);
         if (mainBase is not null)
         {
-            ranges.Add((mainBase.GlobalPosition, 60f));
+            ranges.Add((mainBase.GlobalPosition, baseRadius));
         }
         return ranges.ToArray();
     }
@@ -4405,6 +4979,11 @@ public partial class BattleGameManager : Node
 
     void StartTenseBattleBgm()
     {
+        if (OS.HasFeature("android"))
+        {
+            GD.Print("[BGM] Android detected: skipping procedural AudioStreamWav BGM to prevent native crash");
+            return;
+        }
         try
         {
             AudioStream? stream = null;
@@ -4428,20 +5007,41 @@ public partial class BattleGameManager : Node
                         break;
                     }
                 }
+                else if (Godot.FileAccess.FileExists(path))
+                {
+                    if (path.EndsWith(".ogg"))
+                    {
+                        stream = AudioStreamOggVorbis.LoadFromFile(ProjectSettings.GlobalizePath(path));
+                        if (stream is not null)
+                        {
+                            GD.Print($"[BGM] 成功通过 AudioStreamOggVorbis 加载背景音乐: {path}");
+                            break;
+                        }
+                    }
+                }
             }
 
-            // 如果没有自定义文件，则播放我们全新合成的 150BPM 激情热血双声道战斗 BGM
+            // 如果没有自定义文件，则播放我们全新合成的 90BPM 萧杀冷峻双声道战斗 BGM
             if (stream is null)
             {
                 stream = CreateEpicHighEnergyBattleBgmStream();
-                GD.Print("[BGM] 生成 150BPM 激情热血双声道 RTS 战斗 BGM 成功！");
+                GD.Print("[BGM] 动态合成 90BPM D弗里吉亚萧杀战地主题背景音乐成功！");
+            }
+
+            if (stream is AudioStreamOggVorbis oggStream)
+            {
+                oggStream.Loop = true;
+            }
+            else if (stream is AudioStreamWav wavStream)
+            {
+                wavStream.LoopMode = AudioStreamWav.LoopModeEnum.Forward;
             }
 
             bgmPlayer = new AudioStreamPlayer
             {
                 Name = "TenseBattleBgm",
                 Stream = stream,
-                VolumeDb = -9f, // 充满激情且均衡的音量
+                VolumeDb = -7f, // 肃杀战地沉浸声学音量
                 Bus = "Master"
             };
             AddChild(bgmPlayer);
@@ -4454,121 +5054,160 @@ public partial class BattleGameManager : Node
     }
 
     /// <summary>
-    /// 合成 44.1kHz 16-Bit 立体声 (Stereo) 140BPM 温暖流畅、圆润不刺耳的史诗电影级 RTS 战斗背景音乐
-    /// 使用一阶低通滤波器 (Low-Pass Filter) 彻底过滤高频刺耳谐波，配合正弦谐波和声与重低音电影战鼓
+    /// 合成 44.1kHz 16-Bit 立体声 (Stereo) 90BPM 萧杀冷峻电影级 RTS 战场背景音乐 (Bleak Martial Battle Theme)
+    /// 纯正战地杀伐压迫感：D 弗里吉亚冷硬调式、深沉战鼓太鼓扫频、大提琴跳音断奏、冷铁战砧重击、低沉长号圆号怒吼与战场寒风呼啸。
+    /// 彻底淘汰轻浮的电子旋律，营造肃杀苍凉、铁血压迫的大纵深战役氛围。
     /// </summary>
     static AudioStreamWav CreateEpicHighEnergyBattleBgmStream()
     {
         const int sampleRate = 44100;
-        const float bpm = 140f; // 流畅战术节奏 140 BPM
-        const float beatDuration = 60f / bpm;
-        const int beats = 32; // 8小节循环
-        float totalDuration = beats * beatDuration;
+        const float bpm = 90f; // 铁血行军速度 90 BPM
+        const float beatDuration = 60f / bpm; // 0.6667s
+        const float barDuration = beatDuration * 4f; // 2.6667s
+        const int bars = 16; // 16 小节约 42.67 秒无缝大循环
+        float totalDuration = bars * barDuration;
         int numFrames = (int)(totalDuration * sampleRate);
-        
+
         var data = new byte[numFrames * 4];
 
-        // 滤波参数：截止频率 1500Hz，过滤掉所有尖锐/刺耳的高频锯齿杂音
+        // 低通滤波参数：截止频率 2200Hz
         float lpfL = 0f, lpfR = 0f;
-        float alpha = (2f * Mathf.Pi * 1500f / sampleRate) / (1f + 2f * Mathf.Pi * 1500f / sampleRate);
+        float alpha = (2f * Mathf.Pi * 2200f / sampleRate) / (1f + 2f * Mathf.Pi * 2200f / sampleRate);
 
-        // E小调和弦级数 (E1 -> C2 -> G1 -> D2)
-        float E1 = 41.20f, C2 = 65.41f, G1 = 49.00f, D2 = 73.42f;
+        // 音符定义
+        const float D1 = 36.71f, Bb0 = 29.14f, G1 = 49.00f, A0 = 27.50f;
+        const float D2 = 73.42f, Eb2 = 77.78f, C2 = 65.41f, Bb1 = 58.27f, A1 = 55.00f, F1 = 43.65f;
+        const float D3 = 146.83f, F2 = 87.31f, A2 = 110.00f, Bb2 = 116.54f, G2 = 98.00f;
+
+        // 简易白噪声发生器状态
+        uint noiseState = 222222;
+        float NextNoise()
+        {
+            noiseState = noiseState * 1664525u + 1013904223u;
+            return ((float)(noiseState & 0x7FFFFFFFu) / 0x7FFFFFFFu) * 2f - 1f;
+        }
+
+        float windL = 0f, windR = 0f;
 
         for (int i = 0; i < numFrames; i++)
         {
             float t = (float)i / sampleRate;
-            float currentBeat = t / beatDuration;
+            int bar = (int)(t / barDuration) % bars;
+            float tInBar = t % barDuration;
+            float currentBeat = tInBar / beatDuration;
+            float tInBeat = tInBar % beatDuration;
 
-            // 1. 温暖重低音 (Warm Sub Bass)
-            float bassFreq = E1;
-            if (currentBeat >= 8f && currentBeat < 16f) bassFreq = C2;
-            else if (currentBeat >= 16f && currentBeat < 24f) bassFreq = G1;
-            else if (currentBeat >= 24f && currentBeat < 32f) bassFreq = D2;
+            // 1. 次重低音基石 (Sub-Bass Foundation)
+            float rootFreq = D1;
+            if (bar is >= 4 and < 8) rootFreq = Bb0;
+            else if (bar is >= 8 and < 12) rootFreq = G1;
+            else if (bar >= 12) rootFreq = A0;
 
-            // 使用正弦纯音 + 二阶谐波，音色浑厚柔和
-            float bassVal = 0.65f * Mathf.Sin(2f * Mathf.Pi * bassFreq * t) +
-                            0.25f * Mathf.Sin(4f * Mathf.Pi * bassFreq * t);
-            
-            float sixteenthTime = (t % (beatDuration / 4f));
-            float bassEnv = Mathf.Exp(-sixteenthTime * 12f) * 0.4f + 0.6f;
-            bassVal *= bassEnv * 0.45f;
+            float tremolo = 1f + 0.08f * Mathf.Sin(2f * Mathf.Pi * 3.2f * t);
+            float subBass = (0.75f * Mathf.Sin(2f * Mathf.Pi * rootFreq * t) +
+                             0.25f * Mathf.Sin(4f * Mathf.Pi * rootFreq * t)) * tremolo * 0.42f;
 
-            if (t < 0.2f) bassVal *= (t / 0.2f);
-            if (totalDuration - t < 0.2f) bassVal *= ((totalDuration - t) / 0.2f);
+            // 2. 萧杀大提琴断奏 (Staccato Cello Ostinato)
+            int eighthIdx = (int)(tInBar / (beatDuration * 0.5f)) % 8;
+            float tInEighth = tInBar % (beatDuration * 0.5f);
 
-            // 2. 电影级重低音战鼓 (Cinematic Drums)
+            float celloFreq = D2;
+            if (bar < 4)
+            {
+                celloFreq = eighthIdx switch { 2 or 6 => Eb2, 4 => C2, _ => D2 };
+            }
+            else if (bar < 8)
+            {
+                celloFreq = eighthIdx switch { 2 or 6 => C2, 4 => A1, _ => Bb1 };
+            }
+            else if (bar < 12)
+            {
+                celloFreq = eighthIdx switch { 2 or 6 => A1, 4 => F1, _ => G1 };
+            }
+            else
+            {
+                celloFreq = eighthIdx switch { 2 or 6 => Bb1, 4 => G1, _ => A1 };
+            }
+
+            float celloEnv = Mathf.Exp(-tInEighth * 10.5f);
+            float phaseC = (t * celloFreq) % 1f;
+            float sawC = 2f * phaseC - 1f;
+            float celloVal = (sawC * 0.55f + 0.35f * Mathf.Sin(2f * Mathf.Pi * celloFreq * 1.5f * t)) * celloEnv * 0.36f;
+
+            // 3. 铁血战鼓与冷砧打击 (War Taiko, Snare Ghost Roll & Anvil)
             float drumL = 0f, drumR = 0f;
-            float beatTime = t % beatDuration;
 
-            // 深沉太鼓扫频 (70Hz -> 30Hz)
-            float kickFreq = 30f + 50f * Mathf.Exp(-beatTime * 25f);
-            float kickEnv = Mathf.Exp(-beatTime * 10f);
-            float kickVal = Mathf.Sin(2f * Mathf.Pi * kickFreq * beatTime) * kickEnv * 0.5f;
-            drumL += kickVal;
-            drumR += kickVal;
-
-            // 柔和小鼓 (在第 2 拍和第 4 拍下沉)
-            float measureTime = t % (beatDuration * 4f);
-            float snareTime1 = Math.Abs(measureTime - beatDuration);
-            float snareTime2 = Math.Abs(measureTime - beatDuration * 3f);
-            float snareTime = Math.Min(snareTime1, snareTime2);
-            if (snareTime < beatDuration)
+            // 第 1 拍和第 3 拍重击 (68Hz -> 26Hz 深沉下潜)
+            bool isKick = currentBeat < 1f || (currentBeat >= 2f && currentBeat < 3f);
+            if (isKick)
             {
-                float snareEnv = Mathf.Exp(-snareTime * 16f);
-                float snareTone = Mathf.Sin(2f * Mathf.Pi * 130f * snareTime) * snareEnv * 0.25f;
-                drumL += snareTone;
-                drumR += snareTone;
+                float tKick = tInBeat;
+                float kickFreq = 26f + 46f * Mathf.Exp(-tKick * 28f);
+                float kickEnv = Mathf.Exp(-tKick * 8.5f);
+                float kick = Mathf.Sin(2f * Mathf.Pi * kickFreq * tKick) * kickEnv * 0.58f;
+                drumL += kick;
+                drumR += kick;
             }
 
-            // 3. 柔和史诗弦乐铺底 (Warm Epic Strings Pad)
-            float stringVal = 0f;
-            float padFreq = bassFreq * 4f;
-            if (padFreq > 0f)
+            // 十六分音符幽灵滚奏
+            int sixteenthIdx = (int)(tInBar / (beatDuration * 0.25f)) % 16;
+            float tSixteenth = tInBar % (beatDuration * 0.25f);
+            float snareAccent = (sixteenthIdx is 4 or 12) ? 0.38f : 0.14f;
+            float snareNoise = NextNoise() * snareAccent * Mathf.Exp(-tSixteenth * 32f);
+            drumL += snareNoise * 0.95f;
+            drumR += snareNoise * 1.05f;
+
+            // 冷铁战砧重击 (每4小节首拍鸣响)
+            if (bar % 4 == 0 && currentBeat < 0.5f)
             {
-                float osc1 = Mathf.Sin(2f * Mathf.Pi * padFreq * t);
-                float osc2 = Mathf.Sin(2f * Mathf.Pi * (padFreq * 1.5f) * t); // 纯五度谐程
-                float vibrato = 1f + 0.005f * Mathf.Sin(2f * Mathf.Pi * 4.5f * t);
-                stringVal = (osc1 * 0.6f + osc2 * 0.4f) * vibrato * 0.22f;
+                float tAnvil = tInBar;
+                float anvilEnv = Mathf.Exp(-tAnvil * 7f);
+                float anvil = (0.5f * Mathf.Sin(2f * Mathf.Pi * 840f * tAnvil) +
+                               0.3f * Mathf.Sin(2f * Mathf.Pi * 2150f * tAnvil) +
+                               0.2f * Mathf.Sin(2f * Mathf.Pi * 3380f * tAnvil)) * anvilEnv * 0.28f;
+                drumL += anvil * 0.8f;
+                drumR += anvil * 1.2f;
             }
 
-            // 4. 流畅英雄主旋律 (Smooth Heroic Melody)
-            float leadVal = 0f;
-            if (currentBeat >= 4f)
+            // 4. 肃杀低沉长号/圆号怒吼 (Grim Brass Swells)
+            float brassL = 0f, brassR = 0f;
+            if (bar is 2 or 3 or 6 or 7 or 10 or 11 or 14 or 15)
             {
-                int noteIndex = (int)(currentBeat / 2f) % 8;
-                float leadFreq = 329.63f; // E4
-                switch (noteIndex)
-                {
-                    case 0: case 1: leadFreq = 329.63f; break; // E4
-                    case 2: leadFreq = 392.00f; break;        // G4
-                    case 3: leadFreq = 440.00f; break;        // A4
-                    case 4: case 5: leadFreq = 493.88f; break; // B4
-                    case 6: leadFreq = 587.33f; break;        // D5
-                    case 7: leadFreq = 493.88f; break;        // B4
-                }
+                float tSwell = tInBar / barDuration;
+                float brassEnv = Mathf.Sin(Mathf.Pi * tSwell) * 0.32f;
+                float b1 = D2, b2 = A2, b3 = D3;
+                if (bar is 6 or 7) { b1 = Bb1; b2 = F2; b3 = Bb2; }
+                else if (bar is 10 or 11) { b1 = G1; b2 = D2; b3 = G2; }
+                else if (bar is 14 or 15) { b1 = A1; b2 = Eb2; b3 = A2; } // 弗里吉亚增四/减五特征杀伐音
 
-                float noteTime = t % (beatDuration * 2f);
-                float leadEnv = 1.0f;
-                if (noteTime < 0.1f) leadEnv = noteTime / 0.1f;
-                else if (noteTime > beatDuration * 1.6f)
-                    leadEnv = Mathf.Lerp(1.0f, 0.0f, (noteTime - beatDuration * 1.6f) / (beatDuration * 0.4f));
-
-                float osc1 = Mathf.Sin(2f * Mathf.Pi * leadFreq * t);
-                float osc2 = Mathf.Sin(2f * Mathf.Pi * (leadFreq * 2.002f) * t) * 0.2f;
-                leadVal = (osc1 + osc2) * leadEnv * 0.25f;
+                float bVal = (0.4f * Mathf.Sin(2f * Mathf.Pi * b1 * t) +
+                              0.35f * Mathf.Sin(2f * Mathf.Pi * b2 * t) +
+                              0.25f * Mathf.Sin(2f * Mathf.Pi * b3 * t)) * brassEnv;
+                brassL = bVal * 1.15f;
+                brassR = bVal * 0.85f;
             }
 
-            // 5. 声道混音与一阶低通滤波 (Low-Pass Filter Processing)
-            float rawL = bassVal + drumL + stringVal * 0.9f + leadVal * 0.95f;
-            float rawR = bassVal + drumR + stringVal * 1.1f + leadVal * 1.05f;
+            // 5. 战场寒风呼啸氛围 (Desolate Wind Ambience)
+            float rawNoise = NextNoise() * 0.08f;
+            windL += 0.04f * (rawNoise - windL);
+            windR += 0.038f * (rawNoise - windR);
+            float wL = windL * (1f + 0.3f * Mathf.Sin(2f * Mathf.Pi * 0.15f * t));
+            float wR = windR * (1f + 0.3f * Mathf.Cos(2f * Mathf.Pi * 0.12f * t));
 
-            // 低通滤波过滤尖锐高频
-            lpfL = lpfL + alpha * (rawL - lpfL);
-            lpfR = lpfR + alpha * (rawR - lpfR);
+            // 6. 双声道立体声混音与一阶低通平滑
+            float rawL = subBass + (celloVal * 1.15f) + drumL + brassL + wL;
+            float rawR = subBass + (celloVal * 0.85f) + drumR + brassR + wR;
 
-            float mixL = Mathf.Clamp(lpfL, -1f, 1f);
-            float mixR = Mathf.Clamp(lpfR, -1f, 1f);
+            lpfL += alpha * (rawL - lpfL);
+            lpfR += alpha * (rawR - lpfR);
+
+            // 首尾 0.25s 交叉淡化
+            float fade = 1f;
+            if (t < 0.25f) fade = t / 0.25f;
+            else if (totalDuration - t < 0.25f) fade = (totalDuration - t) / 0.25f;
+
+            float mixL = Mathf.Clamp(lpfL * fade, -1f, 1f);
+            float mixR = Mathf.Clamp(lpfR * fade, -1f, 1f);
 
             short sampleL = (short)(mixL * 32767f);
             short sampleR = (short)(mixR * 32767f);

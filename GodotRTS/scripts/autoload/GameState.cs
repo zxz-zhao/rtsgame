@@ -212,8 +212,69 @@ public partial class GameState : Node
         { "radar", 1 },
         { "rapid", 1 },
         { "hold", 1 },
-        { "assault", 1 }
+        { "assault", 1 },
+        { "air_refit", 1 },
+        { "overdrive", 1 }
     };
+
+    public const int MaxBattleTechLoadout = 10;
+    readonly List<string> selectedBattleTechKeys = new();
+
+    public IReadOnlyList<string> GetEquippedBattleTechKeys()
+    {
+        if (selectedBattleTechKeys.Count == 0)
+        {
+            return BattleTechCatalog.All.Take(MaxBattleTechLoadout).Select(t => t.Key).ToArray();
+        }
+        return selectedBattleTechKeys.Take(MaxBattleTechLoadout).ToArray();
+    }
+
+    public bool IsBattleTechEquipped(string techKey)
+    {
+        if (selectedBattleTechKeys.Count == 0)
+        {
+            return BattleTechCatalog.All.Take(MaxBattleTechLoadout).Any(t => t.Key == techKey);
+        }
+        return selectedBattleTechKeys.Contains(techKey);
+    }
+
+    public bool SetBattleTechEquipped(string techKey, bool equipped, out string message)
+    {
+        message = "";
+        if (selectedBattleTechKeys.Count == 0)
+        {
+            selectedBattleTechKeys.AddRange(BattleTechCatalog.All.Take(MaxBattleTechLoadout).Select(t => t.Key));
+        }
+
+        if (equipped)
+        {
+            if (selectedBattleTechKeys.Contains(techKey))
+            {
+                message = "该科技已在出战列表中";
+                return true;
+            }
+            if (selectedBattleTechKeys.Count >= MaxBattleTechLoadout)
+            {
+                message = $"每场战斗只允许携带 {MaxBattleTechLoadout} 项科技，请先卸下其他科技";
+                return false;
+            }
+            selectedBattleTechKeys.Add(techKey);
+            SaveSession();
+            message = $"已将【{BattleTechCatalog.Get(techKey).DisplayName}】加入出战配置 ({selectedBattleTechKeys.Count}/{MaxBattleTechLoadout})";
+            return true;
+        }
+        else
+        {
+            if (selectedBattleTechKeys.Remove(techKey))
+            {
+                SaveSession();
+                message = $"已将【{BattleTechCatalog.Get(techKey).DisplayName}】移出出战配置 ({selectedBattleTechKeys.Count}/{MaxBattleTechLoadout})";
+                return true;
+            }
+            message = "该科技未在出战列表中";
+            return false;
+        }
+    }
 
     public int GetTechLevel(string techKey)
     {
@@ -607,9 +668,25 @@ public partial class GameState : Node
         LastGuildCheckInDate = cfg.GetValue("session", "last_guild_checkin_date", "").AsString();
 
         // 加载科技等级
-        foreach (var key in new[] { "speed", "armor", "firepower", "repair", "radar", "rapid", "hold", "assault" })
+        foreach (var key in new[] { "speed", "armor", "firepower", "repair", "radar", "rapid", "hold", "assault", "air_refit", "overdrive" })
         {
-            TechLevels[key] = cfg.GetValue("tech", key, TechLevels[key]).AsInt32();
+            TechLevels[key] = cfg.GetValue("tech", key, TechLevels.GetValueOrDefault(key, 1)).AsInt32();
+        }
+
+        // 加载已配置的出战科技（最多10项）
+        selectedBattleTechKeys.Clear();
+        var savedTechKeys = cfg.GetValue("battle", "selected_tech_keys", "").AsString();
+        if (!string.IsNullOrWhiteSpace(savedTechKeys))
+        {
+            foreach (var key in savedTechKeys.Split(','))
+            {
+                var trimmed = key.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && BattleTechCatalog.All.Any(t => t.Key == trimmed) && !selectedBattleTechKeys.Contains(trimmed))
+                {
+                    selectedBattleTechKeys.Add(trimmed);
+                    if (selectedBattleTechKeys.Count >= MaxBattleTechLoadout) break;
+                }
+            }
         }
 
         // 加载已领取的本地任务
@@ -695,6 +772,7 @@ public partial class GameState : Node
         cfg.SetValue("battle", "has_battle_entry", HasBattleEntry);
         cfg.SetValue("battle", "last_battle_mode", LastBattleMode);
         cfg.SetValue("battle", "last_battle_map", LastBattleMapName);
+        cfg.SetValue("battle", "selected_tech_keys", string.Join(",", selectedBattleTechKeys));
 
         // 保存各科技等级
         foreach (var kvp in TechLevels)

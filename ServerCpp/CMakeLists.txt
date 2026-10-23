@@ -55,6 +55,8 @@ target_compile_definitions(unity_rts_guardian_cpp
         UNITY_RTS_SERVER_VERSION="${PROJECT_VERSION}"
 )
 
+find_package(Threads REQUIRED)
+
 if(MSVC)
     target_compile_options(unity_rts_server_cpp PRIVATE /W4 /permissive- /utf-8)
     target_compile_options(unity_rts_guardian_cpp PRIVATE /W4 /permissive- /utf-8)
@@ -62,7 +64,8 @@ else()
     target_compile_options(unity_rts_server_cpp PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(unity_rts_guardian_cpp PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(unity_rts_server_cpp PRIVATE $<$<COMPILE_LANGUAGE:C>:-U__i386__>)
-    target_link_libraries(unity_rts_server_cpp PRIVATE dl)
+    target_link_libraries(unity_rts_server_cpp PRIVATE dl Threads::Threads)
+    target_link_libraries(unity_rts_guardian_cpp PRIVATE Threads::Threads)
 endif()
 
 if(WIN32)

@@ -41,3 +41,33 @@ assets/external_raw_assets/
 assets/models/
 assets/unity_migrated/Assets/External/PolyHaven/EnvironmentModels/
 *.bak
+
+# Scratch scripts and temp screenshots
+scratch_*.py
+mumu_*.png
+mumu_*.png.import
+extension_api.json
+
+# Binaries, database and package files
+*.exe
+*.db
+*.sqlite
+*.sqlite*
+*.pkg
+
+# Tools runtime data, local models, and sensitive configs
+tools/cloudflared.exe
+tools/new-api/
+tools/vocechat/data/
+tools/spark_verify/build/
+tools/spark_verify/dist/
+tools/spark_verify/build_onefile/
+tools/spark_verify/Client_App/build/
+tools/spark_verify/packer/dist_protected/payload.enc
+tools/group_settings.json
+tools/last_harness_request.json
+tools/workflow_detail_dump.json
+tools/*credentials*.py
+tools/startup/*.log
+tools/startup/current_tunnel_url.txt
+

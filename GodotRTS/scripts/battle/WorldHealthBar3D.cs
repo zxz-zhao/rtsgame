@@ -84,6 +84,12 @@ public partial class WorldHealthBar3D : Node3D
             progressRatio = Mathf.Clamp(unit.Shield / unit.MaxShield, 0f, 1f);
             progressFill.MaterialOverride = MakeMaterial(new Color(0.0f, 0.72f, 1.0f, 0.98f)); // 纯科技炫蓝色
         }
+        else if (parent is RtsUnit servUnit && servUnit.IsCarrierServicing)
+        {
+            showProgress = true;
+            progressRatio = Mathf.Clamp(1f - (servUnit.CarrierServiceTimeRemaining / BattleUnitCatalog.CarrierTurnaroundSeconds), 0f, 1f);
+            progressFill.MaterialOverride = MakeMaterial(new Color(1.0f, 0.76f, 0.15f, 0.98f)); // 航母甲板整备暖金琥珀色
+        }
 
         if (showProgress)
         {

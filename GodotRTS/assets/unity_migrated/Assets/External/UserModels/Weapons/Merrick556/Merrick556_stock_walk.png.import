@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://blakor41fkdq3"
 path.s3tc="res://.godot/imported/Merrick556_stock_walk.png-d612b30c3072df1044853bbb3a1dcfb6.s3tc.ctex"
+path.etc2="res://.godot/imported/Merrick556_stock_walk.png-d612b30c3072df1044853bbb3a1dcfb6.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Weapons/Merrick556/Merrick556_stock_walk.png"
-dest_files=["res://.godot/imported/Merrick556_stock_walk.png-d612b30c3072df1044853bbb3a1dcfb6.s3tc.ctex"]
+dest_files=["res://.godot/imported/Merrick556_stock_walk.png-d612b30c3072df1044853bbb3a1dcfb6.s3tc.ctex", "res://.godot/imported/Merrick556_stock_walk.png-d612b30c3072df1044853bbb3a1dcfb6.etc2.ctex"]
 
 [params]
 

@@ -83,6 +83,7 @@ public static class BattleMapCatalog
     public const string TianshanMountainPassName = "天山高峡";
     public const string KunlunObsidianRidgeName = "昆仑黑山";
     public const string GreenValleyPeaksName = "绿谷雄峰";
+    public const string TriLaneWarfareName = "三路大会战 (3v3/5v5)";
     public const string GlobalConquestName = "全球争霸";
     public const float DefaultMapHalfSize = 200f;
     public const float DefaultBaseSpawnOffset = 140f;
@@ -105,7 +106,8 @@ public static class BattleMapCatalog
         ArcticTundraName,
         TianshanMountainPassName,
         KunlunObsidianRidgeName,
-        GreenValleyPeaksName
+        GreenValleyPeaksName,
+        TriLaneWarfareName
     };
 
     public static string[] GetCustomRoomMapNames() => GetPlayableMapNames();
@@ -123,6 +125,7 @@ public static class BattleMapCatalog
         TianshanMountainPassName,
         KunlunObsidianRidgeName,
         GreenValleyPeaksName,
+        TriLaneWarfareName,
         GlobalConquestName
     };
 
@@ -138,6 +141,10 @@ public static class BattleMapCatalog
         TianshanMountainPassName => CreateTianshanMountainPass(),
         KunlunObsidianRidgeName => CreateKunlunObsidianRidge(),
         GreenValleyPeaksName => CreateGreenValleyPeaks(),
+        TriLaneWarfareName => CreateTriLaneWarfare(),
+        "三路大会战" => CreateTriLaneWarfare(),
+        "3v3" => CreateTriLaneWarfare(),
+        "5v5" => CreateTriLaneWarfare(),
         GlobalConquestName => CreateGlobalConquest(),
         _ => CreateSandOasis()
     };
@@ -146,6 +153,8 @@ public static class BattleMapCatalog
     {
         if (string.IsNullOrWhiteSpace(mapName))
             return false;
+        if (mapName is "3v3" or "5v5" or "三路大会战" or TriLaneWarfareName)
+            return true;
         foreach (var name in GetAllMapNames())
         {
             if (string.Equals(name, mapName, StringComparison.Ordinal))
@@ -312,6 +321,164 @@ public static class BattleMapCatalog
         return center + clamped.Rotated(Vector3.Up, angle);
     }
 
+    public const float GroundHeight = -0.05f;
+    public const float RiverBedHeight = -2.8f;
+    public const float BridgeDeckHeight = 0.35f;
+
+    public static bool IsRiverLike(TerrainStripSpec strip)
+    {
+        return Mathf.Min(strip.Size.X, strip.Size.Y) <= 28f;
+    }
+
+    public static float GetTerrainHeightAt(BattleMapDefinition? map, float gx, float gz, bool includeBridges = false)
+    {
+        if (map == null)
+            return GroundHeight;
+
+        float h = GroundHeight;
+
+        // 1. 水系河道与海湾开凿凹陷 (Carved Rivers & Deepwater Delta)
+        if (map.Waters != null && map.Waters.Length > 0)
+        {
+            float minWaterH = GroundHeight;
+            foreach (var strip in map.Waters)
+            {
+                var riverLike = IsRiverLike(strip);
+                var rad = Mathf.DegToRad(strip.Angle);
+                var cosA = Mathf.Cos(rad);
+                var sinA = Mathf.Sin(rad);
+
+                float dx = gx - strip.Center.X;
+                float dz = gz - strip.Center.Z;
+                float localX = dx * cosA - dz * sinA;
+                float localZ = dx * sinA + dz * cosA;
+
+                float halfW = strip.Size.X * 0.5f;
+                float halfL = strip.Size.Y * 0.5f;
+                float bankW = riverLike ? 12.0f : 18.0f;
+
+                float absX = Mathf.Abs(localX);
+                float absZ = Mathf.Abs(localZ);
+
+                float distOutX = Mathf.Max(0f, absX - halfW);
+                float distOutZ = Mathf.Max(0f, absZ - halfL);
+                float distOut = Mathf.Sqrt(distOutX * distOutX + distOutZ * distOutZ);
+
+                if (distOut >= bankW)
+                    continue;
+
+                float t = distOut / bankW;
+                float smoothT = t * t * (3.0f - 2.0f * t);
+                float waterH = RiverBedHeight + smoothT * (GroundHeight - RiverBedHeight);
+
+                if (waterH < minWaterH)
+                    minWaterH = waterH;
+            }
+            h = minWaterH;
+        }
+
+        // 2. 战略高台山峦自然隆起 (Elevated Mountain Mesas & Plateaus)
+        if (map.ElevatedPlateaus != null && map.ElevatedPlateaus.Length > 0)
+        {
+            float maxPlateauElevation = 0f;
+            foreach (var plateau in map.ElevatedPlateaus)
+            {
+                var rad = Mathf.DegToRad(plateau.Angle);
+                var cosA = Mathf.Cos(rad);
+                var sinA = Mathf.Sin(rad);
+
+                float dx = gx - plateau.Center.X;
+                float dz = gz - plateau.Center.Z;
+                float localX = dx * cosA - dz * sinA;
+                float localZ = dx * sinA + dz * cosA;
+
+                float halfW = plateau.Size.X * 0.5f;
+                float halfL = plateau.Size.Y * 0.5f;
+                float slopeMargin = 14.0f;
+
+                if (Mathf.Abs(localX) <= halfW + slopeMargin && Mathf.Abs(localZ) <= halfL + slopeMargin)
+                {
+                    float distInsideX = halfW - Mathf.Abs(localX);
+                    float distInsideZ = halfL - Mathf.Abs(localZ);
+                    float distInside = Mathf.Min(distInsideX, distInsideZ);
+
+                    float elev;
+                    if (distInside >= 0f)
+                    {
+                        elev = plateau.Height;
+                    }
+                    else if (distInside > -slopeMargin)
+                    {
+                        float t = 1.0f - (-distInside / slopeMargin);
+                        float smoothT = t * t * (3.0f - 2.0f * t);
+                        elev = smoothT * plateau.Height;
+                    }
+                    else
+                    {
+                        elev = 0f;
+                    }
+
+                    // 战车坡道区域保持通畅缓坡 (Access Ramp)
+                    var rampLength = plateau.Height * 2.8f;
+                    if (Mathf.Abs(localX) <= 14f && localZ >= halfL && localZ <= halfL + rampLength)
+                    {
+                        float rampT = 1.0f - ((localZ - halfL) / rampLength);
+                        float rampH = rampT * plateau.Height;
+                        if (rampH > elev) elev = rampH;
+                    }
+
+                    if (elev > maxPlateauElevation)
+                        maxPlateauElevation = elev;
+                }
+            }
+
+            if (maxPlateauElevation > 0.05f)
+            {
+                h = GroundHeight + maxPlateauElevation;
+            }
+        }
+
+        // 3. 桥梁跨越水体路面 (Bridges over rivers/chasms)
+        if (includeBridges && map.Bridges != null && map.Bridges.Length > 0)
+        {
+            foreach (var bridge in map.Bridges)
+            {
+                var rad = Mathf.DegToRad(bridge.Angle);
+                var cosA = Mathf.Cos(rad);
+                var sinA = Mathf.Sin(rad);
+
+                float dx = gx - bridge.Center.X;
+                float dz = gz - bridge.Center.Z;
+                float localX = dx * cosA - dz * sinA;
+                float localZ = dx * sinA + dz * cosA;
+
+                float halfW = bridge.Width * 0.5f;
+                float halfL = bridge.Length * 0.5f;
+                float rampLen = 8.0f;
+
+                if (Mathf.Abs(localX) <= halfW)
+                {
+                    // 桥面主体
+                    if (Mathf.Abs(localZ) <= halfL)
+                    {
+                        if (BridgeDeckHeight > h)
+                            h = BridgeDeckHeight;
+                    }
+                    // 两端引桥
+                    else if (Mathf.Abs(localZ) <= halfL + rampLen)
+                    {
+                        float t = (Mathf.Abs(localZ) - halfL) / rampLen;
+                        float bridgeH = Mathf.Lerp(BridgeDeckHeight, GroundHeight, t);
+                        if (bridgeH > h)
+                            h = bridgeH;
+                    }
+                }
+            }
+        }
+
+        return h;
+    }
+
     static BattleMapDefinition CreateBase(
         string name,
         int seed,
@@ -383,8 +550,11 @@ public static class BattleMapCatalog
         map.Waters = new[]
         {
             // 贯穿地图中心呈“十字”相交的 3D 宽阔水系与大洋海峡 (Center 3D Water Crossroads / Water Junction!)
-            new TerrainStripSpec("MainRiverChannel", new Vector3(0f, 0f, 0f), new Vector2(68f, 440f), -45f),
-            new TerrainStripSpec("CrossRiverChannel", new Vector3(0f, 0f, 0f), new Vector2(48f, 260f), 45f),
+            new TerrainStripSpec("MainRiverChannel", new Vector3(0f, 0f, 0f), new Vector2(68f, 580f), -45f),
+            new TerrainStripSpec("CrossRiverChannel", new Vector3(0f, 0f, 0f), new Vector2(48f, 150f), 45f),
+            // 绿洲基地近海水系/三角洲河口 (Oasis Harbor Inlets: 深入主基地近旁 30~35m，方便船坞临水建造与战艇巡河)
+            new TerrainStripSpec("PlayerOasisCreek", new Vector3(-88f, 0f, -125f), new Vector2(34f, 95f), 35f),
+            new TerrainStripSpec("EnemyOasisCreek", new Vector3(88f, 0f, 125f), new Vector2(34f, 95f), 35f),
         };
         map.Patches = new[]
         {
@@ -518,6 +688,9 @@ public static class BattleMapCatalog
             new TerrainStripSpec("RiverSegmentNW", new Vector3(-100f, 0f, 100f), new Vector2(32f, 160f), 20f),
             new TerrainStripSpec("RiverSegmentCenter", new Vector3(0f, 0f, 0f), new Vector2(38f, 140f), 70f),
             new TerrainStripSpec("RiverSegmentSE", new Vector3(100f, 0f, -100f), new Vector2(32f, 160f), 20f),
+            // 雨林基地沿岸水域与停泊湾 (Jungle Harbor Inlets)
+            new TerrainStripSpec("PlayerJungleInlet", new Vector3(-95f, 0f, -115f), new Vector2(30f, 90f), 45f),
+            new TerrainStripSpec("EnemyJungleInlet", new Vector3(95f, 0f, 115f), new Vector2(30f, 90f), 45f),
         };
         map.Patches = new[]
         {
@@ -579,6 +752,8 @@ public static class BattleMapCatalog
         {
             new TerrainStripSpec("FloodedTunnelNorth", new Vector3(-75f, 0f, 75f), new Vector2(22f, 110f), 45f),
             new TerrainStripSpec("FloodedTunnelSouth", new Vector3(75f, 0f, -75f), new Vector2(22f, 110f), 45f),
+            new TerrainStripSpec("PlayerCanal", new Vector3(-98f, 0f, -115f), new Vector2(26f, 85f), 45f),
+            new TerrainStripSpec("EnemyCanal", new Vector3(98f, 0f, 115f), new Vector2(26f, 85f), 45f),
         };
         map.Patches = new[]
         {
@@ -716,6 +891,8 @@ public static class BattleMapCatalog
     static BattleMapDefinition CreateSeaChartIslands()
     {
         var map = CreateBase(SeaChartName, 12077, "海岛群岛战场，两座绿洲大洲、中央海槽大洋与跨海悬索栈桥。");
+        map.BuildRadius = 80f; // 拓展海图群岛建造领地，为海岸线码头与船坞建造预留充足空间
+        map.NavalUnitSpeedMultiplier = 1.10f; // 海图群岛舰艇巡航加速
         map.GroundColor = new Color(0.28f, 0.54f, 0.24f); // 鲜艳绿色群岛大陆草地！
         map.RoadColor = new Color(0.78f, 0.70f, 0.45f);
         map.RoadEdgeColor = new Color(0.12f, 0.34f, 0.40f);
@@ -742,27 +919,36 @@ public static class BattleMapCatalog
         };
         map.Waters = new[]
         {
-            // 贯穿左右两块群岛大洲的大洋海峡 (Wide 120m ocean channel running through map center!)
-            new TerrainStripSpec("CentralOceanChannel", new Vector3(0f, 0f, 0f), new Vector2(120f, 400f), -45f),
+            // 1. 贯穿中央大洋海峡 (Wide 120m ocean channel running through map center)
+            new TerrainStripSpec("CentralOceanChannel", new Vector3(0f, 0f, 0f), new Vector2(120f, 450f), -45f),
+            // 2. 蓝方基地深水港湾海槽 (Blue Naval Bay Harbor: 连通中央大洋，紧邻基地东翼 28~35m 海岸线)
+            new TerrainStripSpec("PlayerNavalBay", new Vector3(-88f, 0f, -118f), new Vector2(46f, 115f), 35f),
+            // 3. 红方基地深水港湾海槽 (Red Naval Bay Harbor: 连通中央大洋，紧邻敌方基地西翼 28~35m 海岸线)
+            new TerrainStripSpec("EnemyNavalBay", new Vector3(88f, 0f, 118f), new Vector2(46f, 115f), 35f),
+            // 4. 北部外海航道与栈桥水域 (North Harbor Canal under NorthHarborBridge)
+            new TerrainStripSpec("NorthHarborCanal", new Vector3(-60f, 0f, 95f), new Vector2(42f, 120f), 0f),
+            // 5. 南部外海航道与栈桥水域 (South Harbor Canal under SouthHarborBridge)
+            new TerrainStripSpec("SouthHarborCanal", new Vector3(60f, 0f, -95f), new Vector2(42f, 120f), 0f),
         };
         map.Patches = new[]
         {
-            new TerrainPatchSpec("PlayerIsland", new Vector3(-BaseSpawnOffset, 0f, -BaseSpawnOffset), new Vector2(72f, 72f), 0f, 2),
-            new TerrainPatchSpec("EnemyIsland", new Vector3(BaseSpawnOffset, 0f, BaseSpawnOffset), new Vector2(72f, 72f), 0f, 3),
+            new TerrainPatchSpec("PlayerIsland", new Vector3(-BaseSpawnOffset, 0f, -BaseSpawnOffset), new Vector2(85f, 85f), 0f, 2),
+            new TerrainPatchSpec("EnemyIsland", new Vector3(BaseSpawnOffset, 0f, BaseSpawnOffset), new Vector2(85f, 85f), 0f, 3),
             new TerrainPatchSpec("NorthIsland", new Vector3(-80f, 0f, 110f), new Vector2(70f, 45f), 0f, 0),
             new TerrainPatchSpec("SouthIsland", new Vector3(80f, 0f, -110f), new Vector2(70f, 45f), 0f, 0),
         };
         map.ElevatedPlateaus = new[]
         {
-            new ElevatedPlateauSpec("PlayerIslandHill", new Vector3(-BaseSpawnOffset, 0f, -BaseSpawnOffset), new Vector2(65f, 65f), 4.0f, 0f, 0),
-            new ElevatedPlateauSpec("EnemyIslandHill", new Vector3(BaseSpawnOffset, 0f, BaseSpawnOffset), new Vector2(65f, 65f), 4.0f, 0f, 0),
+            // 将原先压在主基地正上方的 4m 悬崖高台移至西北/东南背靠山脊，空出平坦临海港区与建造腹地
+            new ElevatedPlateauSpec("PlayerIslandRidge", new Vector3(-165f, 0f, -110f), new Vector2(42f, 75f), 4.0f, 25f, 0),
+            new ElevatedPlateauSpec("EnemyIslandRidge", new Vector3(165f, 0f, 110f), new Vector2(42f, 75f), 4.0f, 25f, 0),
         };
         map.Bridges = new[]
         {
             new BridgeSpec("MainSeaBridgeNW", new Vector3(-45f, 0f, -45f), 108f, 18f, 135f, "steel"),
             new BridgeSpec("MainSeaBridgeSE", new Vector3(45f, 0f, 45f), 108f, 18f, 135f, "steel"),
-            new BridgeSpec("NorthHarborBridge", new Vector3(-60f, 0f, 95f), 36f, 14f, 0f, "wood"),
-            new BridgeSpec("SouthHarborBridge", new Vector3(60f, 0f, -95f), 36f, 14f, 0f, "wood"),
+            new BridgeSpec("NorthHarborBridge", new Vector3(-60f, 0f, 95f), 42f, 14f, 0f, "wood"),
+            new BridgeSpec("SouthHarborBridge", new Vector3(60f, 0f, -95f), 42f, 14f, 0f, "wood"),
         };
         map.TreePositions = new[]
         {
@@ -916,6 +1102,8 @@ public static class BattleMapCatalog
         map.Waters = new[]
         {
             new TerrainStripSpec("GlacialFjordRift", new Vector3(0f, 0f, 0f), new Vector2(350f, 34f), -45f),
+            new TerrainStripSpec("PlayerFjordBranch", new Vector3(-95f, 0f, -115f), new Vector2(32f, 90f), 45f),
+            new TerrainStripSpec("EnemyFjordBranch", new Vector3(95f, 0f, 115f), new Vector2(32f, 90f), 45f),
         };
         map.Patches = new[]
         {
@@ -1129,6 +1317,196 @@ public static class BattleMapCatalog
             new Vector3(-90, 0, -110), new Vector3(-70, 0, -90), new Vector3(-120, 0, -70),
             new Vector3(90, 0, 110), new Vector3(70, 0, 90), new Vector3(120, 0, 70)
         };
+        return map;
+    }
+
+    static BattleMapDefinition CreateTriLaneWarfare()
+    {
+        var map = CreateBase(TriLaneWarfareName, 30550, "3v3/5v5 大型三路大会战战场：上路高地峡谷线、中路中央十字大道与要塞岛、下路深水三角洲航道，支持10方基地与前哨展开。", 350f, 220f, 135f);
+        map.BuildRadius = 140f;
+        map.NavalUnitSpeedMultiplier = 1.05f;
+        map.ProductionTimeMultiplier = 0.95f;
+
+        // 色彩配置：前线温带平原、黑色沥青干道、深水三角洲、澄澈远景天际
+        map.GroundColor = new Color(0.28f, 0.44f, 0.22f);
+        map.RoadColor = new Color(0.22f, 0.23f, 0.25f);
+        map.RoadEdgeColor = new Color(0.46f, 0.44f, 0.36f);
+        map.WaterColor = new Color(0.08f, 0.45f, 0.65f);
+        map.PatchAColor = new Color(0.30f, 0.36f, 0.25f);
+        map.PatchBColor = new Color(0.42f, 0.40f, 0.36f);
+        map.PlayerBasePadColor = new Color(0.26f, 0.38f, 0.50f);
+        map.EnemyBasePadColor = new Color(0.50f, 0.28f, 0.26f);
+        map.RockColor = new Color(0.36f, 0.35f, 0.33f);
+        map.FoliageColor = new Color(0.16f, 0.48f, 0.20f);
+        map.TrunkColor = new Color(0.26f, 0.18f, 0.12f);
+        map.WallColor = new Color(0.42f, 0.40f, 0.36f);
+        map.RuinColor = new Color(0.46f, 0.42f, 0.36f);
+        map.SkyColor = new Color(0.38f, 0.62f, 0.86f);
+        map.FogColor = new Color(0.68f, 0.76f, 0.85f);
+        map.AmbientSkyColor = new Color(0.68f, 0.76f, 0.84f);
+        map.AmbientEquatorColor = new Color(0.48f, 0.54f, 0.46f);
+        map.AmbientGroundColor = new Color(0.24f, 0.28f, 0.22f);
+        map.FogStart = 450f;
+        map.FogEnd = 1100f;
+
+        // 10 基地出生点 (5 蓝方 vs 5 红方) + 6 前线集结哨所
+        map.SpawnPoints = new[]
+        {
+            // 蓝方 (盟军 / Blue Coalition, X < 0, Z < 0)
+            new SpawnPointSpec("PlayerBase", new Vector3(-200f, 0f, -200f), 45f, true, 0),         // P1: 中央总指挥主基地
+            new SpawnPointSpec("PlayerBase_Top", new Vector3(-270f, 0f, -90f), 45f, true, 0),     // P2: 上路装甲突击基地
+            new SpawnPointSpec("PlayerBase_Bottom", new Vector3(-90f, 0f, -270f), 45f, true, 0),  // P3: 下路海空/两栖基地
+            new SpawnPointSpec("PlayerBase_MidTop", new Vector3(-235f, 0f, -145f), 45f, true, 0), // P4: 中左战术协同基地
+            new SpawnPointSpec("PlayerBase_MidBottom", new Vector3(-145f, 0f, -235f), 45f, true, 0), // P5: 中右后勤防空基地
+            new SpawnPointSpec("PlayerForward", new Vector3(-110f, 0f, -110f), 45f, true, 0),      // P-前哨: 中路前线桥头堡
+            new SpawnPointSpec("PlayerForward_Top", new Vector3(-170f, 0f, -30f), 45f, true, 0),   // P-前哨: 上路高峡关隘
+            new SpawnPointSpec("PlayerForward_Bottom", new Vector3(-30f, 0f, -170f), 45f, true, 0),// P-前哨: 下路三角洲渡口
+
+            // 红方 (反抗军 / Red Coalition, X > 0, Z > 0)
+            new SpawnPointSpec("EnemyBase", new Vector3(200f, 0f, 200f), -135f, false, 1),        // E1: 中央总指挥主基地
+            new SpawnPointSpec("EnemyBase_Top", new Vector3(90f, 0f, 270f), -135f, false, 1),     // E2: 上路装甲突击基地
+            new SpawnPointSpec("EnemyBase_Bottom", new Vector3(270f, 0f, 90f), -135f, false, 1),  // E3: 下路海空/两栖基地
+            new SpawnPointSpec("EnemyBase_MidTop", new Vector3(145f, 0f, 235f), -135f, false, 1), // E4: 中左战术协同基地
+            new SpawnPointSpec("EnemyBase_MidBottom", new Vector3(235f, 0f, 145f), -135f, false, 1), // E5: 中右后勤防空基地
+            new SpawnPointSpec("EnemyForward", new Vector3(110f, 0f, 110f), -135f, false, 1),     // E-前哨: 中路前线桥头堡
+            new SpawnPointSpec("EnemyForward_Top", new Vector3(30f, 0f, 170f), -135f, false, 1),  // E-前哨: 上路高峡关隘
+            new SpawnPointSpec("EnemyForward_Bottom", new Vector3(170f, 0f, 30f), -135f, false, 1), // E-前哨: 下路三角洲渡口
+        };
+
+        // 水系布局：贯穿中央的大河道、东侧深水三角洲航道、西侧山谷溪流，以及连通两翼基地的深水港湾
+        map.Waters = new[]
+        {
+            new TerrainStripSpec("CenterMainRiver", new Vector3(0f, 0f, 0f), new Vector2(56f, 780f), -45f),
+            new TerrainStripSpec("SouthDeltaNavalChannel", new Vector3(115f, 0f, -115f), new Vector2(85f, 780f), -45f),
+            new TerrainStripSpec("NorthCanyonGorge", new Vector3(-115f, 0f, 115f), new Vector2(40f, 780f), -45f),
+            // 两翼基地专属军港航道，直接连通下路深水三角洲大洋航道
+            new TerrainStripSpec("PlayerDeltaNavalBranch", new Vector3(-145f, 0f, -215f), new Vector2(50f, 130f), 55f),
+            new TerrainStripSpec("EnemyDeltaNavalBranch", new Vector3(145f, 0f, 215f), new Vector2(50f, 130f), 55f),
+        };
+
+        // 桥梁布局：中央双主桥、上路高峡钢桥、下路跨海栈桥与群岛桥
+        map.Bridges = new[]
+        {
+            new BridgeSpec("CenterGrandBridgeNorth", new Vector3(-44f, 0f, -44f), 78f, 22f, 135f, "steel"),
+            new BridgeSpec("CenterGrandBridgeSouth", new Vector3(44f, 0f, 44f), 78f, 22f, 135f, "steel"),
+            new BridgeSpec("WestCanyonSteelBridge", new Vector3(-115f, 0f, 115f), 72f, 20f, 135f, "steel"),
+            new BridgeSpec("EastDeltaCausewayBridge", new Vector3(115f, 0f, -115f), 100f, 20f, 135f, "stone"),
+            new BridgeSpec("DeltaArchipelagoBridge", new Vector3(160f, 0f, -75f), 56f, 16f, 45f, "wood"),
+        };
+
+        // 战略制高点高台 (中央要塞岛 + 上路双侧绝壁 + 下路沿海观察台)
+        map.ElevatedPlateaus = new[]
+        {
+            new ElevatedPlateauSpec("CentralFortressIsland", new Vector3(0f, 0f, 0f), new Vector2(90f, 90f), 4.8f, 45f, 1),
+            new ElevatedPlateauSpec("WestMountainOverlookNW", new Vector3(-180f, 0f, 70f), new Vector2(75f, 140f), 8.5f, 15f, 1),
+            new ElevatedPlateauSpec("WestMountainOverlookSE", new Vector3(-70f, 0f, 180f), new Vector2(75f, 140f), 8.5f, 15f, 1),
+            new ElevatedPlateauSpec("EastCoastalHillNE", new Vector3(65f, 0f, -180f), new Vector2(65f, 130f), 5.5f, -15f, 0),
+            new ElevatedPlateauSpec("EastCoastalHillSW", new Vector3(180f, 0f, -65f), new Vector2(65f, 130f), 5.5f, -15f, 0),
+        };
+
+        // 道路网络：三路主干道 + 各基地联动通道
+        map.Roads = new[]
+        {
+            // 中路大干道 (直通中央十字要塞)
+            new TerrainStripSpec("GrandAvenueSW", new Vector3(-125f, 0f, -125f), new Vector2(24f, 195f), 45f),
+            new TerrainStripSpec("GrandAvenueNE", new Vector3(125f, 0f, 125f), new Vector2(24f, 195f), 45f),
+
+            // 上路西侧公路 (直通峡谷钢桥)
+            new TerrainStripSpec("WestFrontierRoadSW", new Vector3(-210f, 0f, -25f), new Vector2(18f, 240f), 30f),
+            new TerrainStripSpec("WestFrontierRoadNE", new Vector3(-25f, 0f, 210f), new Vector2(18f, 240f), 30f),
+
+            // 下路东侧滨海公路 (直通深水三角洲大桥)
+            new TerrainStripSpec("EastCoastalRoadSW", new Vector3(-25f, 0f, -210f), new Vector2(18f, 240f), 60f),
+            new TerrainStripSpec("EastCoastalRoadNE", new Vector3(210f, 0f, 25f), new Vector2(18f, 240f), 60f),
+
+            // 基地横向联动巡逻路 (P1 联动 P2/P3, E1 联动 E2/E3)
+            new TerrainStripSpec("BaseLinkRoadSW", new Vector3(-185f, 0f, -185f), new Vector2(16f, 260f), -45f),
+            new TerrainStripSpec("BaseLinkRoadNE", new Vector3(185f, 0f, 185f), new Vector2(16f, 260f), -45f),
+        };
+
+        // 10 基地基台与中心广场
+        map.Patches = new[]
+        {
+            // 蓝方 5 基地
+            new TerrainPatchSpec("PlayerBasePad_1", new Vector3(-200f, 0f, -200f), new Vector2(80f, 80f), 0f, 2),
+            new TerrainPatchSpec("PlayerBasePad_2", new Vector3(-270f, 0f, -90f), new Vector2(70f, 70f), 0f, 2),
+            new TerrainPatchSpec("PlayerBasePad_3", new Vector3(-90f, 0f, -270f), new Vector2(70f, 70f), 0f, 2),
+            new TerrainPatchSpec("PlayerBasePad_4", new Vector3(-235f, 0f, -145f), new Vector2(65f, 65f), 0f, 2),
+            new TerrainPatchSpec("PlayerBasePad_5", new Vector3(-145f, 0f, -235f), new Vector2(65f, 65f), 0f, 2),
+
+            // 红方 5 基地
+            new TerrainPatchSpec("EnemyBasePad_1", new Vector3(200f, 0f, 200f), new Vector2(80f, 80f), 0f, 3),
+            new TerrainPatchSpec("EnemyBasePad_2", new Vector3(90f, 0f, 270f), new Vector2(70f, 70f), 0f, 3),
+            new TerrainPatchSpec("EnemyBasePad_3", new Vector3(270f, 0f, 90f), new Vector2(70f, 70f), 0f, 3),
+            new TerrainPatchSpec("EnemyBasePad_4", new Vector3(145f, 0f, 235f), new Vector2(65f, 65f), 0f, 3),
+            new TerrainPatchSpec("EnemyBasePad_5", new Vector3(235f, 0f, 145f), new Vector2(65f, 65f), 0f, 3),
+
+            // 中央要塞岛核心铺装与前线集结地
+            new TerrainPatchSpec("CentralFortressPlaza", new Vector3(0f, 0f, 0f), new Vector2(76f, 76f), 45f, 1),
+            new TerrainPatchSpec("PlayerForwardStaging", new Vector3(-110f, 0f, -110f), new Vector2(60f, 60f), 45f, 0),
+            new TerrainPatchSpec("EnemyForwardStaging", new Vector3(110f, 0f, 110f), new Vector2(60f, 60f), 45f, 0),
+        };
+
+        // 10 基地防御沙袋环 + 前沿防线掩体
+        map.SandbagRings = new[]
+        {
+            new SandbagRingSpec(new Vector3(-200f, 0f, -200f), 28f, 10, false),
+            new SandbagRingSpec(new Vector3(-270f, 0f, -90f), 24f, 8, false),
+            new SandbagRingSpec(new Vector3(-90f, 0f, -270f), 24f, 8, false),
+            new SandbagRingSpec(new Vector3(-235f, 0f, -145f), 22f, 8, false),
+            new SandbagRingSpec(new Vector3(-145f, 0f, -235f), 22f, 8, false),
+
+            new SandbagRingSpec(new Vector3(200f, 0f, 200f), 28f, 10, true),
+            new SandbagRingSpec(new Vector3(90f, 0f, 270f), 24f, 8, true),
+            new SandbagRingSpec(new Vector3(270f, 0f, 90f), 24f, 8, true),
+            new SandbagRingSpec(new Vector3(145f, 0f, 235f), 22f, 8, true),
+            new SandbagRingSpec(new Vector3(235f, 0f, 145f), 22f, 8, true),
+
+            new SandbagRingSpec(new Vector3(-110f, 0f, -110f), 20f, 8, false),
+            new SandbagRingSpec(new Vector3(110f, 0f, 110f), 20f, 8, true),
+            new SandbagRingSpec(new Vector3(0f, 0f, 0f), 26f, 10, false),
+        };
+
+        // 防线残垣掩体：布置在桥头堡与峡谷关口
+        map.RuinWalls = new[]
+        {
+            new RuinWallSpec(new Vector3(-58f, 0f, -58f), 45f, 6),
+            new RuinWallSpec(new Vector3(58f, 0f, 58f), 45f, 6),
+            new RuinWallSpec(new Vector3(-125f, 0f, 125f), -45f, 5),
+            new RuinWallSpec(new Vector3(-95f, 0f, 95f), -45f, 5),
+            new RuinWallSpec(new Vector3(95f, 0f, -95f), -45f, 5),
+            new RuinWallSpec(new Vector3(125f, 0f, -125f), -45f, 5),
+        };
+
+        // 巨石屏障与反坦克石阵
+        map.RockClusters = new[]
+        {
+            new Vector3(-150, 0, 80), new Vector3(-80, 0, 150),
+            new Vector3(150, 0, -80), new Vector3(80, 0, -150),
+            new Vector3(-70, 0, -30), new Vector3(-30, 0, -70),
+            new Vector3(70, 0, 30), new Vector3(30, 0, 70),
+            new Vector3(-180, 0, -100), new Vector3(-100, 0, -180),
+            new Vector3(180, 0, 100), new Vector3(100, 0, 180),
+            new Vector3(-120, 0, 140), new Vector3(-140, 0, 120),
+            new Vector3(120, 0, -140), new Vector3(140, 0, -120),
+        };
+
+        // 战术隐蔽林区 (峡谷高地松林 + 沿海棕榈林 + 平原温带阔叶林)
+        map.TreePositions = new[]
+        {
+            new Vector3(-190, 0, 40), new Vector3(-160, 0, 80), new Vector3(-140, 0, 110),
+            new Vector3(190, 0, -40), new Vector3(160, 0, -80), new Vector3(140, 0, -110),
+            new Vector3(-80, 0, -130), new Vector3(-130, 0, -80),
+            new Vector3(80, 0, 130), new Vector3(130, 0, 80),
+            new Vector3(-250, 0, -40), new Vector3(-40, 0, -250),
+            new Vector3(250, 0, 40), new Vector3(40, 0, 250),
+            new Vector3(-20, 0, 80), new Vector3(20, 0, -80),
+            new Vector3(-210, 0, -110), new Vector3(-110, 0, -210),
+            new Vector3(210, 0, 110), new Vector3(110, 0, 210),
+            new Vector3(-220, 0, 60), new Vector3(-60, 0, 220),
+            new Vector3(220, 0, -60), new Vector3(60, 0, -220),
+        };
+
         return map;
     }
 }

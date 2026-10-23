@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://bmt5m2a3o305p"
 path.s3tc="res://.godot/imported/windows.png-77c68106dfe0de0d3ca2b21b14f192bc.s3tc.ctex"
+path.etc2="res://.godot/imported/windows.png-77c68106dfe0de0d3ca2b21b14f192bc.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/Kenney/RetroUrbanKit/Models/FBX format/Textures/windows.png"
-dest_files=["res://.godot/imported/windows.png-77c68106dfe0de0d3ca2b21b14f192bc.s3tc.ctex"]
+dest_files=["res://.godot/imported/windows.png-77c68106dfe0de0d3ca2b21b14f192bc.s3tc.ctex", "res://.godot/imported/windows.png-77c68106dfe0de0d3ca2b21b14f192bc.etc2.ctex"]
 
 [params]
 

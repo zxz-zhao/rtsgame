@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cnlr4t4j2n06h"
 path.s3tc="res://.godot/imported/ru_remotegun.png-89b8d9f7e9950f325dc857979c00e64b.s3tc.ctex"
+path.etc2="res://.godot/imported/ru_remotegun.png-89b8d9f7e9950f325dc857979c00e64b.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/unity_migrated/Assets/External/UserModels/Units/LightTank/ru_remotegun.png"
-dest_files=["res://.godot/imported/ru_remotegun.png-89b8d9f7e9950f325dc857979c00e64b.s3tc.ctex"]
+dest_files=["res://.godot/imported/ru_remotegun.png-89b8d9f7e9950f325dc857979c00e64b.s3tc.ctex", "res://.godot/imported/ru_remotegun.png-89b8d9f7e9950f325dc857979c00e64b.etc2.ctex"]
 
 [params]
 
